@@ -1,0 +1,8 @@
+Here are some screenshots created by the PDK EKF program. I think it's very interesting. They all show me walking around a house, stopping before I get to the last side and reversing my tracks. So, I'm making a U shape and then returning on the same path. Note that gps readings are shown in red.
+1. The first one only takes a gps reading every 100 seconds and apparently took no gps readings in the interval. You can see that dead reckoning worked very well. You will also notice that the compass bias and step length did not change because the EKF had no information to use to change them. However, this means that the scale is probably wrong and if the compass has bias, then the direction will be wrong too.
+2. This shows with GPS, the shape is much worse but the bias and step length have been modified to presumably more accurate values.
+3. The third image is at a gps reading every 10 secs. This looks like one of the best in my view.
+4. The gps reading every 20 seconds also shows a lot of distortion. It seems ok on the second leg of the U, but the return is quite misalligned.
+5.  I repeated the 1Hz trip and it looks very good.
+6. I tried to change the settings half way through. I'm not sure what happened, but  it looks a real mess.
+In practice, I think the right way to proceed would be to start at 1 Hz for maybe 5 minutes so that the bias and stride length can be correctly evaluated and then move to maybe 0.1 hz or 0.05 Hz. However, when a waypoint is approached, maybe the frequency could be increased to 0.5 Hz and also if there is something that indicates that stride length might change. E.g. a change in altitude.

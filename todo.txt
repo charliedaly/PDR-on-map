@@ -1,0 +1,8 @@
+This project mostly did what it was supposed to do. I.e. let me know how an Extended Kalman Filter (EKF) preformed for a Pedestrian Dead Reckoning application. (See screenshots/00.readme.txt) for details.
+
+I was worried about lag and how accurate it would be. There was no observable lag and it was very accurate given some constraints.
+
+As to what I might do in the future:
+Store the breadcrumbs. And with each breadcrumb store the EKF data. E.g. position, bearing bias and legstride, along with all the errors. And see how the arrival of a gps point can help update that data.
+
+Also, maybe provide the latlon of coordinates around a football pitch and walk around the pitch to see how the position maps onto real valued locations.
