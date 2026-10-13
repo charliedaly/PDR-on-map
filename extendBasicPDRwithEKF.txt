@@ -1,0 +1,29 @@
+I want to extend the basic PDR with EKF as described in PROJECT.md and Implementation.md by adding GPS locations to the map. The reason is to help calibrate PDR with EKF with actual metric locations.
+To this end, I have added a util/CoordinateUtils.kt file which implements various location based utilities.
+I would like all existing methods in this file to be changed to private access and to only expose 4 methods:
+latLonToMetric, metricToLatLon, getDistance (instead of calculateDistance) and getBearing (instead of calculateBearing). In addition, these four methods will take a Location instead of x and y variables.
+
+I have also added a util/RouteParser.kt That currently reads a file and parses the csv and extracts a list of waypoints. It also uses the filename to name the Route.
+
+There should also be a few extra classes in com/example/pdfandroutetest/model:
+Location
+	with fields x, y, and altitude
+	and methods getDistance(otherLocation) and getBearing(otherLocation)
+
+Waypoint extends Location
+	and adds fields name and description
+	It also has a temporary field called legDescription. This is really only used by the Leg class.
+
+Leg has fields
+	start and target which are both WayPoints, next which points to the next leg and a string called legDescription. A leg has a method getNextLeg() which returns the next leg in the sequence or null if it is the last leg.
+
+A Route has fields:
+	a list of Legs
+	a list of waypoints
+	a name
+
+	It use the RouteParser.kt file to get the name from a file and load the csv and get the list of waypoints. The waypoints are then processed to get the list of legs (and filling in the next pointer). Then the start waypoint's leg description is used as the field's leg description. At that point, the leg description is no longer used and set to null.
+Finally, the waypoints list es examined for duplicates, that is waypoints whose position matches. When such a waypoint is found, it is removed from the list. (The earlier waypoints are kept and later duplicates are removed.
+
+BreadCrumb
+	Has a Location, time, source (was GPS used in deriving its location or not) and an EKF, a copy of the state of the EKF used to generate the BreadCrumb. This EKF can later be used for debugging or enhancing the Map display.
