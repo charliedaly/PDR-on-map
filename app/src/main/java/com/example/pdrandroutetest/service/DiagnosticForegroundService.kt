@@ -54,6 +54,13 @@ class DiagnosticForegroundService : Service() {
 
         stepDetector = PdrStepDetector(this) { headingRawRad, timestampMs ->
             ekfEngine.onStepDetected(headingRawRad, timestampMs)
+            if (HikeRepository.isTracking.value) {
+                HikeRepository.telemetryRecorder.recordStep(
+                    headingRawRad = headingRawRad,
+                    timestampMs = timestampMs,
+                    recordedEkfState = ekfEngine.getEkfState()
+                )
+            }
         }
 
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
@@ -76,6 +83,7 @@ class DiagnosticForegroundService : Service() {
 
     private fun startTrackingService() {
         HikeRepository.clearBreadcrumbs()
+        HikeRepository.telemetryRecorder.clear()
         ekfEngine.reset()
         breadcrumbIdSeq = 1L
 
@@ -139,6 +147,16 @@ class DiagnosticForegroundService : Service() {
                         accuracyMeters = location.accuracy,
                         activeIntervalMs = activeGpsIntervalMs
                     )
+                    if (HikeRepository.isTracking.value) {
+                        HikeRepository.telemetryRecorder.recordGpsFix(
+                            latitude = location.latitude,
+                            longitude = location.longitude,
+                            accuracyMeters = location.accuracy,
+                            activeIntervalMs = activeGpsIntervalMs,
+                            timestampMs = ekfState.timestampMs,
+                            recordedEkfState = ekfState
+                        )
+                    }
                     HikeRepository.updateEkfState(ekfState)
 
                     serviceScope.launch {
@@ -186,6 +204,13 @@ class DiagnosticForegroundService : Service() {
                 delay(1000L)
                 if (ekfEngine.isInitialized) {
                     val ekfState = ekfEngine.predict(1.0)
+                    if (HikeRepository.isTracking.value) {
+                        HikeRepository.telemetryRecorder.recordTick(
+                            dtSec = 1.0,
+                            timestampMs = ekfState.timestampMs,
+                            recordedEkfState = ekfState
+                        )
+                    }
                     HikeRepository.updateEkfState(ekfState)
 
                     val breadcrumb = Breadcrumb(

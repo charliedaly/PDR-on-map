@@ -22,5 +22,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "PDR with Route test"
+rootProject.name = "HikingTool"
 include(":app")

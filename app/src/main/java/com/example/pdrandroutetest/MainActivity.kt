@@ -35,7 +35,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import com.example.pdrandroutetest.model.Route
 import com.example.pdrandroutetest.ui.ControlPanel
 import com.example.pdrandroutetest.ui.DiagnosticViewModel
 import com.example.pdrandroutetest.ui.MapScreen
@@ -70,6 +69,9 @@ class MainActivity : ComponentActivity() {
                     },
                     onLoadSampleRoute = {
                         viewModel.loadSampleRoute()
+                    },
+                    onLoadTelemetryTrackUri = { uri ->
+                        viewModel.loadTelemetryTrackFromUri(this, uri)
                     },
                     onRequestPermissionsAndStart = {
                         checkAndRequestPermissions()
@@ -113,6 +115,7 @@ fun MainDiagnosticScreen(
     viewModel: DiagnosticViewModel,
     onLoadRouteUri: (Uri) -> Unit,
     onLoadSampleRoute: () -> Unit,
+    onLoadTelemetryTrackUri: (Uri) -> Unit,
     onRequestPermissionsAndStart: () -> Unit,
     onStopTracking: () -> Unit,
     onIntervalSelected: (Long) -> Unit
@@ -123,10 +126,22 @@ fun MainDiagnosticScreen(
     val breadcrumbs by viewModel.breadcrumbs.collectAsState()
     val activeRoute by viewModel.activeRoute.collectAsState()
 
+    val isPlaybackPlaying by viewModel.isPlaybackPlaying.collectAsState()
+    val isPlaybackPaused by viewModel.isPlaybackPaused.collectAsState()
+    val playbackSpeed by viewModel.playbackSpeed.collectAsState()
+    val playbackProgress by viewModel.playbackProgress.collectAsState()
+    val playbackEvents by viewModel.playbackEvents.collectAsState()
+
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         uri?.let { onLoadRouteUri(it) }
+    }
+
+    val trackPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let { onLoadTelemetryTrackUri(it) }
     }
 
     Scaffold(
@@ -196,10 +211,8 @@ fun MainDiagnosticScreen(
                 .padding(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Requirement 3.2: Telemetry dashboard with EKF components & errors
             TelemetryDashboard(ekfState = ekfState)
 
-            // Requirement 3.3: Maximized abstract map auto-scaled to show all waypoints & breadcrumbs
             MapScreen(
                 route = activeRoute,
                 breadcrumbs = breadcrumbs,
@@ -209,7 +222,6 @@ fun MainDiagnosticScreen(
                     .weight(1f)
             )
 
-            // Requirement 3.4: Control panel
             ControlPanel(
                 isTracking = isTracking,
                 currentIntervalMs = gpsIntervalMs,
@@ -220,7 +232,18 @@ fun MainDiagnosticScreen(
                         onRequestPermissionsAndStart()
                     }
                 },
-                onIntervalSelected = onIntervalSelected
+                onIntervalSelected = onIntervalSelected,
+                onLoadTrack = { trackPickerLauncher.launch("*/*") },
+                hasLoadedTrack = playbackEvents.isNotEmpty(),
+                isPlaybackPlaying = isPlaybackPlaying,
+                isPlaybackPaused = isPlaybackPaused,
+                playbackSpeed = playbackSpeed,
+                playbackCurrentIndex = playbackProgress.currentIndex,
+                playbackTotalEvents = playbackProgress.totalEvents,
+                onPlayPlayback = { viewModel.startPlayback() },
+                onPausePlayback = { viewModel.pausePlayback() },
+                onStopPlayback = { viewModel.stopPlayback() },
+                onSpeedSelected = { speed -> viewModel.setPlaybackSpeed(speed) }
             )
         }
     }

@@ -1,0 +1,27 @@
+Step-by-Step Workflow
+Step 1: Record a Walk in the App
+1.
+Open the app on your Android device.
+2.
+Tap Start Tracking and walk your route.
+3.
+Tap Stop Tracking. A Toast will confirm: Saved 85 telemetry events to: telemetry_20261011_153000.csv
+Step 2: Transfer the CSV File to Your Development Computer
+Connect your device via USB or WiFi ADB and run:
+bash
+adb pull /sdcard/Android/data/com.example.pdrandroutetest/files/telemetry/ .
+Step 3: Add to Test Resources & Replay
+Place the downloaded CSV into your project's test resources folder (app/src/test/resources/telemetry/):
+kotlin
+@Test
+fun `replay recorded walk telemetry`() {
+    val stream = javaClass.classLoader?.getResourceAsStream("telemetry/telemetry_20261011_153000.csv")
+        ?: error("Telemetry file not found")
+    val csvText = stream.bufferedReader().use { it.readText() }
+
+    val events = TelemetryRecorder.fromCsvString(csvText)
+    val history = replaySession(events)
+    val finalState = history.last()
+
+    assertTrue("EKF must be initialized", finalState.isInitializedWithGps)
+    assertTrue("Position variance must stay bounded", finalState.position.variance < 50.0)

@@ -3,6 +3,7 @@ package com.example.pdrandroutetest.ui
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.widget.Toast
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.pdrandroutetest.data.EkfState
@@ -10,6 +11,9 @@ import com.example.pdrandroutetest.model.Breadcrumb
 import com.example.pdrandroutetest.model.Route
 import com.example.pdrandroutetest.repository.HikeRepository
 import com.example.pdrandroutetest.service.DiagnosticForegroundService
+import com.example.pdrandroutetest.telemetry.PlaybackProgress
+import com.example.pdrandroutetest.telemetry.TelemetryEvent
+import com.example.pdrandroutetest.telemetry.TelemetryRecorder
 import com.example.pdrandroutetest.util.RouteParser
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -23,6 +27,12 @@ class DiagnosticViewModel : ViewModel() {
     val isTracking: StateFlow<Boolean> = HikeRepository.isTracking
     val gpsPollingIntervalMs: StateFlow<Long> = HikeRepository.gpsPollingIntervalMs
     val activeRoute: StateFlow<Route?> = HikeRepository.activeRoute
+
+    val isPlaybackPlaying: StateFlow<Boolean> = HikeRepository.telemetryPlaybackEngine.isPlaying
+    val isPlaybackPaused: StateFlow<Boolean> = HikeRepository.telemetryPlaybackEngine.isPaused
+    val playbackSpeed: StateFlow<Double> = HikeRepository.telemetryPlaybackEngine.speedMultiplier
+    val playbackProgress: StateFlow<PlaybackProgress> = HikeRepository.telemetryPlaybackEngine.progress
+    val playbackEvents: StateFlow<List<TelemetryEvent>> = HikeRepository.telemetryPlaybackEngine.events
 
     private val _breadcrumbs = MutableStateFlow<List<Breadcrumb>>(emptyList())
     val breadcrumbs: StateFlow<List<Breadcrumb>> = _breadcrumbs.asStateFlow()
@@ -54,7 +64,52 @@ class DiagnosticViewModel : ViewModel() {
         HikeRepository.setActiveRoute(route)
     }
 
+    fun loadTelemetryTrackFromUri(context: Context, uri: Uri) {
+        try {
+            val csvContent = context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                inputStream.bufferedReader().use { it.readText() }
+            } ?: return
+            val events = TelemetryRecorder.fromCsvString(csvContent)
+            HikeRepository.telemetryPlaybackEngine.loadEvents(events)
+            _breadcrumbs.value = emptyList()
+            Toast.makeText(
+                context,
+                "Loaded track with ${events.size} events",
+                Toast.LENGTH_SHORT
+            ).show()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Toast.makeText(
+                context,
+                "Failed to load telemetry track: ${e.message}",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    fun startPlayback() {
+        if (isTracking.value) {
+            // Stop service tracking before playing back a recorded track
+            HikeRepository.setTracking(false)
+        }
+        _breadcrumbs.value = emptyList()
+        HikeRepository.telemetryPlaybackEngine.play(viewModelScope)
+    }
+
+    fun pausePlayback() {
+        HikeRepository.telemetryPlaybackEngine.pause()
+    }
+
+    fun stopPlayback() {
+        HikeRepository.telemetryPlaybackEngine.stop()
+    }
+
+    fun setPlaybackSpeed(multiplier: Double) {
+        HikeRepository.telemetryPlaybackEngine.setSpeedMultiplier(multiplier)
+    }
+
     fun startTracking(context: Context) {
+        stopPlayback()
         _breadcrumbs.value = emptyList()
         val intent = Intent(context, DiagnosticForegroundService::class.java).apply {
             action = DiagnosticForegroundService.ACTION_START
@@ -71,6 +126,18 @@ class DiagnosticViewModel : ViewModel() {
             action = DiagnosticForegroundService.ACTION_STOP
         }
         context.startService(intent)
+
+        val dir = context.getExternalFilesDir("telemetry") ?: context.filesDir
+        val file = HikeRepository.telemetryRecorder.saveToTimestampedFile(dir)
+        if (file != null) {
+            val count = HikeRepository.telemetryRecorder.getEvents().size
+            android.util.Log.i("DiagnosticViewModel", "Saved $count telemetry events to ${file.absolutePath}")
+            Toast.makeText(
+                context,
+                "Saved $count telemetry events to:\n${file.name}",
+                Toast.LENGTH_LONG
+            ).show()
+        }
     }
 
     fun setGpsPollingInterval(context: Context, intervalMs: Long) {

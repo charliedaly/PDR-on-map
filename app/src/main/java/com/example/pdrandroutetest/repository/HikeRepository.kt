@@ -3,6 +3,8 @@ package com.example.pdrandroutetest.repository
 import com.example.pdrandroutetest.data.EkfState
 import com.example.pdrandroutetest.model.Breadcrumb
 import com.example.pdrandroutetest.model.Route
+import com.example.pdrandroutetest.telemetry.TelemetryPlaybackEngine
+import com.example.pdrandroutetest.telemetry.TelemetryRecorder
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -27,6 +29,9 @@ object HikeRepository {
 
     private val _activeRoute = MutableStateFlow<Route?>(null)
     val activeRoute: StateFlow<Route?> = _activeRoute.asStateFlow()
+
+    val telemetryRecorder = TelemetryRecorder()
+    val telemetryPlaybackEngine = TelemetryPlaybackEngine()
 
     private val breadcrumbHistory = ConcurrentLinkedQueue<Breadcrumb>()
 
