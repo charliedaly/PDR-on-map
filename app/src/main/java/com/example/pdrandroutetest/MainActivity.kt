@@ -30,6 +30,9 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -41,6 +44,7 @@ import com.example.pdrandroutetest.ui.DiagnosticViewModel
 import com.example.pdrandroutetest.ui.HikeNavigationPanel
 import com.example.pdrandroutetest.ui.MapScreen
 import com.example.pdrandroutetest.ui.NavigationMessagePanel
+import com.example.pdrandroutetest.ui.RouteEditorScreen
 import com.example.pdrandroutetest.ui.TelemetryDashboard
 import com.example.pdrandroutetest.ui.theme.PDRWithEKFTestTheme
 
@@ -82,9 +86,6 @@ class MainActivity : ComponentActivity() {
                     },
                     onStopTracking = {
                         viewModel.stopTracking(this)
-                    },
-                    onIntervalSelected = { intervalMs ->
-                        viewModel.setGpsPollingInterval(this, intervalMs)
                     }
                 )
             }
@@ -121,8 +122,7 @@ fun MainDiagnosticScreen(
     onLoadSampleRoute: () -> Unit,
     onLoadTelemetryTrackUri: (Uri) -> Unit,
     onRequestPermissionsAndStart: () -> Unit,
-    onStopTracking: () -> Unit,
-    onIntervalSelected: (Long) -> Unit
+    onStopTracking: () -> Unit
 ) {
     val ekfState by viewModel.ekfState.collectAsState()
     val isTracking by viewModel.isTracking.collectAsState()
@@ -142,6 +142,8 @@ fun MainDiagnosticScreen(
     val playbackProgress by viewModel.playbackProgress.collectAsState()
     val playbackEvents by viewModel.playbackEvents.collectAsState()
 
+    var showRouteEditor by remember { mutableStateOf(false) }
+
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
@@ -154,128 +156,140 @@ fun MainDiagnosticScreen(
         uri?.let { onLoadTelemetryTrackUri(it) }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        if (activeRoute == null) {
-                            Text(
-                                text = "PDR & 6-State EKF Diagnostic",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                        } else {
-                            val route = activeRoute!!
-                            val lengthKm = route.totalLengthMeters / 1000.0
-                            Text(
-                                text = route.name,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "${route.numLegs} Legs • %.2f km".format(lengthKm),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
-                            )
-                        }
-                    }
-                },
-                actions = {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        if (activeRoute == null) {
-                            OutlinedButton(
-                                onClick = onLoadSampleRoute,
-                                modifier = Modifier.padding(end = 2.dp)
-                            ) {
-                                Text("Sample", style = MaterialTheme.typography.labelSmall)
+    if (showRouteEditor) {
+        RouteEditorScreen(
+            initialRoute = activeRoute,
+            onSaveRoute = { _, newRoute ->
+                viewModel.saveEditedRoute(activeRoute?.name ?: "Edited Route", newRoute)
+            },
+            onBack = {
+                showRouteEditor = false
+            }
+        )
+    } else {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Column {
+                            if (activeRoute == null) {
+                                Text(
+                                    text = "PDR & 6-State EKF Diagnostic",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            } else {
+                                val route = activeRoute!!
+                                val lengthKm = route.totalLengthMeters / 1000.0
+                                Text(
+                                    text = route.name,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "${route.numLegs} Legs • %.2f km".format(lengthKm),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                                )
                             }
                         }
-                        Button(
-                            onClick = { filePickerLauncher.launch("*/*") },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.primary
-                            )
+                    },
+                    actions = {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                if (activeRoute == null) "Load Route" else "Load New",
-                                style = MaterialTheme.typography.labelMedium
-                            )
+                            if (activeRoute == null) {
+                                OutlinedButton(
+                                    onClick = onLoadSampleRoute,
+                                    modifier = Modifier.padding(end = 2.dp)
+                                ) {
+                                    Text("Sample", style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                            Button(
+                                onClick = { filePickerLauncher.launch("*/*") },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.primary
+                                )
+                            ) {
+                                Text(
+                                    if (activeRoute == null) "Load Route" else "Load New",
+                                    style = MaterialTheme.typography.labelMedium
+                                )
+                            }
                         }
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
                 )
-            )
-        }
-    ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            HikeNavigationPanel(
-                activeRoute = activeRoute,
-                activeLeg = activeLeg,
-                activeEkfState = ekfState,
-                currentLegIndex = currentLegIndex,
-                onPrevLeg = { viewModel.goToPreviousLeg() },
-                onNextLeg = { viewModel.goToNextLeg() }
-            )
-
-            if (mapConfig.showTelemetryViewport) {
-                TelemetryDashboard(ekfState = ekfState)
             }
-
-            NavigationMessagePanel(messages = navigationMessages)
-
-            MapScreen(
-                route = activeRoute,
-                breadcrumbs = breadcrumbs,
-                activeEkfState = ekfState,
-                currentTargetWaypoint = currentTargetWaypoint,
-                mapConfig = mapConfig,
-                hikeConfig = hikeConfig,
-                activeLeg = activeLeg,
-                relativeBearingCorrection = relativeBearingCorrection,
-                onUpdateMapConfig = { viewModel.updateMapConfig(it) },
-                onUpdateHikeConfig = { viewModel.updateHikeConfig(it) },
-                onIntervalSelected = onIntervalSelected,
+        ) { innerPadding ->
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-            )
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .padding(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                HikeNavigationPanel(
+                    activeRoute = activeRoute,
+                    activeLeg = activeLeg,
+                    activeEkfState = ekfState,
+                    currentLegIndex = currentLegIndex,
+                    onPrevLeg = { viewModel.goToPreviousLeg() },
+                    onNextLeg = { viewModel.goToNextLeg() },
+                    onEditRoute = { showRouteEditor = true }
+                )
 
-            ControlPanel(
-                isTracking = isTracking,
-                onToggleTracking = {
-                    if (isTracking) {
-                        onStopTracking()
-                    } else {
-                        onRequestPermissionsAndStart()
-                    }
-                },
-                onLoadTrack = { trackPickerLauncher.launch("*/*") },
-                hasLoadedTrack = playbackEvents.isNotEmpty(),
-                isPlaybackPlaying = isPlaybackPlaying,
-                isPlaybackPaused = isPlaybackPaused,
-                playbackSpeed = playbackSpeed,
-                playbackCurrentIndex = playbackProgress.currentIndex,
-                playbackTotalEvents = playbackProgress.totalEvents,
-                onPlayPlayback = { viewModel.startPlayback() },
-                onPausePlayback = { viewModel.pausePlayback() },
-                onStopPlayback = { viewModel.stopPlayback() },
-                onStepBackPlayback = { viewModel.stepBackPlayback() },
-                onStepForwardPlayback = { viewModel.stepForwardPlayback() },
-                onSpeedSelected = { speed -> viewModel.setPlaybackSpeed(speed) }
-            )
+                if (mapConfig.showTelemetryViewport) {
+                    TelemetryDashboard(ekfState = ekfState)
+                }
+
+                NavigationMessagePanel(messages = navigationMessages)
+
+                MapScreen(
+                    route = activeRoute,
+                    breadcrumbs = breadcrumbs,
+                    activeEkfState = ekfState,
+                    currentTargetWaypoint = currentTargetWaypoint,
+                    mapConfig = mapConfig,
+                    hikeConfig = hikeConfig,
+                    activeLeg = activeLeg,
+                    relativeBearingCorrection = relativeBearingCorrection,
+                    onUpdateMapConfig = { viewModel.updateMapConfig(it) },
+                    onUpdateHikeConfig = { viewModel.updateHikeConfig(it) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                )
+
+                ControlPanel(
+                    isTracking = isTracking,
+                    onToggleTracking = {
+                        if (isTracking) {
+                            onStopTracking()
+                        } else {
+                            onRequestPermissionsAndStart()
+                        }
+                    },
+                    onLoadTrack = { trackPickerLauncher.launch("*/*") },
+                    hasLoadedTrack = playbackEvents.isNotEmpty(),
+                    isPlaybackPlaying = isPlaybackPlaying,
+                    isPlaybackPaused = isPlaybackPaused,
+                    playbackSpeed = playbackSpeed,
+                    playbackCurrentIndex = playbackProgress.currentIndex,
+                    playbackTotalEvents = playbackProgress.totalEvents,
+                    onPlayPlayback = { viewModel.startPlayback() },
+                    onPausePlayback = { viewModel.pausePlayback() },
+                    onStopPlayback = { viewModel.stopPlayback() },
+                    onStepBackPlayback = { viewModel.stepBackPlayback() },
+                    onStepForwardPlayback = { viewModel.stepForwardPlayback() },
+                    onSpeedSelected = { speed -> viewModel.setPlaybackSpeed(speed) }
+                )
+            }
         }
     }
 }

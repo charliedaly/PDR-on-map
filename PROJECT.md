@@ -27,13 +27,19 @@ The app runs an uninterrupted foreground service holding a partial wake lock, in
   7. `OK` — On track; no announcement needed.
 * **TTS Queueing & Pruning:** Maintains a synchronized TTS message queue (`TtsQueueItem`). Outdated `OFFCOURSE` messages are automatically purged and replaced by the newest off-course correction, ensuring only fresh prompts are spoken sequentially without overlap.
 
-### Telemetry Playback Engine & Interactive Controls
-* **Deterministic Replay:** Ingests recorded CSV telemetry files and replays events sequentially through the EKF and `Hike` engine.
-* **Playback Controls:** Provides `⏮` Step Back, `▶` Play / `⏸` Pause, `⏭` Step Forward, and `⏹` Stop controls with adjustable playback speed multiplier ($1\times - 10\times$).
+### Route Editor (`RouteEditorScreen`)
+* **Interactive Waypoint Editor:** Tapping the pencil icon (`✎`) in the leg viewport opens a dedicated route editing page (`RouteEditorScreen`).
+* **Spreadsheet Layout:** Displays each waypoint's name, Easting ($x$), Northing ($y$), and altitude in editable text fields.
+* **List Manipulation Actions:**
+  - **Return Arrow (`←`)**: Saves modifications, rebuilds route legs, and returns to the main screen as the active hike route.
+  - **Reverse List (`↕`)**: Reverses the order of waypoints.
+  - **Move Up / Down (`↑`, `↓`)**: Reorders waypoints in the sequence.
+  - **Insert (`+`)**: Inserts a new waypoint after the current one.
+  - **Delete (`🗑`)**: Removes a waypoint from the route.
 
 ### Persistence (`AppPreferences`) & Custom Map Canvas
 * **Full State Persistence (`AppPreferences`):** Automatically saves and restores across app restarts:
-  - View mode (`MapConfig`: Map View vs. Leg View, 1km grid, 100m grid).
+  - View mode (`MapConfig`: Map View vs. Leg View, 1km grid, 100m grid, telemetry dashboard visibility).
   - Navigation settings (`HikeConfig`: thresholds and cool-off intervals).
   - Previously loaded course (route name and CSV content).
 * **Rotated Grid Overlays:** 1km labeled grid lines and 100m unlabeled sub-grid lines are fully visible in both Map View and Leg View (correctly rotated along the grid axis).
@@ -50,12 +56,12 @@ The app runs an uninterrupted foreground service holding a partial wake lock, in
 
 2. **Hike Navigation Panel (`HikeNavigationPanel`):**
    * Located directly above the telemetry viewport.
-   * **Line 1:** Leg label and three icon-only buttons (Left Arrow to move leg back, Right Arrow to move leg forward, and Pencil for future leg editing).
+   * **Line 1:** Leg label and three icon-only buttons (Left Arrow to move leg back, Right Arrow to move leg forward, and Pencil to open `RouteEditorScreen`).
    * **Line 2:** Current leg summary (`StartName ➔ Bearing° • Lengthm ➔ TargetName`).
-   * **Line 3:** Hiker telemetry (`Grid: 6-digit Irish Grid • Hdg: Bearing° • Dist: Target Distm • Spd: Speed m/s`).
+   * **Line 3:** Hiker telemetry (`Hiker: (Grid) Bearing° Distance m Speedm/s`).
 
 3. **Telemetry Dashboard:**
-   * Displays current 6-State EKF values in real-time (Position, Bearing, Speed, Stride Length $L$, Compass Bias $b_\theta$).
+   * Displays current 6-State EKF values in real-time (Position, Bearing, Speed, Stride Length $L$, Compass Bias $b_\theta$). Toggleable via Map Settings.
 
 4. **Maximized Abstract Map Canvas:**
    * Maximized Compose Canvas auto-scaled to encompass all route waypoints, active leg, and recorded breadcrumbs.

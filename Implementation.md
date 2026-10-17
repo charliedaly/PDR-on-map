@@ -32,7 +32,7 @@
   - `offCourseMinSpeedMps` ($0.4\text{ m/s}$)
   - `driftCoolOffSec` ($4\text{s}$)
   - `steadyCoolOffSec` ($6\text{s}$)
-- **`MapConfig`**: Encapsulates map view states (`isLegView`, `show1kmGrid`, `show100mGrid`).
+- **`MapConfig`**: Encapsulates map view states (`isLegView`, `show1kmGrid`, `show100mGrid`, `showTelemetryViewport`, `gpsPollingIntervalMs`).
 - **`AppPreferences`**: Manages SharedPreferences persistence across app restarts for `MapConfig`, `HikeConfig`, and last loaded course CSV content.
 
 ### TTS Queueing & Stale `OFFCOURSE` Pruning
@@ -62,13 +62,19 @@
 
 ---
 
-## 4. UI Viewports & Custom Irish Grid Canvas
+## 4. UI Viewports & Route Editor (`RouteEditorScreen`)
 
+- **`RouteEditorScreen`**:
+  Opened via the pencil icon (`✎`) in `HikeNavigationPanel`.
+  - Spreadsheet-like editable fields for Waypoint name, Easting ($x$), Northing ($y$), and altitude.
+  - Top-left return arrow (`←`) saves and re-applies the edited route to the hike.
+  - Top-right vertical reverse arrow (`↕`) reverses waypoint order.
+  - Per-item controls include up (`↑`), down (`↓`), insert (`+`), and delete (`🗑`) operations.
 - **`HikeNavigationPanel`**:
   Positioned above the telemetry viewport, displaying:
-  1. Leg index label and three icon-only buttons (Left Arrow, Right Arrow, and Pencil for future leg editing).
+  1. Leg index label and three icon-only buttons (Left Arrow, Right Arrow, and Pencil for editing route waypoints).
   2. Current leg summary (`StartName ➔ Bearing° • Lengthm ➔ TargetName`).
-  3. Hiker telemetry (`Grid: 6-digit Irish Grid • Hdg: Bearing° • Dist: Target Distm • Spd: Speed m/s`).
+  3. Hiker telemetry (`Hiker: (Grid) Bearing° Distance m Speedm/s`).
 - **`TelemetryPlaybackEngine`**:
   Supports `stepForward()` and `stepBack()` suspend calls synchronized with a `Mutex`. Step back resets the EKF and re-executes trajectory up to the previous index for instant, accurate trajectory updates.
 - **Rotated Grid Overlays in Leg View**:

@@ -1,6 +1,5 @@
 package com.example.pdrandroutetest.ui
 
-import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -16,7 +15,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -33,9 +31,9 @@ fun HikeNavigationPanel(
     currentLegIndex: Int,
     onPrevLeg: () -> Unit,
     onNextLeg: () -> Unit,
+    onEditRoute: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
     val totalLegs = activeRoute?.legs?.size ?: 0
     val canGoPrev = currentLegIndex > 0
     val canGoNext = activeLeg?.next != null || (currentLegIndex < totalLegs - 1 && totalLegs > 0)
@@ -97,11 +95,9 @@ fun HikeNavigationPanel(
                         )
                     }
 
-                    // Pencil Button (icons only, no text)
+                    // Pencil Button (opens route editor screen)
                     IconButton(
-                        onClick = {
-                            Toast.makeText(context, "Leg editing screen coming soon", Toast.LENGTH_SHORT).show()
-                        },
+                        onClick = onEditRoute,
                         modifier = Modifier.size(32.dp)
                     ) {
                         Text(

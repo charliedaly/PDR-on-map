@@ -209,6 +209,13 @@ class DiagnosticViewModel : ViewModel() {
         context.startService(intent)
     }
 
+    fun saveEditedRoute(routeName: String, route: Route) {
+        val csv = route.waypoints.joinToString("\n") { wp ->
+            "${wp.name},${wp.x},${wp.y},${wp.altitude}"
+        }
+        HikeRepository.setActiveRouteWithContent(routeName, csv, route)
+    }
+
     fun initTts(context: Context) {
         HikeRepository.initTts(context)
     }
