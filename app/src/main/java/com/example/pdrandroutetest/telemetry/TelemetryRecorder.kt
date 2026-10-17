@@ -72,6 +72,7 @@ class TelemetryRecorder {
     @Synchronized
     fun toCsvString(): String {
         val sb = StringBuilder()
+        sb.append("# TELEMETRY_FORMAT_V2\n")
         events.forEach { event ->
             val ekf = event.recordedEkfState
             val ekfSuffix = if (ekf != null) {
@@ -113,7 +114,10 @@ class TelemetryRecorder {
     companion object {
         fun fromCsvString(csvString: String): List<TelemetryEvent> {
             val list = mutableListOf<TelemetryEvent>()
-            csvString.lines().forEach { line ->
+            csvString.lines().forEach { rawLine ->
+                val line = rawLine.trim()
+                if (line.isEmpty() || line.startsWith("#")) return@forEach
+
                 val tokens = line.split(",").map { it.trim() }
                 if (tokens.size > 1) {
                     when (tokens[0]) {

@@ -9,8 +9,15 @@ import kotlin.math.PI
 import kotlin.math.atan2
 import kotlin.math.sqrt
 
+data class StepDetectorConfig(
+    val stepThreshold: Double = 11.2,
+    val minStepIntervalMs: Long = 300L,
+    val alpha: Double = 0.15
+)
+
 class PdrStepDetector(
     context: Context,
+    val config: StepDetectorConfig = StepDetectorConfig(),
     private val onStepListener: (headingRawRad: Double, timestampMs: Long) -> Unit
 ) : SensorEventListener {
 
@@ -23,10 +30,7 @@ class PdrStepDetector(
 
     // Step detection parameters
     private var accelFiltered = 9.81
-    private val alpha = 0.15 // Low-pass filter smoothing
     private var lastPeakTimestampMs = 0L
-    private val minStepIntervalMs = 300L
-    private val stepThreshold = 11.2 // Threshold in m/s^2 for step peak
 
     // Heading calculation
     private val rotationMatrix = FloatArray(9)
@@ -55,6 +59,8 @@ class PdrStepDetector(
     }
 
     override fun onSensorChanged(event: SensorEvent) {
+        val eventTimestampMs = if (event.timestamp > 0) event.timestamp / 1_000_000L else System.currentTimeMillis()
+
         when (event.sensor.type) {
             Sensor.TYPE_ROTATION_VECTOR -> {
                 SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
@@ -71,12 +77,11 @@ class PdrStepDetector(
                 val mag = sqrt((ax * ax + ay * ay + az * az).toDouble())
 
                 // Apply low pass filter
-                accelFiltered = accelFiltered + alpha * (mag - accelFiltered)
+                accelFiltered = accelFiltered + config.alpha * (mag - accelFiltered)
 
-                val currentTimeMs = System.currentTimeMillis()
-                if (accelFiltered > stepThreshold && (currentTimeMs - lastPeakTimestampMs) > minStepIntervalMs) {
-                    lastPeakTimestampMs = currentTimeMs
-                    onStepListener(currentHeadingRad, currentTimeMs)
+                if (accelFiltered > config.stepThreshold && (eventTimestampMs - lastPeakTimestampMs) > config.minStepIntervalMs) {
+                    lastPeakTimestampMs = eventTimestampMs
+                    onStepListener(currentHeadingRad, eventTimestampMs)
                 }
             }
             Sensor.TYPE_GYROSCOPE -> {

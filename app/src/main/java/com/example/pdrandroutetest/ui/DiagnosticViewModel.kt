@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.launch
 
 class DiagnosticViewModel : ViewModel() {
 
@@ -27,6 +28,16 @@ class DiagnosticViewModel : ViewModel() {
     val isTracking: StateFlow<Boolean> = HikeRepository.isTracking
     val gpsPollingIntervalMs: StateFlow<Long> = HikeRepository.gpsPollingIntervalMs
     val activeRoute: StateFlow<Route?> = HikeRepository.activeRoute
+    val show1kmGrid: StateFlow<Boolean> = HikeRepository.show1kmGrid
+    val show100mGrid: StateFlow<Boolean> = HikeRepository.show100mGrid
+    val isLegView: StateFlow<Boolean> = HikeRepository.isLegView
+    val driftCoolOffSec: StateFlow<Long> = HikeRepository.driftCoolOffSec
+    val steadyCoolOffSec: StateFlow<Long> = HikeRepository.steadyCoolOffSec
+    val hikeMessage: StateFlow<String?> = HikeRepository.hikeMessage
+    val navigationMessages: StateFlow<List<com.example.pdrandroutetest.hike.NavigationMessage>> = HikeRepository.navigationMessages
+    val relativeBearingCorrection: StateFlow<Double> = HikeRepository.relativeBearingCorrection
+    val currentTargetWaypoint: StateFlow<com.example.pdrandroutetest.model.Waypoint?> = HikeRepository.currentTargetWaypoint
+    val activeLeg: StateFlow<com.example.pdrandroutetest.model.Leg?> = HikeRepository.activeLeg
 
     val isPlaybackPlaying: StateFlow<Boolean> = HikeRepository.telemetryPlaybackEngine.isPlaying
     val isPlaybackPaused: StateFlow<Boolean> = HikeRepository.telemetryPlaybackEngine.isPaused
@@ -104,8 +115,46 @@ class DiagnosticViewModel : ViewModel() {
         HikeRepository.telemetryPlaybackEngine.stop()
     }
 
+    fun stepForwardPlayback() {
+        if (isTracking.value) {
+            HikeRepository.setTracking(false)
+        }
+        viewModelScope.launch {
+            HikeRepository.telemetryPlaybackEngine.stepForward()
+        }
+    }
+
+    fun stepBackPlayback() {
+        if (isTracking.value) {
+            HikeRepository.setTracking(false)
+        }
+        viewModelScope.launch {
+            HikeRepository.telemetryPlaybackEngine.stepBack()
+        }
+    }
+
     fun setPlaybackSpeed(multiplier: Double) {
         HikeRepository.telemetryPlaybackEngine.setSpeedMultiplier(multiplier)
+    }
+
+    fun setShow1kmGrid(show: Boolean) {
+        HikeRepository.setShow1kmGrid(show)
+    }
+
+    fun setShow100mGrid(show: Boolean) {
+        HikeRepository.setShow100mGrid(show)
+    }
+
+    fun setLegView(isLeg: Boolean) {
+        HikeRepository.setLegView(isLeg)
+    }
+
+    fun setDriftCoolOffSec(sec: Long) {
+        HikeRepository.setDriftCoolOffSec(sec)
+    }
+
+    fun setSteadyCoolOffSec(sec: Long) {
+        HikeRepository.setSteadyCoolOffSec(sec)
     }
 
     fun startTracking(context: Context) {
@@ -147,5 +196,9 @@ class DiagnosticViewModel : ViewModel() {
             putExtra(DiagnosticForegroundService.EXTRA_INTERVAL_MS, intervalMs)
         }
         context.startService(intent)
+    }
+
+    fun initTts(context: Context) {
+        HikeRepository.initTts(context)
     }
 }

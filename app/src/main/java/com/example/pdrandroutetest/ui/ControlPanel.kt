@@ -2,6 +2,7 @@ package com.example.pdrandroutetest.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -37,6 +38,8 @@ fun ControlPanel(
     onPlayPlayback: () -> Unit,
     onPausePlayback: () -> Unit,
     onStopPlayback: () -> Unit,
+    onStepBackPlayback: () -> Unit,
+    onStepForwardPlayback: () -> Unit,
     onSpeedSelected: (Double) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -120,6 +123,18 @@ fun ControlPanel(
 
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         Button(
+                            onClick = onStepBackPlayback,
+                            enabled = playbackCurrentIndex > 0,
+                            shape = RoundedCornerShape(6.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.secondary
+                            )
+                        ) {
+                            Text("⏮", style = MaterialTheme.typography.labelSmall)
+                        }
+
+                        Button(
                             onClick = {
                                 if (isPlaybackPlaying && !isPlaybackPaused) {
                                     onPausePlayback()
@@ -128,6 +143,7 @@ fun ControlPanel(
                                 }
                             },
                             shape = RoundedCornerShape(6.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = if (isPlaybackPlaying && !isPlaybackPaused) Color(0xFFFF9800) else Color(0xFF2196F3)
                             )
@@ -139,8 +155,21 @@ fun ControlPanel(
                         }
 
                         Button(
+                            onClick = onStepForwardPlayback,
+                            enabled = playbackCurrentIndex < playbackTotalEvents,
+                            shape = RoundedCornerShape(6.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.secondary
+                            )
+                        ) {
+                            Text("⏭", style = MaterialTheme.typography.labelSmall)
+                        }
+
+                        Button(
                             onClick = onStopPlayback,
                             shape = RoundedCornerShape(6.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF757575))
                         ) {
                             Text("⏹ Stop", style = MaterialTheme.typography.labelSmall)

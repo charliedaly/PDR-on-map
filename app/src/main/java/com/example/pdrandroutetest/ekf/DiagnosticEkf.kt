@@ -9,7 +9,49 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
 
-class DiagnosticEkf {
+data class EkfConfig(
+    val qDiag: DoubleArray = doubleArrayOf(0.05, 0.05, 0.02, 0.02, 0.0001, 0.0001),
+    val initialPosVariance: Double = 100.0,
+    val initialVelVariance: Double = 0.1,
+    val initialStrideVariance: Double = 0.02,
+    val initialBiasVariance: Double = 0.05,
+    val minStrideMeters: Double = 0.4,
+    val maxStrideMeters: Double = 1.3
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is EkfConfig) return false
+        return qDiag.contentEquals(other.qDiag) &&
+                initialPosVariance == other.initialPosVariance &&
+                initialVelVariance == other.initialVelVariance &&
+                initialStrideVariance == other.initialStrideVariance &&
+                initialBiasVariance == other.initialBiasVariance &&
+                minStrideMeters == other.minStrideMeters &&
+                maxStrideMeters == other.maxStrideMeters
+    }
+
+    override fun hashCode(): Int {
+        var result = qDiag.contentHashCode()
+        result = 31 * result + initialPosVariance.hashCode()
+        result = 31 * result + initialVelVariance.hashCode()
+        result = 31 * result + initialStrideVariance.hashCode()
+        result = 31 * result + initialBiasVariance.hashCode()
+        result = 31 * result + minStrideMeters.hashCode()
+        result = 31 * result + maxStrideMeters.hashCode()
+        return result
+    }
+}
+
+class DiagnosticEkf(val config: EkfConfig = EkfConfig()) {
+
+    companion object {
+        const val IDX_X = 0
+        const val IDX_Y = 1
+        const val IDX_VX = 2
+        const val IDX_VY = 3
+        const val IDX_STRIDE = 4
+        const val IDX_COMPASS_BIAS = 5
+    }
 
     // State vector X = [x, y, vx, vy, L, b_theta]
     private val x = DoubleArray(6)
@@ -17,8 +59,12 @@ class DiagnosticEkf {
     // Covariance matrix P (6x6)
     private val p = Array(6) { DoubleArray(6) }
 
-    // Process noise covariance Q (6x6) diagonal
-    private val qDiag = doubleArrayOf(0.05, 0.05, 0.02, 0.02, 0.0001, 0.0001)
+    val stateX: Double get() = x[IDX_X]
+    val stateY: Double get() = x[IDX_Y]
+    val stateVx: Double get() = x[IDX_VX]
+    val stateVy: Double get() = x[IDX_VY]
+    val strideLength: Double get() = x[IDX_STRIDE]
+    val compassBias: Double get() = x[IDX_COMPASS_BIAS]
 
     private var isInitializedWithGps = false
     val isInitialized: Boolean
@@ -34,24 +80,24 @@ class DiagnosticEkf {
     }
 
     fun reset() {
-        x[0] = 0.0 // x (Irish Grid Easting in meters)
-        x[1] = 0.0 // y (Irish Grid Northing in meters)
-        x[2] = 0.0 // vx
-        x[3] = 0.0 // vy
-        x[4] = 0.75 // L (stride length in meters)
-        x[5] = 0.0 // b_theta (compass bias in radians)
+        x[IDX_X] = 0.0 // x (Irish Grid Easting in meters)
+        x[IDX_Y] = 0.0 // y (Irish Grid Northing in meters)
+        x[IDX_VX] = 0.0 // vx
+        x[IDX_VY] = 0.0 // vy
+        x[IDX_STRIDE] = 0.75 // L (stride length in meters)
+        x[IDX_COMPASS_BIAS] = 0.0 // b_theta (compass bias in radians)
 
         for (i in 0..5) {
             for (j in 0..5) {
                 p[i][j] = 0.0
             }
         }
-        p[0][0] = 100.0 // Initial high variance until initial GPS fix
-        p[1][1] = 100.0
-        p[2][2] = 0.1   // vx var
-        p[3][3] = 0.1   // vy var
-        p[4][4] = 0.02  // L var
-        p[5][5] = 0.05  // b_theta var
+        p[IDX_X][IDX_X] = config.initialPosVariance
+        p[IDX_Y][IDX_Y] = config.initialPosVariance
+        p[IDX_VX][IDX_VX] = config.initialVelVariance
+        p[IDX_VY][IDX_VY] = config.initialVelVariance
+        p[IDX_STRIDE][IDX_STRIDE] = config.initialStrideVariance
+        p[IDX_COMPASS_BIAS][IDX_COMPASS_BIAS] = config.initialBiasVariance
 
         isInitializedWithGps = false
         lastStepTimestampMs = 0L
@@ -67,13 +113,13 @@ class DiagnosticEkf {
         }
 
         // State transition: x = x + vx * dt, y = y + vy * dt
-        x[0] += x[2] * dtSec
-        x[1] += x[3] * dtSec
+        x[IDX_X] += x[IDX_VX] * dtSec
+        x[IDX_Y] += x[IDX_VY] * dtSec
 
         val f = Array(6) { DoubleArray(6) }
         for (i in 0..5) f[i][i] = 1.0
-        f[0][2] = dtSec
-        f[1][3] = dtSec
+        f[IDX_X][IDX_VX] = dtSec
+        f[IDX_Y][IDX_VY] = dtSec
 
         val fp = Array(6) { DoubleArray(6) }
         for (i in 0..5) {
@@ -94,7 +140,7 @@ class DiagnosticEkf {
                 }
                 p[i][j] = sum
             }
-            p[i][i] += qDiag[i]
+            p[i][i] += config.qDiag[i]
         }
 
         return getEkfState()
@@ -106,7 +152,7 @@ class DiagnosticEkf {
 
         stepCount++
         currentHeadingRad = headingRawRad
-        val bTheta = x[5]
+        val bTheta = x[IDX_COMPASS_BIAS]
         val correctedHeading = headingRawRad - bTheta
 
         val dtStepSec = if (lastStepTimestampMs > 0) {
@@ -116,9 +162,9 @@ class DiagnosticEkf {
         }.coerceIn(0.2, 2.0)
         lastStepTimestampMs = timestampMs
 
-        val strideL = x[4]
-        x[2] = (strideL * sin(correctedHeading)) / dtStepSec
-        x[3] = (strideL * cos(correctedHeading)) / dtStepSec
+        val strideL = x[IDX_STRIDE]
+        x[IDX_VX] = (strideL * sin(correctedHeading)) / dtStepSec
+        x[IDX_VY] = (strideL * cos(correctedHeading)) / dtStepSec
     }
 
     @Synchronized
@@ -128,19 +174,19 @@ class DiagnosticEkf {
         val gpsLocation = CoordinateUtils.latLonToMetric(lat, lon)
 
         if (!isInitializedWithGps) {
-            // Requirement 2: Initialize EKF state with initial GPS fix
-            x[0] = gpsLocation.x
-            x[1] = gpsLocation.y
-            p[0][0] = (accuracyMeters * accuracyMeters).toDouble().coerceAtLeast(1.0)
-            p[1][1] = (accuracyMeters * accuracyMeters).toDouble().coerceAtLeast(1.0)
+            // Initialize EKF state with initial GPS fix
+            x[IDX_X] = gpsLocation.x
+            x[IDX_Y] = gpsLocation.y
+            p[IDX_X][IDX_X] = (accuracyMeters * accuracyMeters).toDouble().coerceAtLeast(1.0)
+            p[IDX_Y][IDX_Y] = (accuracyMeters * accuracyMeters).toDouble().coerceAtLeast(1.0)
             isInitializedWithGps = true
             return getEkfState(activeIntervalMs)
         }
 
-        val deltaX = gpsLocation.x - x[0]
-        val deltaY = gpsLocation.y - x[1]
+        val deltaX = gpsLocation.x - x[IDX_X]
+        val deltaY = gpsLocation.y - x[IDX_Y]
 
-        val correctedHeading = currentHeadingRad - x[5]
+        val correctedHeading = currentHeadingRad - x[IDX_COMPASS_BIAS]
         val eLong = deltaX * sin(correctedHeading) + deltaY * cos(correctedHeading)
         val eLat = deltaX * cos(correctedHeading) - deltaY * sin(correctedHeading)
 
@@ -152,8 +198,8 @@ class DiagnosticEkf {
         val hLat = doubleArrayOf(cos(correctedHeading), -sin(correctedHeading), 0.0, 0.0, 0.0, 1.0)
         updateScalarObservation(eLat, hLat, rVar)
 
-        x[4] = x[4].coerceIn(0.4, 1.3)
-        x[5] = normalizeAngleRad(x[5])
+        x[IDX_STRIDE] = x[IDX_STRIDE].coerceIn(config.minStrideMeters, config.maxStrideMeters)
+        x[IDX_COMPASS_BIAS] = normalizeAngleRad(x[IDX_COMPASS_BIAS])
 
         return getEkfState(activeIntervalMs)
     }
@@ -198,21 +244,21 @@ class DiagnosticEkf {
     }
 
     fun getEkfState(activeIntervalMs: Long = 1000L): EkfState {
-        val posXVar = p[0][0].coerceAtLeast(1e-4)
-        val posYVar = p[1][1].coerceAtLeast(1e-4)
+        val posXVar = p[IDX_X][IDX_X].coerceAtLeast(1e-4)
+        val posYVar = p[IDX_Y][IDX_Y].coerceAtLeast(1e-4)
         val posVarCombined = sqrt(posXVar * posXVar + posYVar * posYVar)
 
-        val velXVar = p[2][2].coerceAtLeast(1e-4)
-        val velYVar = p[3][3].coerceAtLeast(1e-4)
+        val velXVar = p[IDX_VX][IDX_VX].coerceAtLeast(1e-4)
+        val velYVar = p[IDX_VY][IDX_VY].coerceAtLeast(1e-4)
         val velVarCombined = sqrt(velXVar * velXVar + velYVar * velYVar)
 
         return EkfState(
             timestampMs = System.currentTimeMillis(),
-            position = Estimate(Vector2D(x[0], x[1]), posVarCombined),
-            velocity = Estimate(Vector2D(x[2], x[3]), velVarCombined),
-            bearingRad = Estimate(normalizeAngleRad(currentHeadingRad - x[5]), p[5][5]),
-            compassBiasRad = Estimate(x[5], p[5][5]),
-            strideLengthMeters = Estimate(x[4], p[4][4]),
+            position = Estimate(Vector2D(x[IDX_X], x[IDX_Y]), posVarCombined),
+            velocity = Estimate(Vector2D(x[IDX_VX], x[IDX_VY]), velVarCombined),
+            bearingRad = Estimate(normalizeAngleRad(currentHeadingRad - x[IDX_COMPASS_BIAS]), p[IDX_COMPASS_BIAS][IDX_COMPASS_BIAS]),
+            compassBiasRad = Estimate(x[IDX_COMPASS_BIAS], p[IDX_COMPASS_BIAS][IDX_COMPASS_BIAS]),
+            strideLengthMeters = Estimate(x[IDX_STRIDE], p[IDX_STRIDE][IDX_STRIDE]),
             stepCount = stepCount,
             gpsFixCount = gpsFixCount,
             activeGpsIntervalMs = activeIntervalMs,

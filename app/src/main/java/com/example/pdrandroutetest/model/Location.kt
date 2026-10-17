@@ -15,6 +15,14 @@ open class Location(
         return CoordinateUtils.getBearing(this, other)
     }
 
+    fun distanceTo(other: Location): Double {
+        return getDistance(other)
+    }
+
+    fun bearingTo(other: Location): Double {
+        return getBearing(other)
+    }
+
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is Location) return false

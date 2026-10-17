@@ -2,16 +2,29 @@ package com.example.pdrandroutetest.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -23,17 +36,28 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.pdrandroutetest.data.EkfState
 import com.example.pdrandroutetest.model.Breadcrumb
+import com.example.pdrandroutetest.model.Leg
 import com.example.pdrandroutetest.model.Route
+import com.example.pdrandroutetest.model.Waypoint
+import kotlinx.coroutines.delay
+import java.util.Locale
 import kotlin.math.cos
+import kotlin.math.hypot
 import kotlin.math.sin
 import kotlin.math.sqrt
 
-private class ViewportTracker {
+internal class ViewportTracker {
     var minX = 0.0
     var maxX = 100.0
     var minY = 0.0
@@ -97,22 +121,55 @@ fun MapScreen(
     route: Route?,
     breadcrumbs: List<Breadcrumb>,
     activeEkfState: EkfState,
+    currentTargetWaypoint: Waypoint? = null,
+    show1kmGrid: Boolean = false,
+    show100mGrid: Boolean = false,
+    isLegView: Boolean = false,
+    activeLeg: Leg? = null,
+    driftCoolOffSec: Long = 2L,
+    steadyCoolOffSec: Long = 15L,
+    relativeBearingCorrection: Double = 0.0,
+    onToggle1kmGrid: (Boolean) -> Unit = {},
+    onToggle100mGrid: (Boolean) -> Unit = {},
+    onToggleLegView: (Boolean) -> Unit = {},
+    onSelectDriftCoolOffSec: (Long) -> Unit = {},
+    onSelectSteadyCoolOffSec: (Long) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val viewportTracker = remember { ViewportTracker() }
 
     var zoomScale by remember { mutableFloatStateOf(1f) }
     var panOffset by remember { mutableStateOf(Offset.Zero) }
+    var showSettingsDialog by remember { mutableStateOf(false) }
+
+    // 2-second 20-step Leg Transition Animation State
+    var transitionProgress by remember { mutableFloatStateOf(1.0f) }
+    var previousLegState by remember { mutableStateOf<Leg?>(null) }
+
+    LaunchedEffect(activeLeg, isLegView) {
+        if (previousLegState != null && activeLeg != null && activeLeg != previousLegState && isLegView) {
+            for (step in 0..20) {
+                transitionProgress = step / 20.0f
+                delay(100L) // 20 steps * 100ms = 2000ms (2 seconds)
+            }
+        }
+        previousLegState = activeLeg
+        transitionProgress = 1.0f
+    }
+
+    val textMeasurer = rememberTextMeasurer()
 
     val validBreadcrumbs = remember(breadcrumbs, route) {
         breadcrumbs.filter { it.location.x != 0.0 || it.location.y != 0.0 || route == null }
     }
 
-    viewportTracker.updateAll(
-        route = route,
-        breadcrumbs = validBreadcrumbs,
-        activeEkfState = activeEkfState
-    )
+    if (!isLegView) {
+        viewportTracker.updateAll(
+            route = route,
+            breadcrumbs = validBreadcrumbs,
+            activeEkfState = activeEkfState
+        )
+    }
 
     Box(
         modifier = modifier
@@ -143,14 +200,257 @@ fun MapScreen(
             val centerX = (viewportTracker.minX + viewportTracker.maxX) / 2.0
             val centerY = (viewportTracker.minY + viewportTracker.maxY) / 2.0
 
+            // Leg View Animation Interpolated Start & Target Points
+            val legStart = activeLeg?.start
+            val legTarget = activeLeg?.target
+            val prevStart = previousLegState?.start
+            val prevTarget = previousLegState?.target
+
+            val interpStartX = if (transitionProgress < 1.0f && prevStart != null && legStart != null) {
+                prevStart.x + transitionProgress * (legStart.x - prevStart.x)
+            } else legStart?.x ?: 0.0
+
+            val interpStartY = if (transitionProgress < 1.0f && prevStart != null && legStart != null) {
+                prevStart.y + transitionProgress * (legStart.y - prevStart.y)
+            } else legStart?.y ?: 0.0
+
+            val interpTargetX = if (transitionProgress < 1.0f && prevTarget != null && legTarget != null) {
+                prevTarget.x + transitionProgress * (legTarget.x - prevTarget.x)
+            } else legTarget?.x ?: 1.0
+
+            val interpTargetY = if (transitionProgress < 1.0f && prevTarget != null && legTarget != null) {
+                prevTarget.y + transitionProgress * (legTarget.y - prevTarget.y)
+            } else legTarget?.y ?: 1.0
+
+            val legDx = interpTargetX - interpStartX
+            val legDy = interpTargetY - interpStartY
+            val legLen = hypot(legDx, legDy).coerceAtLeast(1.0)
+            val ux = legDx / legLen
+            val uy = legDy / legLen
+            val vx = uy
+            val vy = -ux
+
+            // Scale rules for Leg View
+            val prevLen = previousLegState?.distanceMeters ?: legLen
+            val newLen = activeLeg?.distanceMeters ?: legLen
+            val viewportHeightMeters = heightPx / baseScale.toDouble()
+
+            val targetScaleFactor = if (newLen < prevLen || newLen < 0.75 * viewportHeightMeters) {
+                1.35
+            } else {
+                1.35 * (newLen / (0.75 * viewportHeightMeters))
+            }
+            val interpScaleFactor = 1.35 + transitionProgress * (targetScaleFactor - 1.35)
+
             fun toCanvasOffset(xMeters: Double, yMeters: Double): Offset {
-                val rawCx = originCx + ((xMeters - centerX) * baseScale).toFloat()
-                val rawCy = originCy - ((yMeters - centerY) * baseScale).toFloat()
+                if (isLegView && legStart != null) {
+                    val apx = xMeters - interpStartX
+                    val apy = yMeters - interpStartY
 
-                val zoomedX = originCx + (rawCx - originCx) * zoomScale + panOffset.x
-                val zoomedY = originCy + (rawCy - originCy) * zoomScale + panOffset.y
+                    val progress = apx * ux + apy * uy
+                    val offset = apx * vx + apy * vy
 
-                return Offset(zoomedX, zoomedY)
+                    val spanYLeg = legLen * interpScaleFactor
+                    val spanXLeg = spanYLeg * (widthPx / heightPx).coerceIn(0.5f, 2.0f)
+                    val scaleLeg = minOf(widthPx / spanXLeg, heightPx / spanYLeg) * zoomScale
+
+                    val cx = originCx + (offset * scaleLeg).toFloat() + panOffset.x
+                    val shiftY = legLen * 0.10
+                    val cy = (originCy + ((spanYLeg / 2.0) - progress - shiftY) * scaleLeg + panOffset.y).toFloat()
+
+                    return Offset(cx, cy)
+                } else {
+                    val rawCx = originCx + ((xMeters - centerX) * baseScale).toFloat()
+                    val rawCy = originCy - ((yMeters - centerY) * baseScale).toFloat()
+
+                    val zoomedX = originCx + (rawCx - originCx) * zoomScale + panOffset.x
+                    val zoomedY = originCy + (rawCy - originCy) * zoomScale + panOffset.y
+
+                    return Offset(zoomedX, zoomedY)
+                }
+            }
+
+            // --- Draw Map Grids (only in Map View) ---
+            if (!isLegView) {
+                val currentScale = baseScale * zoomScale
+                if (currentScale > 0f) {
+                    val leftMeters = centerX + (0f - originCx - panOffset.x) / currentScale
+                    val rightMeters = centerX + (widthPx - originCx - panOffset.x) / currentScale
+                    val topMeters = centerY - (0f - originCy - panOffset.y) / currentScale
+                    val bottomMeters = centerY - (heightPx - originCy - panOffset.y) / currentScale
+
+                    val minVisX = minOf(leftMeters, rightMeters)
+                    val maxVisX = maxOf(leftMeters, rightMeters)
+                    val minVisY = minOf(topMeters, bottomMeters)
+                    val maxVisY = maxOf(topMeters, bottomMeters)
+
+                    // 1) Draw 100m gridlines (unlabeled)
+                    if (show100mGrid) {
+                        val spacing100mPx = 100.0 * currentScale.toDouble()
+                        if (spacing100mPx >= 4.0) {
+                            val start100mX = (kotlin.math.floor(minVisX / 100.0) * 100.0).toInt()
+                            val end100mX = (kotlin.math.ceil(maxVisX / 100.0) * 100.0).toInt()
+
+                            for (xMeters in start100mX..end100mX step 100) {
+                                if (show1kmGrid && xMeters % 1000 == 0) continue
+                                val p = toCanvasOffset(xMeters.toDouble(), minVisY)
+                                if (p.x in 0f..widthPx) {
+                                    drawLine(
+                                        color = Color(0xFF1E293B),
+                                        start = Offset(p.x, 0f),
+                                        end = Offset(p.x, heightPx),
+                                        strokeWidth = 1f
+                                    )
+                                }
+                            }
+
+                            val start100mY = (kotlin.math.floor(minVisY / 100.0) * 100.0).toInt()
+                            val end100mY = (kotlin.math.ceil(maxVisY / 100.0) * 100.0).toInt()
+
+                            for (yMeters in start100mY..end100mY step 100) {
+                                if (show1kmGrid && yMeters % 1000 == 0) continue
+                                val p = toCanvasOffset(minVisX, yMeters.toDouble())
+                                if (p.y in 0f..heightPx) {
+                                    drawLine(
+                                        color = Color(0xFF1E293B),
+                                        start = Offset(0f, p.y),
+                                        end = Offset(widthPx, p.y),
+                                        strokeWidth = 1f
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // 2) Draw 1km gridlines (labeled by 2-digit Irish Grid reference)
+                    if (show1kmGrid) {
+                        val start1kmX = (kotlin.math.floor(minVisX / 1000.0) * 1000.0).toInt()
+                        val end1kmX = (kotlin.math.ceil(maxVisX / 1000.0) * 1000.0).toInt()
+
+                        for (xMeters in start1kmX..end1kmX step 1000) {
+                            val p = toCanvasOffset(xMeters.toDouble(), minVisY)
+                            val canvasX = p.x
+                            if (canvasX in -20f..(widthPx + 20f)) {
+                                drawLine(
+                                    color = Color(0xFF334E68).copy(alpha = 0.75f),
+                                    start = Offset(canvasX, 0f),
+                                    end = Offset(canvasX, heightPx),
+                                    strokeWidth = 1.5f
+                                )
+
+                                val digits = (kotlin.math.abs(xMeters) / 1000) % 100
+                                val labelStr = String.format(Locale.US, "%02d", digits)
+
+                                val textResult = textMeasurer.measure(
+                                    text = labelStr,
+                                    style = TextStyle(
+                                        color = Color(0xFF9FB3C8),
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                )
+
+                                drawText(
+                                    textLayoutResult = textResult,
+                                    topLeft = Offset(
+                                        (canvasX + 4f).coerceIn(4f, widthPx - textResult.size.width - 4f),
+                                        8f
+                                    )
+                                )
+                                drawText(
+                                    textLayoutResult = textResult,
+                                    topLeft = Offset(
+                                        (canvasX + 4f).coerceIn(4f, widthPx - textResult.size.width - 4f),
+                                        heightPx - textResult.size.height - 8f
+                                    )
+                                )
+                            }
+                        }
+
+                        val start1kmY = (kotlin.math.floor(minVisY / 1000.0) * 1000.0).toInt()
+                        val end1kmY = (kotlin.math.ceil(maxVisY / 1000.0) * 1000.0).toInt()
+
+                        for (yMeters in start1kmY..end1kmY step 1000) {
+                            val p = toCanvasOffset(minVisX, yMeters.toDouble())
+                            val canvasY = p.y
+                            if (canvasY in -20f..(heightPx + 20f)) {
+                                drawLine(
+                                    color = Color(0xFF334E68).copy(alpha = 0.75f),
+                                    start = Offset(0f, canvasY),
+                                    end = Offset(widthPx, canvasY),
+                                    strokeWidth = 1.5f
+                                )
+
+                                val digits = (kotlin.math.abs(yMeters) / 1000) % 100
+                                val labelStr = String.format(Locale.US, "%02d", digits)
+
+                                val textResult = textMeasurer.measure(
+                                    text = labelStr,
+                                    style = TextStyle(
+                                        color = Color(0xFF9FB3C8),
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                )
+
+                                drawText(
+                                    textLayoutResult = textResult,
+                                    topLeft = Offset(
+                                        8f,
+                                        (canvasY - textResult.size.height - 2f).coerceIn(4f, heightPx - textResult.size.height - 4f)
+                                    )
+                                )
+                                drawText(
+                                    textLayoutResult = textResult,
+                                    topLeft = Offset(
+                                        widthPx - textResult.size.width - 8f,
+                                        (canvasY - textResult.size.height - 2f).coerceIn(4f, heightPx - textResult.size.height - 4f)
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Draw current leg arrival & approach circles centered on current leg target (perimeter strokes only, subtle)
+            if (activeLeg != null) {
+                val targetCenter = toCanvasOffset(activeLeg.target.x, activeLeg.target.y)
+                val effectiveScale = if (isLegView) {
+                    (minOf(widthPx, heightPx) / (legLen * interpScaleFactor)) * zoomScale
+                } else {
+                    baseScale.toDouble() * zoomScale.toDouble()
+                }
+
+                // Approach circle (100m) - perimeter only
+                val approachRadiusPx = (activeLeg.target.approach * effectiveScale).toFloat()
+                drawCircle(
+                    color = Color(0xFF00E5FF).copy(alpha = 0.5f),
+                    radius = approachRadiusPx,
+                    center = targetCenter,
+                    style = Stroke(width = 1.2f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 8f), 0f))
+                )
+
+                // Arrival circle (15m) - perimeter only
+                val arriveRadiusPx = (activeLeg.target.arrive * effectiveScale).toFloat()
+                drawCircle(
+                    color = Color(0xFF4CAF50),
+                    radius = arriveRadiusPx,
+                    center = targetCenter,
+                    style = Stroke(width = 1.8f)
+                )
+            }
+
+            // Highlight current leg subtly with translucent yellow line
+            if (activeLeg != null) {
+                val p1 = toCanvasOffset(activeLeg.start.x, activeLeg.start.y)
+                val p2 = toCanvasOffset(activeLeg.target.x, activeLeg.target.y)
+                drawLine(
+                    color = Color(0xFFFFEE58).copy(alpha = 0.45f),
+                    start = p1,
+                    end = p2,
+                    strokeWidth = 10f * zoomScale.coerceIn(0.5f, 3f)
+                )
             }
 
             // Draw route legs (path lines)
@@ -165,7 +465,50 @@ fun MapScreen(
                 )
             }
 
-            // Draw route waypoints
+            // Draw larger target direction arrow ON TOP OF the leg line
+            if (activeLeg != null) {
+                val p1 = toCanvasOffset(activeLeg.start.x, activeLeg.start.y)
+                val p2 = toCanvasOffset(activeLeg.target.x, activeLeg.target.y)
+                val dx = p2.x - p1.x
+                val dy = p2.y - p1.y
+                val legLenPx = hypot(dx, dy)
+                if (legLenPx > 15f) {
+                    val uxLeg = dx / legLenPx
+                    val uyLeg = dy / legLenPx
+                    val vxLeg = -uyLeg
+                    val vyLeg = uxLeg
+
+                    val arrowCenter = Offset(p1.x + 0.55f * dx, p1.y + 0.55f * dy)
+                    val arrowSize = 18f * zoomScale.coerceIn(0.8f, 3f)
+
+                    val tipX = arrowCenter.x + uxLeg * arrowSize
+                    val tipY = arrowCenter.y + uyLeg * arrowSize
+                    val leftX = arrowCenter.x - uxLeg * (arrowSize * 0.7f) + vxLeg * (arrowSize * 0.6f)
+                    val leftY = arrowCenter.y - uyLeg * (arrowSize * 0.7f) + vyLeg * (arrowSize * 0.6f)
+                    val rightX = arrowCenter.x - uxLeg * (arrowSize * 0.7f) - vxLeg * (arrowSize * 0.6f)
+                    val rightY = arrowCenter.y - uyLeg * (arrowSize * 0.7f) - vyLeg * (arrowSize * 0.6f)
+
+                    val arrowPath = Path().apply {
+                        moveTo(tipX, tipY)
+                        lineTo(leftX, leftY)
+                        lineTo(rightX, rightY)
+                        close()
+                    }
+
+                    drawPath(
+                        path = arrowPath,
+                        color = Color(0xFFFFD700)
+                    )
+                    drawPath(
+                        path = arrowPath,
+                        color = Color(0xFF000000).copy(alpha = 0.6f),
+                        style = Stroke(width = 1.5f)
+                    )
+                }
+            }
+
+            // Draw route waypoints and intelligent waypoint names
+            val legBearingDeg = if (isLegView && activeLeg != null) activeLeg.start.bearingTo(activeLeg.target) else 0.0
             route?.waypoints?.forEach { wp ->
                 val center = toCanvasOffset(wp.x, wp.y)
                 drawCircle(
@@ -178,6 +521,44 @@ fun MapScreen(
                     radius = 6f * zoomScale.coerceIn(0.5f, 2.5f),
                     center = center
                 )
+
+                // Intelligent Waypoint Name Placement
+                val wpName = wp.name.ifBlank { "" }
+                if (wpName.isNotBlank()) {
+                    val attachedLegs = route.legs.filter { it.start == wp || it.target == wp }
+                    val labelAngleRad = computeIntelligentLabelAngle(wp, attachedLegs, isLegView, legBearingDeg)
+
+                    val labelDistancePx = 22f * zoomScale.coerceIn(0.5f, 2.0f)
+                    val labelOffsetX = (labelDistancePx * sin(labelAngleRad)).toFloat()
+                    val labelOffsetY = (-labelDistancePx * cos(labelAngleRad)).toFloat()
+
+                    val textResult = textMeasurer.measure(
+                        text = wpName,
+                        style = TextStyle(
+                            color = Color.White,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    )
+
+                    val labelX = center.x + labelOffsetX - (textResult.size.width / 2f)
+                    val labelY = center.y + labelOffsetY - (textResult.size.height / 2f)
+
+                    val bgPadding = 3f
+                    drawRect(
+                        color = Color.Black.copy(alpha = 0.70f),
+                        topLeft = Offset(labelX - bgPadding, labelY - bgPadding),
+                        size = androidx.compose.ui.geometry.Size(
+                            textResult.size.width + bgPadding * 2f,
+                            textResult.size.height + bgPadding * 2f
+                        )
+                    )
+
+                    drawText(
+                        textLayoutResult = textResult,
+                        topLeft = Offset(labelX, labelY)
+                    )
+                }
             }
 
             // Draw historical breadcrumb path trajectory lines
@@ -222,7 +603,7 @@ fun MapScreen(
             if (activeEkfState.isInitializedWithGps) {
                 val activePos = activeEkfState.position.value
                 val currentCenter = toCanvasOffset(activePos.x, activePos.y)
-                val currentRadiusPx = (sqrt(activeEkfState.position.variance) * baseScale.toDouble() * zoomScale.toDouble()).toFloat().coerceIn(6f, 60f)
+                val currentRadiusPx = if (isLegView) 12f else (sqrt(activeEkfState.position.variance) * baseScale.toDouble() * zoomScale.toDouble()).toFloat().coerceIn(6f, 60f)
 
                 drawCircle(
                     color = Color(0xFFFFD700).copy(alpha = 0.25f),
@@ -231,13 +612,19 @@ fun MapScreen(
                 )
 
                 val bearing = activeEkfState.bearingRad.value
+                val effectiveBearing = if (isLegView && activeLeg != null) {
+                    val legBearingDeg = activeLeg.start.bearingTo(activeLeg.target)
+                    bearing - Math.toRadians(legBearingDeg)
+                } else {
+                    bearing
+                }
                 val headingError = sqrt(activeEkfState.bearingRad.variance)
                 val arrowLengthPx = 32f * zoomScale.coerceIn(0.5f, 2.5f)
 
                 val wedgePath = Path().apply {
                     moveTo(currentCenter.x, currentCenter.y)
-                    val leftAngle = bearing - headingError
-                    val rightAngle = bearing + headingError
+                    val leftAngle = effectiveBearing - headingError
+                    val rightAngle = effectiveBearing + headingError
 
                     val leftX = currentCenter.x + (arrowLengthPx * 1.4f * sin(leftAngle)).toFloat()
                     val leftY = currentCenter.y - (arrowLengthPx * 1.4f * cos(leftAngle)).toFloat()
@@ -253,8 +640,8 @@ fun MapScreen(
                     color = Color(0xFFFFD700).copy(alpha = 0.3f)
                 )
 
-                val arrowTipX = currentCenter.x + (arrowLengthPx * sin(bearing)).toFloat()
-                val arrowTipY = currentCenter.y - (arrowLengthPx * cos(bearing)).toFloat()
+                val arrowTipX = currentCenter.x + (arrowLengthPx * sin(effectiveBearing)).toFloat()
+                val arrowTipY = currentCenter.y - (arrowLengthPx * cos(effectiveBearing)).toFloat()
 
                 drawLine(
                     color = Color(0xFFFFD700),
@@ -267,6 +654,22 @@ fun MapScreen(
                     color = Color(0xFFFFD700),
                     radius = 6f,
                     center = currentCenter
+                )
+            }
+
+            // Draw direct line from current hiker position to current leg target waypoint
+            val activeTarget = currentTargetWaypoint ?: activeLeg?.target ?: route?.legs?.firstOrNull()?.target
+            if (activeEkfState.isInitializedWithGps && activeTarget != null) {
+                val activePos = activeEkfState.position.value
+                val hikerOffset = toCanvasOffset(activePos.x, activePos.y)
+                val targetOffset = toCanvasOffset(activeTarget.x, activeTarget.y)
+
+                drawLine(
+                    color = Color(0xFFFFB300),
+                    start = hikerOffset,
+                    end = targetOffset,
+                    strokeWidth = 3.5f * zoomScale.coerceIn(0.5f, 2.5f),
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 8f), 0f)
                 )
             }
         }
@@ -288,23 +691,250 @@ fun MapScreen(
             )
         }
 
-        // Recenter / Fit All view button if zoomed or panned
-        if (zoomScale != 1f || panOffset != Offset.Zero) {
-            Button(
-                onClick = {
-                    zoomScale = 1f
-                    panOffset = Offset.Zero
-                },
+        // Upper Right UI Stack (North Indicator + Relative Bearing Indicator)
+        if (activeEkfState.isInitializedWithGps) {
+            Column(
                 modifier = Modifier
-                    .align(Alignment.BottomEnd)
+                    .align(Alignment.TopEnd)
                     .padding(8.dp),
-                shape = RoundedCornerShape(6.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
-                )
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalAlignment = Alignment.End
             ) {
-                Text("Fit All", style = MaterialTheme.typography.labelSmall)
+                // 1. North / Compass Button (Toggles Map View <-> Leg View)
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color.Black.copy(alpha = 0.75f))
+                        .clickable { onToggleLegView(!isLegView) }
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Canvas(modifier = Modifier.size(20.dp)) {
+                            val center = Offset(size.width / 2f, size.height / 2f)
+                            val radius = size.width / 2f - 2f
+                            val northAngle = if (isLegView && activeLeg != null) {
+                                -activeLeg.start.bearingTo(activeLeg.target)
+                            } else {
+                                0.0
+                            }
+                            val angleRad = Math.toRadians(northAngle)
+                            val tipX = center.x + (radius * 0.8f * sin(angleRad)).toFloat()
+                            val tipY = center.y - (radius * 0.8f * cos(angleRad)).toFloat()
+
+                            drawCircle(color = Color(0xFF1E293B), radius = radius, center = center)
+                            drawLine(
+                                color = Color(0xFFFF5252),
+                                start = center,
+                                end = Offset(tipX, tipY),
+                                strokeWidth = 3f
+                            )
+                            drawCircle(color = Color.White, radius = 2f, center = center)
+                        }
+                        Text(
+                            text = if (isLegView) "Leg View" else "North",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 9.sp
+                        )
+                    }
+                }
+
+                // 2. Relative Bearing Indicator (Underneath North Indicator)
+                Box(
+                    modifier = Modifier
+                        .background(Color.Black.copy(alpha = 0.75f), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 8.dp, vertical = 6.dp)
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Canvas(modifier = Modifier.size(24.dp)) {
+                            val center = Offset(size.width / 2f, size.height / 2f)
+                            val radius = size.width / 2f - 2f
+                            drawCircle(color = Color(0xFF1E293B), radius = radius, center = center)
+                            drawCircle(color = Color(0xFF475569), radius = radius, center = center, style = Stroke(1f))
+
+                            val angleRad = Math.toRadians(relativeBearingCorrection)
+                            val tipX = center.x + (radius * 0.75f * sin(angleRad)).toFloat()
+                            val tipY = center.y - (radius * 0.75f * cos(angleRad)).toFloat()
+
+                            drawLine(
+                                color = Color(0xFFFFB300),
+                                start = center,
+                                end = Offset(tipX, tipY),
+                                strokeWidth = 3f
+                            )
+                            drawCircle(color = Color(0xFFFFD700), radius = 2f, center = center)
+                        }
+
+                        val correctionText = when {
+                            relativeBearingCorrection > 0 -> "+%.0f°".format(relativeBearingCorrection)
+                            relativeBearingCorrection < 0 -> "%.0f°".format(relativeBearingCorrection)
+                            else -> "+0°"
+                        }
+                        Text(
+                            text = correctionText,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFFFB300)
+                        )
+                    }
+                }
             }
         }
+
+        // Lower Right Corner Controls (Fit All button and Gear Icon Settings button)
+        Row(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (zoomScale != 1f || panOffset != Offset.Zero) {
+                Button(
+                    onClick = {
+                        zoomScale = 1f
+                        panOffset = Offset.Zero
+                    },
+                    shape = RoundedCornerShape(6.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
+                    )
+                ) {
+                    Text("Fit All", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+
+            IconButton(
+                onClick = { showSettingsDialog = true },
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.85f))
+            ) {
+                Text("⚙", style = MaterialTheme.typography.titleMedium, color = Color.White)
+            }
+        }
+
+        // Settings Dialog Window
+        if (showSettingsDialog) {
+            AlertDialog(
+                onDismissRequest = { showSettingsDialog = false },
+                title = {
+                    Text("Map Settings", fontWeight = FontWeight.Bold)
+                },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("1km Grid Lines (Labeled)", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                Text("Labels lines using 2-digit Irish Grid reference", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Switch(
+                                checked = show1kmGrid,
+                                onCheckedChange = { onToggle1kmGrid(it) }
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("100m Grid Lines (Unlabeled)", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                Text("Displays fine unlabeled 100m sub-grid", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Switch(
+                                checked = show100mGrid,
+                                onCheckedChange = { onToggle100mGrid(it) }
+                            )
+                        }
+
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("Off-Course Drift Cool-off:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                            Text("Cool-off when course drifts further (seconds)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                listOf(1L, 2L, 3L, 5L).forEach { sec ->
+                                    FilterChip(
+                                        selected = driftCoolOffSec == sec,
+                                        onClick = { onSelectDriftCoolOffSec(sec) },
+                                        label = { Text("${sec}s", style = MaterialTheme.typography.labelSmall) }
+                                    )
+                                }
+                            }
+                        }
+
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("Off-Course Steady Cool-off:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                            Text("Cool-off when holding steady off-course heading (seconds)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                listOf(5L, 10L, 15L, 30L).forEach { sec ->
+                                    FilterChip(
+                                        selected = steadyCoolOffSec == sec,
+                                        onClick = { onSelectSteadyCoolOffSec(sec) },
+                                        label = { Text("${sec}s", style = MaterialTheme.typography.labelSmall) }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showSettingsDialog = false }) {
+                        Text("Close")
+                    }
+                }
+            )
+        }
     }
+}
+
+private fun computeIntelligentLabelAngle(
+    wp: Waypoint,
+    attachedLegs: List<Leg>,
+    isLegView: Boolean,
+    legBearing: Double
+): Double {
+    if (attachedLegs.isEmpty()) return Math.toRadians(45.0)
+
+    val angles = attachedLegs.map { leg ->
+        val otherWp = if (leg.start == wp) leg.target else leg.start
+        var bearing = wp.bearingTo(otherWp)
+        if (isLegView) {
+            bearing -= legBearing
+        }
+        Math.toRadians(bearing)
+    }.sorted()
+
+    if (angles.size == 1) {
+        return angles[0] + Math.PI
+    }
+
+    var maxGap = 0.0
+    var bestBisector = angles[0] + Math.PI
+
+    for (i in angles.indices) {
+        val nextIdx = (i + 1) % angles.size
+        var gap = angles[nextIdx] - angles[i]
+        if (gap < 0) gap += 2.0 * Math.PI
+
+        if (gap > maxGap) {
+            maxGap = gap
+            bestBisector = angles[i] + gap / 2.0
+        }
+    }
+
+    return bestBisector
 }

@@ -51,6 +51,7 @@ class DiagnosticForegroundService : Service() {
         super.onCreate()
         ekfEngine = DiagnosticEkf()
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
+        HikeRepository.initTts(this)
 
         stepDetector = PdrStepDetector(this) { headingRawRad, timestampMs ->
             ekfEngine.onStepDetected(headingRawRad, timestampMs)
@@ -104,6 +105,7 @@ class DiagnosticForegroundService : Service() {
         stepDetector.start()
         startLocationUpdates(activeGpsIntervalMs)
         start1HzPredictionTicker()
+        HikeRepository.startHike(HikeRepository.activeRoute.value)
         HikeRepository.setTracking(true)
     }
 
@@ -114,6 +116,7 @@ class DiagnosticForegroundService : Service() {
         if (wakeLock?.isHeld == true) {
             wakeLock?.release()
         }
+        HikeRepository.stopHike()
         HikeRepository.setTracking(false)
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()

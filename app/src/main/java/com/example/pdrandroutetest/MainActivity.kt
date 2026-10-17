@@ -38,6 +38,7 @@ import androidx.core.content.ContextCompat
 import com.example.pdrandroutetest.ui.ControlPanel
 import com.example.pdrandroutetest.ui.DiagnosticViewModel
 import com.example.pdrandroutetest.ui.MapScreen
+import com.example.pdrandroutetest.ui.NavigationMessagePanel
 import com.example.pdrandroutetest.ui.TelemetryDashboard
 import com.example.pdrandroutetest.ui.theme.PDRWithEKFTestTheme
 
@@ -59,6 +60,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        viewModel.initTts(this)
 
         setContent {
             PDRWithEKFTestTheme {
@@ -125,6 +127,15 @@ fun MainDiagnosticScreen(
     val gpsIntervalMs by viewModel.gpsPollingIntervalMs.collectAsState()
     val breadcrumbs by viewModel.breadcrumbs.collectAsState()
     val activeRoute by viewModel.activeRoute.collectAsState()
+    val currentTargetWaypoint by viewModel.currentTargetWaypoint.collectAsState()
+    val show1kmGrid by viewModel.show1kmGrid.collectAsState()
+    val show100mGrid by viewModel.show100mGrid.collectAsState()
+    val isLegView by viewModel.isLegView.collectAsState()
+    val activeLeg by viewModel.activeLeg.collectAsState()
+    val driftCoolOffSec by viewModel.driftCoolOffSec.collectAsState()
+    val steadyCoolOffSec by viewModel.steadyCoolOffSec.collectAsState()
+    val navigationMessages by viewModel.navigationMessages.collectAsState()
+    val relativeBearingCorrection by viewModel.relativeBearingCorrection.collectAsState()
 
     val isPlaybackPlaying by viewModel.isPlaybackPlaying.collectAsState()
     val isPlaybackPaused by viewModel.isPlaybackPaused.collectAsState()
@@ -213,10 +224,25 @@ fun MainDiagnosticScreen(
         ) {
             TelemetryDashboard(ekfState = ekfState)
 
+            NavigationMessagePanel(messages = navigationMessages)
+
             MapScreen(
                 route = activeRoute,
                 breadcrumbs = breadcrumbs,
                 activeEkfState = ekfState,
+                currentTargetWaypoint = currentTargetWaypoint,
+                show1kmGrid = show1kmGrid,
+                show100mGrid = show100mGrid,
+                isLegView = isLegView,
+                activeLeg = activeLeg,
+                driftCoolOffSec = driftCoolOffSec,
+                steadyCoolOffSec = steadyCoolOffSec,
+                relativeBearingCorrection = relativeBearingCorrection,
+                onToggle1kmGrid = { viewModel.setShow1kmGrid(it) },
+                onToggle100mGrid = { viewModel.setShow100mGrid(it) },
+                onToggleLegView = { viewModel.setLegView(it) },
+                onSelectDriftCoolOffSec = { viewModel.setDriftCoolOffSec(it) },
+                onSelectSteadyCoolOffSec = { viewModel.setSteadyCoolOffSec(it) },
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
@@ -243,6 +269,8 @@ fun MainDiagnosticScreen(
                 onPlayPlayback = { viewModel.startPlayback() },
                 onPausePlayback = { viewModel.pausePlayback() },
                 onStopPlayback = { viewModel.stopPlayback() },
+                onStepBackPlayback = { viewModel.stepBackPlayback() },
+                onStepForwardPlayback = { viewModel.stepForwardPlayback() },
                 onSpeedSelected = { speed -> viewModel.setPlaybackSpeed(speed) }
             )
         }

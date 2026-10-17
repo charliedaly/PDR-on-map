@@ -8,7 +8,9 @@ class Waypoint(
     override val altitude: Double = 0.0,
     val name: String = "",
     val description: String = "",
-    var legDescription: String? = null
+    var legDescription: String? = null,
+    val arrive: Double = 10.0,
+    val approach: Double = 40.0
 ) : Location(x, y, altitude) {
 
     companion object {
@@ -18,9 +20,11 @@ class Waypoint(
             altitude: Double = 0.0,
             threshold: Double? = null,
             description: String = "",
-            legDescription: String? = null
+            legDescription: String? = null,
+            arrive: Double = 15.0,
+            approach: Double = 100.0
         ): Waypoint {
-            val (lat, lon) = CoordinateUtils.metricToLatLon(Location(0.0, 0.0)) // internal helper call placeholder
+            val (lat, lon) = CoordinateUtils.metricToLatLon(Location(0.0, 0.0))
             val loc = CoordinateUtils.latLonToMetric(lat, lon)
             return Waypoint(
                 x = loc.x,
@@ -28,7 +32,9 @@ class Waypoint(
                 altitude = altitude,
                 name = name,
                 description = description,
-                legDescription = legDescription
+                legDescription = legDescription,
+                arrive = threshold ?: arrive,
+                approach = approach
             )
         }
 
@@ -39,7 +45,9 @@ class Waypoint(
             altitude: Double = 0.0,
             threshold: Double? = null,
             description: String = "",
-            legDescription: String? = null
+            legDescription: String? = null,
+            arrive: Double = 15.0,
+            approach: Double = 100.0
         ): Waypoint {
             val loc = CoordinateUtils.latLonToMetric(lat, lon)
             return Waypoint(
@@ -48,7 +56,9 @@ class Waypoint(
                 altitude = altitude,
                 name = name,
                 description = description,
-                legDescription = legDescription
+                legDescription = legDescription,
+                arrive = threshold ?: arrive,
+                approach = approach
             )
         }
 
@@ -58,7 +68,9 @@ class Waypoint(
             y: Double,
             altitude: Double = 0.0,
             description: String = "",
-            legDescription: String? = null
+            legDescription: String? = null,
+            arrive: Double = 15.0,
+            approach: Double = 100.0
         ): Waypoint {
             return Waypoint(
                 x = x,
@@ -66,7 +78,9 @@ class Waypoint(
                 altitude = altitude,
                 name = name,
                 description = description,
-                legDescription = legDescription
+                legDescription = legDescription,
+                arrive = arrive,
+                approach = approach
             )
         }
     }
