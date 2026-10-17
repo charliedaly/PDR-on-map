@@ -1,5 +1,6 @@
 package com.example.pdrandroutetest.hike
 
+import com.example.pdrandroutetest.config.HikeConfig
 import com.example.pdrandroutetest.data.EkfState
 import com.example.pdrandroutetest.model.Breadcrumb
 import com.example.pdrandroutetest.model.Leg
@@ -7,6 +8,7 @@ import com.example.pdrandroutetest.model.Location
 import com.example.pdrandroutetest.model.Route
 import kotlin.math.abs
 import kotlin.math.round
+import kotlin.math.sqrt
 
 enum class LegState {
     TARGET_REACHED,
@@ -17,6 +19,11 @@ enum class LegState {
     OFFCOURSE,
     OK
 }
+
+data class HikeResult(
+    val state: LegState,
+    val message: String?
+)
 
 class LegAnnouncementTracker {
     var announcedLegStart: Boolean = false
@@ -34,7 +41,7 @@ class LegAnnouncementTracker {
     }
 }
 
-class Hike(val route: Route?) {
+class Hike(val route: Route?, val config: HikeConfig = HikeConfig()) {
     private val _breadcrumbs = mutableListOf<Breadcrumb>()
     val breadcrumbs: List<Breadcrumb>
         get() = _breadcrumbs.toList()
@@ -51,9 +58,6 @@ class Hike(val route: Route?) {
     var isActive: Boolean = true
         private set
 
-    var driftCoolOffSec: Long = 4L
-    var steadyCoolOffSec: Long = 6L
-
     val tracker = LegAnnouncementTracker()
 
     private var breadcrumbIdSeq = 1L
@@ -64,6 +68,16 @@ class Hike(val route: Route?) {
 
     fun stop() {
         isActive = false
+    }
+
+    fun setCurrentLegIndex(index: Int) {
+        val routeLegs = route?.legs ?: return
+        if (index in routeLegs.indices) {
+            currentLegIndex = index
+            currentLeg = routeLegs[index]
+            tracker.reset()
+            isCompleted = false
+        }
     }
 
     fun relativeBearingCorrection(location: Location, ekfState: EkfState? = null): Double {
@@ -98,10 +112,13 @@ class Hike(val route: Route?) {
         val leg = currentLeg ?: return LegState.HIKE_ENDED
         if (isCompleted) return LegState.HIKE_ENDED
 
+        val arriveRadius = if (leg.target.arrive != 10.0) leg.target.arrive else config.arriveThresholdMeters
+        val approachRadius = if (leg.target.approach != 40.0) leg.target.approach else config.approachThresholdMeters
+
         // 1. TARGET_REACHED & 2. HIKE_ENDED
         if (!tracker.announcedReached) {
             val distanceToTarget = location.distanceTo(leg.target)
-            if (distanceToTarget < leg.target.arrive) {
+            if (distanceToTarget < arriveRadius) {
                 tracker.announcedReached = true
                 return if (leg.next == null) {
                     tracker.announcedHikeEnded = true
@@ -113,14 +130,14 @@ class Hike(val route: Route?) {
         }
 
         // 2. HIKE_ENDED (fallback check if already marked)
-        if (!tracker.announcedHikeEnded && leg.next == null && location.distanceTo(leg.target) < leg.target.arrive) {
+        if (!tracker.announcedHikeEnded && leg.next == null && location.distanceTo(leg.target) < arriveRadius) {
             tracker.announcedHikeEnded = true
             return LegState.HIKE_ENDED
         }
 
         // 3. TOO_FAR
         if (!tracker.announcedTooFar) {
-            if (isPastTarget(location, leg)) {
+            if (isPastTarget(location, leg, arriveRadius)) {
                 tracker.announcedTooFar = true
                 return LegState.TOO_FAR
             }
@@ -129,7 +146,7 @@ class Hike(val route: Route?) {
         // 4. APPROACHING_TARGET
         if (!tracker.announcedApproaching) {
             val distanceToTarget = location.distanceTo(leg.target)
-            if (distanceToTarget < leg.target.approach) {
+            if (distanceToTarget < approachRadius) {
                 tracker.announcedApproaching = true
                 return LegState.APPROACHING_TARGET
             }
@@ -142,7 +159,7 @@ class Hike(val route: Route?) {
                 tracker.announcedLegStart = true
             } else {
                 val distanceFromStart = location.distanceTo(leg.start)
-                if (distanceFromStart > leg.start.arrive) {
+                if (distanceFromStart > arriveRadius) {
                     tracker.announcedLegStart = true
                     return LegState.LEG_START
                 }
@@ -150,20 +167,28 @@ class Hike(val route: Route?) {
         }
 
         // 6. OFFCOURSE
-        val requiredBearing = location.bearingTo(leg.target)
-        val hikerBearing = ekfState?.let { Math.toDegrees(it.bearingRad.value) }
-            ?: previousLocation?.bearingTo(location)
-            ?: requiredBearing
+        if (ekfState?.speedMps?.value ?: 0.0 >= config.offCourseMinSpeedMps) {
+            val requiredBearing = location.bearingTo(leg.target)
+            val hikerBearing = ekfState?.let { Math.toDegrees(it.bearingRad.value) }
+                ?: previousLocation?.bearingTo(location)
+                ?: requiredBearing
 
-        val bearingOffset = angleDifference(hikerBearing, requiredBearing)
-        if (bearingOffset > 10.0) {
-            val isDriftingFurther = bearingOffset > (lastOffCourseOffset + 2.0)
-            val coolOffMs = if (isDriftingFurther) driftCoolOffSec * 1000L else steadyCoolOffSec * 1000L
+            val bearingOffset = angleDifference(hikerBearing, requiredBearing)
 
-            if (currentTimeMs - lastOffCourseTimeMs >= coolOffMs) {
-                lastOffCourseTimeMs = currentTimeMs
-                lastOffCourseOffset = bearingOffset
-                return LegState.OFFCOURSE
+            val bearingVariance = ekfState?.bearingRad?.variance ?: 0.0
+            val bearingStdDevDeg = Math.toDegrees(sqrt(bearingVariance))
+            val twoSigmaUncertaintyDeg = 2.0 * bearingStdDevDeg
+
+            if (bearingOffset > config.offCourseHeadingDevDeg + twoSigmaUncertaintyDeg) {
+                val isDriftingFurther = bearingOffset > (lastOffCourseOffset + 2.0)
+                val coolOffMs =
+                    if (isDriftingFurther) config.driftCoolOffSec * 1000L else config.steadyCoolOffSec * 1000L
+
+                if (currentTimeMs - lastOffCourseTimeMs >= coolOffMs) {
+                    lastOffCourseTimeMs = currentTimeMs
+                    lastOffCourseOffset = bearingOffset
+                    return LegState.OFFCOURSE
+                }
             }
         }
 
@@ -171,7 +196,7 @@ class Hike(val route: Route?) {
         return LegState.OK
     }
 
-    private fun isPastTarget(p: Location, leg: Leg): Boolean {
+    private fun isPastTarget(p: Location, leg: Leg, arriveRadius: Double): Boolean {
         val abx = leg.target.x - leg.start.x
         val aby = leg.target.y - leg.start.y
         val apx = p.x - leg.start.x
@@ -183,7 +208,7 @@ class Hike(val route: Route?) {
         val t = (apx * abx + apy * aby) / abLenSq
         val distToTarget = p.distanceTo(leg.target)
 
-        return t > 1.05 && distToTarget > leg.target.arrive
+        return t > 1.05 && distToTarget > arriveRadius
     }
 
     private fun angleDifference(a: Double, b: Double): Double {
@@ -230,7 +255,7 @@ class Hike(val route: Route?) {
         timestampMs: Long = System.currentTimeMillis(),
         isGpsFix: Boolean = false,
         ekfState: EkfState? = null
-    ): String? {
+    ): HikeResult? {
         if (!isActive) return null
 
         val breadcrumb = Breadcrumb(
@@ -274,6 +299,6 @@ class Hike(val route: Route?) {
 
         val msg = stringify(state, leg, ekfState, location)
         previousLocation = location
-        return msg
+        return HikeResult(state, msg)
     }
 }

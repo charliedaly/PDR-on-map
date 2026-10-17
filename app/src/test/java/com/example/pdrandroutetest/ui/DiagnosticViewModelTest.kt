@@ -99,13 +99,13 @@ class DiagnosticViewModelTest {
 
     @Test
     fun `grid visibility setters update ViewModel state flows`() {
-        assertFalse(viewModel.show1kmGrid.value)
-        assertFalse(viewModel.show100mGrid.value)
+        assertFalse(viewModel.mapConfig.value.show1kmGrid)
+        assertFalse(viewModel.mapConfig.value.show100mGrid)
 
         viewModel.setShow1kmGrid(true)
-        assertTrue(viewModel.show1kmGrid.value)
+        assertTrue(viewModel.mapConfig.value.show1kmGrid)
 
         viewModel.setShow100mGrid(true)
-        assertTrue(viewModel.show100mGrid.value)
+        assertTrue(viewModel.mapConfig.value.show100mGrid)
     }
 }

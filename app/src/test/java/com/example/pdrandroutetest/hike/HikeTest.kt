@@ -2,6 +2,7 @@ package com.example.pdrandroutetest.hike
 
 import com.example.pdrandroutetest.data.EkfState
 import com.example.pdrandroutetest.data.Estimate
+import com.example.pdrandroutetest.data.Vector2D
 import com.example.pdrandroutetest.model.Location
 import com.example.pdrandroutetest.model.Route
 import com.example.pdrandroutetest.model.Waypoint
@@ -101,16 +102,16 @@ class HikeTest {
     @Test
     fun `OFFCOURSE cool-off logic respects 2s drift and 15s steady thresholds`() {
         val route = create300mSampleRoute()
-        val hike = Hike(route).apply {
-            driftCoolOffSec = 2L
-            steadyCoolOffSec = 15L
-        }
+        val hike = Hike(route, com.example.pdrandroutetest.config.HikeConfig(driftCoolOffSec = 2L, steadyCoolOffSec = 15L))
 
         // Mark LEG_START as announced
         hike.evaluateLegState(Location(0.0, 20.0), currentTimeMs = 1000L)
 
-        // First OFFCOURSE event at t = 2000ms with 30-deg deviation
-        val ekf1 = EkfState(bearingRad = Estimate(Math.toRadians(30.0), 0.01))
+        // First OFFCOURSE event at t = 2000ms with 30-deg deviation at speed >= 0.4 m/s
+        val ekf1 = EkfState(
+            velocity = Estimate(Vector2D(0.0, 1.2), 0.01),
+            bearingRad = Estimate(Math.toRadians(30.0), 0.0001)
+        )
         val stateOffCourse1 = hike.evaluateLegState(Location(0.0, 20.0), ekfState = ekf1, currentTimeMs = 2000L)
         assertEquals(LegState.OFFCOURSE, stateOffCourse1)
 
@@ -119,7 +120,10 @@ class HikeTest {
         assertEquals(LegState.OK, stateOffCourse2)
 
         // At t = 4500ms (2500ms after first offcourse), drifting further to 40-deg (> last + 2.0) -> triggers 2s cool-off
-        val ekf2 = EkfState(bearingRad = Estimate(Math.toRadians(40.0), 0.01))
+        val ekf2 = EkfState(
+            velocity = Estimate(Vector2D(0.0, 1.2), 0.01),
+            bearingRad = Estimate(Math.toRadians(40.0), 0.0001)
+        )
         val stateOffCourse3 = hike.evaluateLegState(Location(0.0, 20.0), ekfState = ekf2, currentTimeMs = 4500L)
         assertEquals(LegState.OFFCOURSE, stateOffCourse3)
     }
@@ -157,21 +161,24 @@ class HikeTest {
         val route = create300mSampleRoute()
         val hike = Hike(route)
 
-        val msg1 = hike.update(Location(0.0, 20.0), 1000L, true)
-        assertNotNull(msg1)
-        assertTrue(msg1!!.contains("Starting leg"))
+        val res1 = hike.update(Location(0.0, 20.0), 1000L, true)
+        assertNotNull(res1)
+        assertNotNull(res1?.message)
+        assertTrue(res1!!.message!!.contains("Starting leg"))
         assertEquals(0, hike.currentLegIndex)
 
         // Reach WP2 (at 300m)
-        val msg2 = hike.update(Location(0.0, 295.0), 2000L, true)
-        assertNotNull(msg2)
-        assertTrue(msg2!!.contains("Reached waypoint"))
+        val res2 = hike.update(Location(0.0, 295.0), 2000L, true)
+        assertNotNull(res2)
+        assertNotNull(res2?.message)
+        assertTrue(res2!!.message!!.contains("Reached waypoint"))
         assertEquals(1, hike.currentLegIndex)
 
         // Reach Finish (at 600m)
-        val msg3 = hike.update(Location(0.0, 595.0), 3000L, true)
-        assertNotNull(msg3)
-        assertTrue(msg3!!.contains("Congratulations"))
+        val res3 = hike.update(Location(0.0, 595.0), 3000L, true)
+        assertNotNull(res3)
+        assertNotNull(res3?.message)
+        assertTrue(res3!!.message!!.contains("Congratulations"))
         assertTrue(hike.isCompleted)
     }
 
@@ -186,8 +193,8 @@ class HikeTest {
         hike.stop()
         assertFalse(hike.isActive)
 
-        val msg = hike.update(Location(0.0, 60.0), 2000L, true)
-        assertNull(msg)
+        val res = hike.update(Location(0.0, 60.0), 2000L, true)
+        assertNull(res)
         assertEquals(1, hike.breadcrumbs.size)
     }
 }

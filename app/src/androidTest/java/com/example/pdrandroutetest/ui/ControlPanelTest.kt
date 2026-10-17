@@ -7,7 +7,6 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -20,16 +19,13 @@ class ControlPanelTest {
     val composeTestRule = createComposeRule()
 
     @Test
-    fun controlPanel_withoutLoadedTrack_showsIntervalOptionsAndTrackingControls() {
+    fun controlPanel_withoutLoadedTrack_showsTrackingControls() {
         var trackingToggled = false
-        var selectedInterval = 0L
 
         composeTestRule.setContent {
             ControlPanel(
                 isTracking = false,
-                currentIntervalMs = 1000L,
                 onToggleTracking = { trackingToggled = true },
-                onIntervalSelected = { selectedInterval = it },
                 onLoadTrack = {},
                 hasLoadedTrack = false,
                 isPlaybackPlaying = false,
@@ -46,15 +42,12 @@ class ControlPanelTest {
             )
         }
 
-        composeTestRule.onNodeWithText("GPS Polling Interval:").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Live PDR Tracking:").assertIsDisplayed()
         composeTestRule.onNodeWithText("Start Tracking").assertIsDisplayed()
         composeTestRule.onNodeWithText("Load Track").assertIsDisplayed()
 
         composeTestRule.onNodeWithText("Start Tracking").performClick()
         assertTrue(trackingToggled)
-
-        composeTestRule.onNodeWithText("10s").performClick()
-        assertEquals(10000L, selectedInterval)
     }
 
     @Test
@@ -66,9 +59,7 @@ class ControlPanelTest {
         composeTestRule.setContent {
             ControlPanel(
                 isTracking = false,
-                currentIntervalMs = 1000L,
                 onToggleTracking = {},
-                onIntervalSelected = {},
                 onLoadTrack = {},
                 hasLoadedTrack = true,
                 isPlaybackPlaying = false,
@@ -107,9 +98,7 @@ class ControlPanelTest {
         composeTestRule.setContent {
             ControlPanel(
                 isTracking = false,
-                currentIntervalMs = 1000L,
                 onToggleTracking = {},
-                onIntervalSelected = {},
                 onLoadTrack = {},
                 hasLoadedTrack = true,
                 isPlaybackPlaying = false,

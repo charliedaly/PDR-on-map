@@ -6,7 +6,10 @@ import android.speech.tts.UtteranceProgressListener
 import android.util.Log
 import java.util.Locale
 
-class TtsManager(context: Context) : TextToSpeech.OnInitListener {
+class TtsManager(
+    context: Context,
+    private val onSpeechDone: (() -> Unit)? = null
+) : TextToSpeech.OnInitListener {
 
     private var tts: TextToSpeech? = TextToSpeech(context.applicationContext, this)
     private var isInitialized = false
@@ -22,17 +25,20 @@ class TtsManager(context: Context) : TextToSpeech.OnInitListener {
             override fun onDone(utteranceId: String?) {
                 isSpeaking = false
                 Log.d("TtsManager", "TTS Done: $utteranceId")
+                onSpeechDone?.invoke()
             }
 
             @Deprecated("Deprecated in Java")
             override fun onError(utteranceId: String?) {
                 isSpeaking = false
                 Log.e("TtsManager", "TTS Error: $utteranceId")
+                onSpeechDone?.invoke()
             }
 
             override fun onError(utteranceId: String?, errorCode: Int) {
                 isSpeaking = false
                 Log.e("TtsManager", "TTS Error ($errorCode): $utteranceId")
+                onSpeechDone?.invoke()
             }
         })
     }
@@ -45,12 +51,15 @@ class TtsManager(context: Context) : TextToSpeech.OnInitListener {
             }
             isInitialized = true
             Log.i("TtsManager", "TextToSpeech initialized successfully.")
+            onSpeechDone?.invoke()
         } else {
             Log.e("TtsManager", "TextToSpeech initialization failed with status: $status")
         }
     }
 
-    fun speak(text: String, queueMode: Int = TextToSpeech.QUEUE_ADD) {
+    fun isReady(): Boolean = isInitialized
+
+    fun speak(text: String, queueMode: Int = TextToSpeech.QUEUE_FLUSH) {
         if (!isInitialized || text.isBlank()) return
 
         val utteranceId = "HikeMsg_${System.currentTimeMillis()}"

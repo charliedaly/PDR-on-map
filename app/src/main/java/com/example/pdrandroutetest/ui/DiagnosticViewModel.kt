@@ -6,6 +6,8 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.pdrandroutetest.config.HikeConfig
+import com.example.pdrandroutetest.config.MapConfig
 import com.example.pdrandroutetest.data.EkfState
 import com.example.pdrandroutetest.model.Breadcrumb
 import com.example.pdrandroutetest.model.Route
@@ -27,17 +29,28 @@ class DiagnosticViewModel : ViewModel() {
     val ekfState: StateFlow<EkfState> = HikeRepository.ekfStateFlow
     val isTracking: StateFlow<Boolean> = HikeRepository.isTracking
     val gpsPollingIntervalMs: StateFlow<Long> = HikeRepository.gpsPollingIntervalMs
+    val mapConfig: StateFlow<MapConfig> = HikeRepository.mapConfig
+    val hikeConfig: StateFlow<HikeConfig> = HikeRepository.hikeConfig
     val activeRoute: StateFlow<Route?> = HikeRepository.activeRoute
-    val show1kmGrid: StateFlow<Boolean> = HikeRepository.show1kmGrid
-    val show100mGrid: StateFlow<Boolean> = HikeRepository.show100mGrid
-    val isLegView: StateFlow<Boolean> = HikeRepository.isLegView
-    val driftCoolOffSec: StateFlow<Long> = HikeRepository.driftCoolOffSec
-    val steadyCoolOffSec: StateFlow<Long> = HikeRepository.steadyCoolOffSec
     val hikeMessage: StateFlow<String?> = HikeRepository.hikeMessage
     val navigationMessages: StateFlow<List<com.example.pdrandroutetest.hike.NavigationMessage>> = HikeRepository.navigationMessages
     val relativeBearingCorrection: StateFlow<Double> = HikeRepository.relativeBearingCorrection
     val currentTargetWaypoint: StateFlow<com.example.pdrandroutetest.model.Waypoint?> = HikeRepository.currentTargetWaypoint
     val activeLeg: StateFlow<com.example.pdrandroutetest.model.Leg?> = HikeRepository.activeLeg
+    val currentLegIndex: StateFlow<Int> = HikeRepository.currentLegIndex
+
+    fun goToPreviousLeg() {
+        val hike = HikeRepository.activeHike ?: return
+        val newIndex = (hike.currentLegIndex - 1).coerceAtLeast(0)
+        HikeRepository.setCurrentLegIndex(newIndex)
+    }
+
+    fun goToNextLeg() {
+        val hike = HikeRepository.activeHike ?: return
+        val routeLegs = HikeRepository.activeRoute.value?.legs ?: return
+        val newIndex = (hike.currentLegIndex + 1).coerceAtMost(routeLegs.size - 1)
+        HikeRepository.setCurrentLegIndex(newIndex)
+    }
 
     val isPlaybackPlaying: StateFlow<Boolean> = HikeRepository.telemetryPlaybackEngine.isPlaying
     val isPlaybackPaused: StateFlow<Boolean> = HikeRepository.telemetryPlaybackEngine.isPaused
@@ -63,7 +76,7 @@ class DiagnosticViewModel : ViewModel() {
             } ?: return
             val routeName = RouteParser.extractRouteNameFromUri(context, uri)
             val parsedRoute = Route.parseFromCsvContent(routeName, csvContent)
-            HikeRepository.setActiveRoute(parsedRoute)
+            HikeRepository.setActiveRouteWithContent(routeName, csvContent, parsedRoute)
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -72,7 +85,15 @@ class DiagnosticViewModel : ViewModel() {
     fun loadSampleRoute() {
         val sampleCsv = RouteParser.generateSampleIrishGridCsv()
         val route = Route.parseFromCsvContent("Sample Irish Route", sampleCsv)
-        HikeRepository.setActiveRoute(route)
+        HikeRepository.setActiveRouteWithContent("Sample Irish Route", sampleCsv, route)
+    }
+
+    fun updateHikeConfig(transform: (HikeConfig) -> HikeConfig) {
+        HikeRepository.updateHikeConfig(transform)
+    }
+
+    fun updateMapConfig(transform: (MapConfig) -> MapConfig) {
+        HikeRepository.updateMapConfig(transform)
     }
 
     fun loadTelemetryTrackFromUri(context: Context, uri: Uri) {
@@ -90,21 +111,15 @@ class DiagnosticViewModel : ViewModel() {
             ).show()
         } catch (e: Exception) {
             e.printStackTrace()
-            Toast.makeText(
-                context,
-                "Failed to load telemetry track: ${e.message}",
-                Toast.LENGTH_LONG
-            ).show()
+            Toast.makeText(context, "Error loading telemetry track", Toast.LENGTH_LONG).show()
         }
     }
 
     fun startPlayback() {
-        if (isTracking.value) {
-            // Stop service tracking before playing back a recorded track
-            HikeRepository.setTracking(false)
+        viewModelScope.launch {
+            _breadcrumbs.value = emptyList()
+            HikeRepository.telemetryPlaybackEngine.play(viewModelScope)
         }
-        _breadcrumbs.value = emptyList()
-        HikeRepository.telemetryPlaybackEngine.play(viewModelScope)
     }
 
     fun pausePlayback() {
@@ -116,45 +131,41 @@ class DiagnosticViewModel : ViewModel() {
     }
 
     fun stepForwardPlayback() {
-        if (isTracking.value) {
-            HikeRepository.setTracking(false)
-        }
         viewModelScope.launch {
             HikeRepository.telemetryPlaybackEngine.stepForward()
+            _breadcrumbs.value = HikeRepository.getBreadcrumbHistory()
         }
     }
 
     fun stepBackPlayback() {
-        if (isTracking.value) {
-            HikeRepository.setTracking(false)
-        }
         viewModelScope.launch {
             HikeRepository.telemetryPlaybackEngine.stepBack()
+            _breadcrumbs.value = HikeRepository.getBreadcrumbHistory()
         }
     }
 
-    fun setPlaybackSpeed(multiplier: Double) {
-        HikeRepository.telemetryPlaybackEngine.setSpeedMultiplier(multiplier)
+    fun setPlaybackSpeed(speed: Double) {
+        HikeRepository.telemetryPlaybackEngine.setSpeedMultiplier(speed)
     }
 
     fun setShow1kmGrid(show: Boolean) {
-        HikeRepository.setShow1kmGrid(show)
+        updateMapConfig { it.copy(show1kmGrid = show) }
     }
 
     fun setShow100mGrid(show: Boolean) {
-        HikeRepository.setShow100mGrid(show)
+        updateMapConfig { it.copy(show100mGrid = show) }
     }
 
     fun setLegView(isLeg: Boolean) {
-        HikeRepository.setLegView(isLeg)
+        updateMapConfig { it.copy(isLegView = isLeg) }
     }
 
     fun setDriftCoolOffSec(sec: Long) {
-        HikeRepository.setDriftCoolOffSec(sec)
+        updateHikeConfig { it.copy(driftCoolOffSec = sec) }
     }
 
     fun setSteadyCoolOffSec(sec: Long) {
-        HikeRepository.setSteadyCoolOffSec(sec)
+        updateHikeConfig { it.copy(steadyCoolOffSec = sec) }
     }
 
     fun startTracking(context: Context) {

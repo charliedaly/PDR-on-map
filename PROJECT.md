@@ -14,49 +14,50 @@ The app runs an uninterrupted foreground service holding a partial wake lock, in
 * **GPS Bearing Grid Alignment:** GPS bearings (true North) are converted to metric grid North before being processed in the PDR/EKF pipeline.
 * **Initial GPS Fix EKF Initialization:** When PDR tracking is initiated, the service awaits/fetches an initial GPS fix to establish the EKF origin and initialize the state vector $X_0 = [x_0, y_0, 0, 0, L_0, b_{\theta, 0}]^T$.
 
-### Independent `Hike` Navigation Engine
-* **Session Lifecycle:** An independent `Hike` instance comes into existence when tracking starts (`HikeRepository.startHike`). When tracking stops (`HikeRepository.stopHike`), all background activity ceases while the hike state and trajectory are preserved until tracking is started again (at which point the old state is discarded for a new `Hike`).
+### Independent `Hike` Navigation Engine & Configuration (`HikeConfig`)
+* **Session Lifecycle:** An independent `Hike` instance comes into existence when tracking starts (`HikeRepository.startHike`). When tracking stops (`HikeRepository.stopHike`), all background activity ceases while the hike state and trajectory are preserved until tracking is started again.
+* **Configurable Thresholds (`HikeConfig`):** All navigation magic numbers (arrival threshold, approach threshold, off-course heading deviation, minimum speed, drift cool-off, and steady cool-off) are encapsulated in `HikeConfig` and fully adjustable via the Map Settings dialog.
 * **Priority-Ordered Leg Evaluation (`LegState`):** Evaluates progress on the current route leg in strict priority order:
-  1. `TARGET_REACHED` — Distance to target $< \text{leg.target.arrive}$ (15m threshold).
+  1. `TARGET_REACHED` — Distance to target $< \text{arriveThresholdMeters}$ (default $10\text{m}$).
   2. `HIKE_ENDED` — Reached final waypoint of the last leg on the route.
   3. `TOO_FAR` — Hiker has walked past the target along the leg vector ($t > 1.05$).
-  4. `APPROACHING_TARGET` — Distance to target $< \text{leg.target.approach}$ (100m threshold).
-  5. `LEG_START` — Leaving the start waypoint ($> 15\text{m}$ from start waypoint). Suppressed if `TARGET_REACHED`, `HIKE_ENDED`, `TOO_FAR`, or `APPROACHING_TARGET` has already occurred on short legs.
-  6. `OFFCOURSE` — Heading/bearing deviates by $> 10^\circ$ from the required bearing to target.
+  4. `APPROACHING_TARGET` — Distance to target $< \text{approachThresholdMeters}$ (default $40\text{m}$).
+  5. `LEG_START` — Leaving the start waypoint.
+  6. `OFFCOURSE` — Heading/bearing deviates by $> 10^\circ$ (accounting for 2-sigma EKF heading variance).
   7. `OK` — On track; no announcement needed.
-* **Relative Bearing Correction:** `relativeBearingCorrection(location, ekfState)` returns angle offset in range $[-180.0, +180.0]$ (positive if heading is too far left and needs right correction, negative if facing too far right). `bearingCorrectionString` converts this to `"plus X degrees"` or `"minus X degrees"`.
-* **One-Time Announcement Flags:** Messages 1 through 5 (`TARGET_REACHED`, `HIKE_ENDED`, `TOO_FAR`, `APPROACHING_TARGET`, `LEG_START`) are checked via boolean flags (`LegAnnouncementTracker`) before running geometric calculations to prevent duplicate announcements and save CPU cycles.
-* **Dynamic Off-Course Cool-off Settings:** Configurable cool-off values for drift ($1\text{s} - 5\text{s}$, default $2\text{s}$) and steady off-course heading ($5\text{s} - 30\text{s}$, default $15\text{s}$) exposed in Map Settings.
-* **TTS Message Generation (`stringify`):** Combines `LegState`, current `Leg`, `EkfState`, and relative bearing correction string into text messages emitted to `HikeRepository.hikeMessage` for Android Text-To-Speech playback.
+* **TTS Queueing & Pruning:** Maintains a synchronized TTS message queue (`TtsQueueItem`). Outdated `OFFCOURSE` messages are automatically purged and replaced by the newest off-course correction, ensuring only fresh prompts are spoken sequentially without overlap.
 
 ### Telemetry Playback Engine & Interactive Controls
 * **Deterministic Replay:** Ingests recorded CSV telemetry files and replays events sequentially through the EKF and `Hike` engine.
 * **Playback Controls:** Provides `⏮` Step Back, `▶` Play / `⏸` Pause, `⏭` Step Forward, and `⏹` Stop controls with adjustable playback speed multiplier ($1\times - 10\times$).
-* **Step Back Engine:** Synchronously resets EKF and re-executes trajectory up to the previous index for instant, accurate map state updates.
 
-### Custom Map Canvas, Grid Overlays & Leg View Transitions
-* **Intelligent Waypoint Name Placement:** Renders waypoint names on the map canvas using bisector angle placement relative to connected leg vectors, preventing text from crossing route leg lines.
-* **Animated Leg Transitions:** Animates leg changes in Leg View over 2 seconds (20 steps). Interpolates start/target positions and applies scale rules (preserving scale for shorter legs or $<75\%$ viewport height; reducing scale so new leg height matches $75\%$ viewport height).
-* **Interactive Compass View Toggle:** The compass needle badge in the upper-right corner doubles as an interactive button. Clicking it toggles between **Map View** (North-up) and **Leg View** (leg-focused with start at bottom and target at top).
-* **Settings Window:** Accessed via a gear icon (`⚙`) in the lower-right corner of the map canvas. Allows configuring 1km labeled grid overlay, 100m unlabeled grid overlay, and off-course cooldown periods.
+### Persistence (`AppPreferences`) & Custom Map Canvas
+* **Full State Persistence (`AppPreferences`):** Automatically saves and restores across app restarts:
+  - View mode (`MapConfig`: Map View vs. Leg View, 1km grid, 100m grid).
+  - Navigation settings (`HikeConfig`: thresholds and cool-off intervals).
+  - Previously loaded course (route name and CSV content).
+* **Rotated Grid Overlays:** 1km labeled grid lines and 100m unlabeled sub-grid lines are fully visible in both Map View and Leg View (correctly rotated along the grid axis).
+* **Intelligent Waypoint Name Placement:** Renders waypoint names using angular bisector placement relative to connected leg vectors to avoid crossing leg lines.
+* **Animated Leg Transitions:** Animates leg changes in Leg View over 2 seconds (20 steps) with dynamic scale rules.
 
 ---
 
-## 3. UI & Screen Specifications (Four Core Components)
+## 3. UI & Screen Specifications (Five Core Components)
 
 1. **Header / Title Section:**
-   * **Unloaded State:** Displays a primary option/button to load a CSV route file.
-   * **Loaded State:** Displays Route Title, number of legs, and total route length in kilometers/meters, while retaining an option to load a new Route file at any time.
+   * **Unloaded State:** Displays an option to load a CSV route file or sample route.
+   * **Loaded State:** Displays Route Title, number of legs, and total route length in kilometers/meters.
 
-2. **Telemetry Dashboard:**
-   * Displays current 6-State EKF values in real-time:
-     * **Pos (x, y)** with position error/variance placed underneath.
-     * **Bearing** with heading error/variance placed underneath.
-     * **Speed** with velocity error/variance placed underneath.
-     * **Step / Stride Length ($L$)** with stride variance placed underneath.
-     * **Compass Bias ($b_\theta$)** with bias variance placed underneath.
+2. **Hike Navigation Panel (`HikeNavigationPanel`):**
+   * Located directly above the telemetry viewport.
+   * **Line 1:** Leg label and three icon-only buttons (Left Arrow to move leg back, Right Arrow to move leg forward, and Pencil for future leg editing).
+   * **Line 2:** Current leg summary (`StartName ➔ Bearing° • Lengthm ➔ TargetName`).
+   * **Line 3:** Hiker telemetry (`Grid: 6-digit Irish Grid • Hdg: Bearing° • Dist: Target Distm • Spd: Speed m/s`).
 
-3. **Maximized Abstract Map Canvas:**
+3. **Telemetry Dashboard:**
+   * Displays current 6-State EKF values in real-time (Position, Bearing, Speed, Stride Length $L$, Compass Bias $b_\theta$).
+
+4. **Maximized Abstract Map Canvas:**
    * Maximized Compose Canvas auto-scaled to encompass all route waypoints, active leg, and recorded breadcrumbs.
    * Upper-right controls include the interactive Compass Button (toggling Map View / Leg View) and relative bearing indicator.
-   * Lower-right controls include "Fit All" view recentering and the Settings gear button (`⚙`) for grid overlays and off-course cooldowns.
+   * Lower-right controls include "Fit All" view recentering and the Settings gear button (`⚙`) for comprehensive grid overlays and navigation threshold configurations.

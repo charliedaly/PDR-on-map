@@ -35,8 +35,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import com.example.pdrandroutetest.repository.HikeRepository
 import com.example.pdrandroutetest.ui.ControlPanel
 import com.example.pdrandroutetest.ui.DiagnosticViewModel
+import com.example.pdrandroutetest.ui.HikeNavigationPanel
 import com.example.pdrandroutetest.ui.MapScreen
 import com.example.pdrandroutetest.ui.NavigationMessagePanel
 import com.example.pdrandroutetest.ui.TelemetryDashboard
@@ -60,7 +62,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        viewModel.initTts(this)
+        HikeRepository.initPreferences(this)
 
         setContent {
             PDRWithEKFTestTheme {
@@ -124,16 +126,13 @@ fun MainDiagnosticScreen(
 ) {
     val ekfState by viewModel.ekfState.collectAsState()
     val isTracking by viewModel.isTracking.collectAsState()
-    val gpsIntervalMs by viewModel.gpsPollingIntervalMs.collectAsState()
     val breadcrumbs by viewModel.breadcrumbs.collectAsState()
     val activeRoute by viewModel.activeRoute.collectAsState()
     val currentTargetWaypoint by viewModel.currentTargetWaypoint.collectAsState()
-    val show1kmGrid by viewModel.show1kmGrid.collectAsState()
-    val show100mGrid by viewModel.show100mGrid.collectAsState()
-    val isLegView by viewModel.isLegView.collectAsState()
+    val mapConfig by viewModel.mapConfig.collectAsState()
+    val hikeConfig by viewModel.hikeConfig.collectAsState()
     val activeLeg by viewModel.activeLeg.collectAsState()
-    val driftCoolOffSec by viewModel.driftCoolOffSec.collectAsState()
-    val steadyCoolOffSec by viewModel.steadyCoolOffSec.collectAsState()
+    val currentLegIndex by viewModel.currentLegIndex.collectAsState()
     val navigationMessages by viewModel.navigationMessages.collectAsState()
     val relativeBearingCorrection by viewModel.relativeBearingCorrection.collectAsState()
 
@@ -222,7 +221,18 @@ fun MainDiagnosticScreen(
                 .padding(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            TelemetryDashboard(ekfState = ekfState)
+            HikeNavigationPanel(
+                activeRoute = activeRoute,
+                activeLeg = activeLeg,
+                activeEkfState = ekfState,
+                currentLegIndex = currentLegIndex,
+                onPrevLeg = { viewModel.goToPreviousLeg() },
+                onNextLeg = { viewModel.goToNextLeg() }
+            )
+
+            if (mapConfig.showTelemetryViewport) {
+                TelemetryDashboard(ekfState = ekfState)
+            }
 
             NavigationMessagePanel(messages = navigationMessages)
 
@@ -231,18 +241,13 @@ fun MainDiagnosticScreen(
                 breadcrumbs = breadcrumbs,
                 activeEkfState = ekfState,
                 currentTargetWaypoint = currentTargetWaypoint,
-                show1kmGrid = show1kmGrid,
-                show100mGrid = show100mGrid,
-                isLegView = isLegView,
+                mapConfig = mapConfig,
+                hikeConfig = hikeConfig,
                 activeLeg = activeLeg,
-                driftCoolOffSec = driftCoolOffSec,
-                steadyCoolOffSec = steadyCoolOffSec,
                 relativeBearingCorrection = relativeBearingCorrection,
-                onToggle1kmGrid = { viewModel.setShow1kmGrid(it) },
-                onToggle100mGrid = { viewModel.setShow100mGrid(it) },
-                onToggleLegView = { viewModel.setLegView(it) },
-                onSelectDriftCoolOffSec = { viewModel.setDriftCoolOffSec(it) },
-                onSelectSteadyCoolOffSec = { viewModel.setSteadyCoolOffSec(it) },
+                onUpdateMapConfig = { viewModel.updateMapConfig(it) },
+                onUpdateHikeConfig = { viewModel.updateHikeConfig(it) },
+                onIntervalSelected = onIntervalSelected,
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
@@ -250,7 +255,6 @@ fun MainDiagnosticScreen(
 
             ControlPanel(
                 isTracking = isTracking,
-                currentIntervalMs = gpsIntervalMs,
                 onToggleTracking = {
                     if (isTracking) {
                         onStopTracking()
@@ -258,7 +262,6 @@ fun MainDiagnosticScreen(
                         onRequestPermissionsAndStart()
                     }
                 },
-                onIntervalSelected = onIntervalSelected,
                 onLoadTrack = { trackPickerLauncher.launch("*/*") },
                 hasLoadedTrack = playbackEvents.isNotEmpty(),
                 isPlaybackPlaying = isPlaybackPlaying,

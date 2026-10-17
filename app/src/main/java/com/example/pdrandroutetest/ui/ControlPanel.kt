@@ -25,9 +25,7 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun ControlPanel(
     isTracking: Boolean,
-    currentIntervalMs: Long,
     onToggleTracking: () -> Unit,
-    onIntervalSelected: (Long) -> Unit,
     onLoadTrack: () -> Unit,
     hasLoadedTrack: Boolean,
     isPlaybackPlaying: Boolean,
@@ -43,13 +41,6 @@ fun ControlPanel(
     onSpeedSelected: (Double) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val intervalOptions = listOf(
-        1000L to "1s (1Hz)",
-        10000L to "10s",
-        20000L to "20s",
-        100000L to "100s"
-    )
-
     val speedOptions = listOf(
         1.0 to "1x",
         2.0 to "2x",
@@ -76,7 +67,7 @@ fun ControlPanel(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = if (hasLoadedTrack) "Track Playback:" else "GPS Polling Interval:",
+                    text = if (hasLoadedTrack) "Track Playback:" else "Live PDR Tracking:",
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary
@@ -191,19 +182,6 @@ fun ControlPanel(
                         FilterChip(
                             selected = playbackSpeed == speed,
                             onClick = { onSpeedSelected(speed) },
-                            label = { Text(label, style = MaterialTheme.typography.labelSmall) }
-                        )
-                    }
-                }
-            } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    intervalOptions.forEach { (ms, label) ->
-                        FilterChip(
-                            selected = currentIntervalMs == ms,
-                            onClick = { onIntervalSelected(ms) },
                             label = { Text(label, style = MaterialTheme.typography.labelSmall) }
                         )
                     }

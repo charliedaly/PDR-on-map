@@ -19,33 +19,26 @@
   $$P_k^- = F P_{k-1} F^T + Q$$
   where $F$ is the state transition matrix ($\Delta t = 1.0\text{ s}$) and $Q = \text{diag}(\sigma_x^2, \sigma_y^2, \sigma_{vx}^2, \sigma_{vy}^2, \sigma_L^2, \sigma_{b_\theta}^2)$.
 
-- **PDR Step Integration:**
-  When a step event occurs at measured heading $\theta_{\text{raw}}$:
-  $$v_x = \frac{L \cdot \sin(\theta_{\text{raw}} - b_\theta)}{\Delta t_{\text{step}}}, \quad v_y = \frac{L \cdot \cos(\theta_{\text{raw}} - b_\theta)}{\Delta t_{\text{step}}}$$
-
 ---
 
-## 2. Independent `Hike` Navigation Engine (`com.example.pdrandroutetest.hike`)
+## 2. Independent `Hike` Navigation Engine & Configurations (`HikeConfig`, `MapConfig`)
 
 ### Class Responsibilities & Lifecycle Management
-- **`Hike(val route: Route?)`**: Independent domain class managing active route leg evaluation, trajectory breadcrumbs, and TTS navigation string generation.
-- **Session Lifecycle**: Instantiated via `HikeRepository.startHike(route)` on tracking startup. Stopped via `HikeRepository.stopHike()` on tracking stop, freezing state until a new tracking session replaces it.
-- **`LegAnnouncementTracker`**: Stored per leg to track one-time announcement booleans (`announcedLegStart`, `announcedApproaching`, `announcedTooFar`, `announcedReached`, `announcedHikeEnded`).
+- **`Hike(val route: Route?, val config: HikeConfig)`**: Independent domain class managing active route leg evaluation, trajectory breadcrumbs, and TTS navigation string generation.
+- **`HikeConfig`**: Encapsulates all navigation magic numbers:
+  - `arriveThresholdMeters` ($10.0\text{m}$)
+  - `approachThresholdMeters` ($40.0\text{m}$)
+  - `offCourseHeadingDevDeg` ($10.0^\circ$)
+  - `offCourseMinSpeedMps` ($0.4\text{ m/s}$)
+  - `driftCoolOffSec` ($4\text{s}$)
+  - `steadyCoolOffSec` ($6\text{s}$)
+- **`MapConfig`**: Encapsulates map view states (`isLegView`, `show1kmGrid`, `show100mGrid`).
+- **`AppPreferences`**: Manages SharedPreferences persistence across app restarts for `MapConfig`, `HikeConfig`, and last loaded course CSV content.
 
-### Relative Bearing Correction
-- **`relativeBearingCorrection(location, ekfState)`**: Computes the relative bearing offset between current heading and required bearing to `leg.target` in range $[-180.0, +180.0]$.
-  - $+15.0^\circ$: Facing 15 degrees too far left (correction: 15 degrees to the right).
-  - $-30.0^\circ$: Facing 30 degrees too far right (correction: -30 degrees).
-- **`bearingCorrectionString(location, ekfState)`**: Formats the correction as `"plus X degrees"` or `"minus X degrees"`.
-
-### Evaluation Priority Order (`evaluateLegState`)
-1. **`TARGET_REACHED`**: `if (!tracker.announcedReached)` $\rightarrow$ `distanceToTarget < leg.target.arrive` (15m).
-2. **`HIKE_ENDED`**: `if (leg.next == null)` on final target arrival.
-3. **`TOO_FAR`**: `if (!tracker.announcedTooFar)` $\rightarrow$ `isPastTarget(location, leg)` ($t > 1.05$ along leg vector).
-4. **`APPROACHING_TARGET`**: `if (!tracker.announcedApproaching)` $\rightarrow$ `distanceToTarget < leg.target.approach` (100m).
-5. **`LEG_START`**: `if (!tracker.announcedLegStart)` $\rightarrow$ `distanceFromStart > leg.start.arrive` (15m). Suppressed if `announcedReached`, `announcedHikeEnded`, `announcedTooFar`, or `announcedApproaching` has already occurred on short legs.
-6. **`OFFCOURSE`**: `bearingOffset > 10.0^\circ` relative to `location.bearingTo(leg.target)`. Respects configurable cool-off thresholds (`driftCoolOffSec`, default 2s; `steadyCoolOffSec`, default 15s).
-7. **`OK`**: Default when on track; produces `null` message.
+### TTS Queueing & Stale `OFFCOURSE` Pruning
+- **`pendingTtsQueue`**: Synchronized queue holding `TtsQueueItem` objects.
+- **Sequential Playback**: `TtsManager` triggers `onDone` callbacks when speech finishes, advancing to the next queued item.
+- **Stale Pruning**: When a new `LegState.OFFCOURSE` message arrives, any pending unplayed `OFFCOURSE` messages in the queue are removed (`pendingTtsQueue.removeAll { it.state == LegState.OFFCOURSE }`), ensuring only the latest course correction is spoken.
 
 ---
 
@@ -56,10 +49,10 @@
   Provides `distanceTo(other: Location)` and `bearingTo(other: Location)` delegating to `CoordinateUtils`.
 
 - **`Waypoint`**:
-  `class Waypoint(override val x: Double, override val y: Double, override val altitude: Double = 0.0, val name: String, val description: String = "", var legDescription: String? = null, val arrive: Double = 15.0, val approach: Double = 100.0) : Location(x, y, altitude)`
+  `class Waypoint(override val x: Double, override val y: Double, override val altitude: Double = 0.0, val name: String, val description: String = "", var legDescription: String? = null, val arrive: Double = 10.0, val approach: Double = 40.0) : Location(x, y, altitude)`
 
 - **`Leg`**:
-  `class Leg(val start: Waypoint, val target: Waypoint, var next: Leg? = null, var legDescription: String? = null) { fun getNextLeg(): Leg? = next }`
+  `class Leg(val start: Waypoint, val target: Waypoint, var next: Leg? = null, var legDescription: String? = null)`
 
 - **`Route`**:
   `class Route(val name: String, val waypoints: List<Waypoint>, val legs: List<Leg>)`
@@ -69,17 +62,18 @@
 
 ---
 
-## 4. Telemetry Playback Engine & Custom Irish Grid Canvas
+## 4. UI Viewports & Custom Irish Grid Canvas
 
+- **`HikeNavigationPanel`**:
+  Positioned above the telemetry viewport, displaying:
+  1. Leg index label and three icon-only buttons (Left Arrow, Right Arrow, and Pencil for future leg editing).
+  2. Current leg summary (`StartName ➔ Bearing° • Lengthm ➔ TargetName`).
+  3. Hiker telemetry (`Grid: 6-digit Irish Grid • Hdg: Bearing° • Dist: Target Distm • Spd: Speed m/s`).
 - **`TelemetryPlaybackEngine`**:
   Supports `stepForward()` and `stepBack()` suspend calls synchronized with a `Mutex`. Step back resets the EKF and re-executes trajectory up to the previous index for instant, accurate trajectory updates.
+- **Rotated Grid Overlays in Leg View**:
+  Grid lines (1km labeled and 100m unlabeled) are rendered via `toCanvasOffset`, appearing correctly rotated along the grid axis in both Map View and Leg View.
 - **Intelligent Waypoint Name Placement**:
   Calculates the largest angular gap between attached route leg vectors for each waypoint and positions the label along the gap bisector, preventing text from crossing leg lines.
 - **Animated Leg Transitions**:
-  Executes a 20-step, 2-second interpolation when advancing legs in Leg View. Interpolates leg start/target positions and applies scale rules (preserving scale for shorter legs or $<75\%$ viewport height; scaling so new leg matches $75\%$ height).
-- **Interactive Compass Button & Grid Overlays (`MapScreen`)**:
-  - Upper-right Compass Button (`Box` with `.clickable`) toggles between Map View and Leg View mode on click.
-  - Lower-right gear icon button (`⚙`) launches Map Settings dialog.
-  - **1km Grid Overlay**: Draws 1km gridlines with 2-digit Irish National Grid Easting/Northing labels (`%02d`).
-  - **100m Grid Overlay**: Draws subtle, unlabeled 100m sub-grid lines.
-  - **Off-Course Cooldown Controls**: Configurable drift ($1\text{s}-5\text{s}$) and steady ($5\text{s}-30\text{s}$) cool-off chips.
+  Executes a 20-step, 2-second interpolation when advancing legs in Leg View with dynamic scale rules.
