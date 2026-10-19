@@ -5,17 +5,18 @@ import com.example.pdrandroutetest.data.Estimate
 import com.example.pdrandroutetest.data.Vector2D
 import com.example.pdrandroutetest.util.CoordinateUtils
 import kotlin.math.PI
+import kotlin.math.abs
+import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
-import kotlin.math.atan2
 import kotlin.math.sqrt
 
 data class EkfConfig(
-    val qDiag: DoubleArray = doubleArrayOf(0.05, 0.05, 0.02, 0.02, 0.0001, 0.0001),
+    val qDiag: DoubleArray = doubleArrayOf(0.01, 0.01, 0.01, 0.01, 0.0001, 0.005),
     val initialPosVariance: Double = 100.0,
     val initialVelVariance: Double = 0.1,
     val initialStrideVariance: Double = 0.02,
-    val initialBiasVariance: Double = 0.05,
+    val initialBiasVariance: Double = 0.5,
     val minStrideMeters: Double = 0.4,
     val maxStrideMeters: Double = 1.3
 ) {
@@ -113,26 +114,10 @@ class DiagnosticEkf(val config: EkfConfig = EkfConfig()) {
             return getEkfState()
         }
 
-        // State transition: x = x + vx * dt, y = y + vy * dt
-        x[IDX_X] += x[IDX_VX] * dtSec
-        x[IDX_Y] += x[IDX_VY] * dtSec
-
-        val correctedHeading = currentHeadingRad - x[IDX_COMPASS_BIAS]
-        val strideL = x[IDX_STRIDE]
-
-        // Analytical partial derivatives of velocity w.r.t compass bias (b_theta)
-        val dvxDb = -(strideL * cos(correctedHeading)) / dtSec.coerceAtLeast(0.01)
-        val dvyDb =  (strideL * sin(correctedHeading)) / dtSec.coerceAtLeast(0.01)
-
         val f = Array(6) { DoubleArray(6) }
         for (i in 0..5) f[i][i] = 1.0
         f[IDX_X][IDX_VX] = dtSec
         f[IDX_Y][IDX_VY] = dtSec
-
-        // CRITICAL EKF FIX: Populate transition matrix cross-coupling
-        // so covariance propagation naturally links position to compass bias
-        f[IDX_VX][IDX_COMPASS_BIAS] = dvxDb
-        f[IDX_VY][IDX_COMPASS_BIAS] = dvyDb
 
         val fp = Array(6) { DoubleArray(6) }
         for (i in 0..5) {
@@ -153,7 +138,7 @@ class DiagnosticEkf(val config: EkfConfig = EkfConfig()) {
                 }
                 p[i][j] = sum
             }
-            p[i][i] += config.qDiag[i]
+            p[i][i] += config.qDiag[i] * dtSec
         }
 
         return getEkfState()
@@ -166,7 +151,7 @@ class DiagnosticEkf(val config: EkfConfig = EkfConfig()) {
         stepCount++
         currentHeadingRad = headingRawRad
         val bTheta = x[IDX_COMPASS_BIAS]
-        val correctedHeading = headingRawRad - bTheta
+        val correctedHeading = normalizeAngleRad(headingRawRad - bTheta)
 
         val dtStepSec = if (lastStepTimestampMs > 0) {
             (timestampMs - lastStepTimestampMs) / 1000.0
@@ -176,8 +161,53 @@ class DiagnosticEkf(val config: EkfConfig = EkfConfig()) {
         lastStepTimestampMs = timestampMs
 
         val strideL = x[IDX_STRIDE]
+
+        // Update velocity
         x[IDX_VX] = (strideL * sin(correctedHeading)) / dtStepSec
         x[IDX_VY] = (strideL * cos(correctedHeading)) / dtStepSec
+
+        // Integrate step displacement into position
+        x[IDX_X] += strideL * sin(correctedHeading)
+        x[IDX_Y] += strideL * cos(correctedHeading)
+
+        // Step Jacobian F_step
+        val fStep = Array(6) { DoubleArray(6) }
+        for (i in 0..5) fStep[i][i] = 1.0
+
+        fStep[IDX_X][IDX_STRIDE] = sin(correctedHeading)
+        fStep[IDX_Y][IDX_STRIDE] = cos(correctedHeading)
+        fStep[IDX_X][IDX_COMPASS_BIAS] = -strideL * cos(correctedHeading)
+        fStep[IDX_Y][IDX_COMPASS_BIAS] = strideL * sin(correctedHeading)
+
+        fStep[IDX_VX][IDX_STRIDE] = x[IDX_VX] / strideL
+        fStep[IDX_VY][IDX_STRIDE] = x[IDX_VY] / strideL
+        fStep[IDX_VX][IDX_COMPASS_BIAS] = -x[IDX_VY]
+        fStep[IDX_VY][IDX_COMPASS_BIAS] = x[IDX_VX]
+
+        // Propagate P = F_step * P * F_step^T
+        val fp = Array(6) { DoubleArray(6) }
+        for (i in 0..5) {
+            for (j in 0..5) {
+                var sum = 0.0
+                for (k in 0..5) {
+                    sum += fStep[i][k] * p[k][j]
+                }
+                fp[i][j] = sum
+            }
+        }
+
+        for (i in 0..5) {
+            for (j in 0..5) {
+                var sum = 0.0
+                for (k in 0..5) {
+                    sum += fp[i][k] * fStep[j][k]
+                }
+                p[i][j] = sum
+            }
+        }
+
+        p[IDX_STRIDE][IDX_STRIDE] += config.qDiag[IDX_STRIDE]
+        p[IDX_COMPASS_BIAS][IDX_COMPASS_BIAS] += config.qDiag[IDX_COMPASS_BIAS]
     }
 
     @Synchronized
@@ -197,23 +227,22 @@ class DiagnosticEkf(val config: EkfConfig = EkfConfig()) {
 
         val deltaX = gpsLocation.x - x[IDX_X]
         val deltaY = gpsLocation.y - x[IDX_Y]
-
-        val correctedHeading = atan2(sin(currentHeadingRad - x[IDX_COMPASS_BIAS]), cos(currentHeadingRad - x[IDX_COMPASS_BIAS]))
-
-        val eLong = deltaX * sin(correctedHeading) + deltaY * cos(correctedHeading)
-        val eLat = deltaX * cos(correctedHeading) - deltaY * sin(correctedHeading)
-
         val rVar = (accuracyMeters * accuracyMeters).toDouble().coerceAtLeast(1.0)
 
-        // 1. Along-track observation update
-        val hLong = doubleArrayOf(sin(correctedHeading), cos(correctedHeading), 0.0, 0.0, 1.0, 0.0)
-        updateScalarObservation(eLong, hLong, rVar)
+        val correctedHeading = normalizeAngleRad(currentHeadingRad - x[IDX_COMPASS_BIAS])
+        val crossTrackErr = abs(deltaX * cos(correctedHeading) - deltaY * sin(correctedHeading))
 
-        // 2. Cross-track observation update (natively drives compass bias via P matrix cross-coupling)
-        val strideL = x[IDX_STRIDE]
-        val dEltDb = -strideL
-        val hLat = doubleArrayOf(cos(correctedHeading), -sin(correctedHeading), 0.0, 0.0, 0.0, dEltDb)
-        updateScalarObservation(eLat, hLat, rVar)
+        // Adaptive compass bias variance inflation on large cross-track drift (e.g. phone rotation)
+        if (crossTrackErr > 2.0) {
+            p[IDX_COMPASS_BIAS][IDX_COMPASS_BIAS] = (p[IDX_COMPASS_BIAS][IDX_COMPASS_BIAS] + 0.05 * crossTrackErr * crossTrackErr).coerceAtMost(2.0)
+        }
+
+        // Direct position observation updates
+        val hX = doubleArrayOf(1.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+        updateScalarObservation(deltaX, hX, rVar)
+
+        val hY = doubleArrayOf(0.0, 1.0, 0.0, 0.0, 0.0, 0.0)
+        updateScalarObservation(deltaY, hY, rVar)
 
         x[IDX_STRIDE] = x[IDX_STRIDE].coerceIn(config.minStrideMeters, config.maxStrideMeters)
         x[IDX_COMPASS_BIAS] = normalizeAngleRad(x[IDX_COMPASS_BIAS])
