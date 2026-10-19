@@ -14,6 +14,7 @@ class AppPreferences(context: Context) {
             .putBoolean("show_100m_grid", config.show100mGrid)
             .putLong("gps_interval_ms", config.gpsPollingIntervalMs)
             .putBoolean("show_telemetry", config.showTelemetryViewport)
+            .putBoolean("show_osm_bg", config.showOsmBackground)
             .apply()
     }
 
@@ -23,7 +24,8 @@ class AppPreferences(context: Context) {
             show1kmGrid = prefs.getBoolean("show_1km_grid", false),
             show100mGrid = prefs.getBoolean("show_100m_grid", false),
             gpsPollingIntervalMs = prefs.getLong("gps_interval_ms", 1000L),
-            showTelemetryViewport = prefs.getBoolean("show_telemetry", true)
+            showTelemetryViewport = prefs.getBoolean("show_telemetry", true),
+            showOsmBackground = prefs.getBoolean("show_osm_bg", false)
         )
     }
 

@@ -14,5 +14,6 @@ data class MapConfig(
     val show1kmGrid: Boolean = false,
     val show100mGrid: Boolean = false,
     val gpsPollingIntervalMs: Long = 1000L,
-    val showTelemetryViewport: Boolean = true
+    val showTelemetryViewport: Boolean = true,
+    val showOsmBackground: Boolean = false
 )

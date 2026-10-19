@@ -32,7 +32,7 @@
   - `offCourseMinSpeedMps` ($0.4\text{ m/s}$)
   - `driftCoolOffSec` ($4\text{s}$)
   - `steadyCoolOffSec` ($6\text{s}$)
-- **`MapConfig`**: Encapsulates map view states (`isLegView`, `show1kmGrid`, `show100mGrid`, `showTelemetryViewport`, `gpsPollingIntervalMs`).
+- **`MapConfig`**: Encapsulates map view states (`isLegView`, `show1kmGrid`, `show100mGrid`, `showTelemetryViewport`, `gpsPollingIntervalMs`, `showOsmBackground`).
 - **`AppPreferences`**: Manages SharedPreferences persistence across app restarts for `MapConfig`, `HikeConfig`, and last loaded course CSV content.
 
 ### TTS Queueing & Stale `OFFCOURSE` Pruning
@@ -62,24 +62,11 @@
 
 ---
 
-## 4. UI Viewports & Route Editor (`RouteEditorScreen`)
+## 4. Offline Map Tiles & UI Canvas Integration
 
+- **`OsmTileManager`**:
+  Converts OSM Slippy Map tile bounding boxes $(z, x, y)$ to metric Irish National Grid bounds $(x, y)$, loading PNG bitmaps from local storage (`files/tiles/{z}/{x}/{y}.png`) or assets (`assets/tiles/`). Includes `downloadIrelandTiles(...)` for downloading tiles for Ireland.
+- **Canvas Integration**:
+  Tiles are drawn via `drawImage` using `toCanvasOffset`, automatically matching the metric grid scale, translation, and rotation (in both Map View and Leg View) without requiring any changes to existing drawing logic. Toggleable via `showOsmBackground` in Map Settings.
 - **`RouteEditorScreen`**:
-  Opened via the pencil icon (`✎`) in `HikeNavigationPanel`.
-  - Spreadsheet-like editable fields for Waypoint name, Easting ($x$), Northing ($y$), and altitude.
-  - Top-left return arrow (`←`) saves and re-applies the edited route to the hike.
-  - Top-right vertical reverse arrow (`↕`) reverses waypoint order.
-  - Per-item controls include up (`↑`), down (`↓`), insert (`+`), and delete (`🗑`) operations.
-- **`HikeNavigationPanel`**:
-  Positioned above the telemetry viewport, displaying:
-  1. Leg index label and three icon-only buttons (Left Arrow, Right Arrow, and Pencil for editing route waypoints).
-  2. Current leg summary (`StartName ➔ Bearing° • Lengthm ➔ TargetName`).
-  3. Hiker telemetry (`Hiker: (Grid) Bearing° Distance m Speedm/s`).
-- **`TelemetryPlaybackEngine`**:
-  Supports `stepForward()` and `stepBack()` suspend calls synchronized with a `Mutex`. Step back resets the EKF and re-executes trajectory up to the previous index for instant, accurate trajectory updates.
-- **Rotated Grid Overlays in Leg View**:
-  Grid lines (1km labeled and 100m unlabeled) are rendered via `toCanvasOffset`, appearing correctly rotated along the grid axis in both Map View and Leg View.
-- **Intelligent Waypoint Name Placement**:
-  Calculates the largest angular gap between attached route leg vectors for each waypoint and positions the label along the gap bisector, preventing text from crossing leg lines.
-- **Animated Leg Transitions**:
-  Executes a 20-step, 2-second interpolation when advancing legs in Leg View with dynamic scale rules.
+  Opened via the pencil icon (`✎`) in `HikeNavigationPanel`. Provides a spreadsheet row layout for Waypoint name, Easting ($x$), Northing ($y$), and altitude, with in-place controls for reordering, inserting, and deleting waypoints.

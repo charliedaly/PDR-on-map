@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import android.widget.Toast
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
@@ -31,7 +32,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -41,10 +44,13 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.pdrandroutetest.config.HikeConfig
@@ -54,6 +60,7 @@ import com.example.pdrandroutetest.model.Breadcrumb
 import com.example.pdrandroutetest.model.Leg
 import com.example.pdrandroutetest.model.Route
 import com.example.pdrandroutetest.model.Waypoint
+import com.example.pdrandroutetest.util.OsmTileManager
 import kotlinx.coroutines.delay
 import java.util.Locale
 import kotlin.math.cos
@@ -135,6 +142,7 @@ fun MapScreen(
     onIntervalSelected: (Long) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val isLegView = mapConfig.isLegView
     val show1kmGrid = mapConfig.show1kmGrid
     val show100mGrid = mapConfig.show100mGrid
@@ -261,11 +269,43 @@ fun MapScreen(
                 }
             }
 
-            // --- Draw Map Grids (visible and rotated in both Map View & Leg View) ---
             val currentScale: Double = if (isLegView && legStart != null) {
                 ((minOf(widthPx, heightPx) / (legLen * 1.35)) * zoomScale).toDouble()
             } else {
                 (baseScale * zoomScale).toDouble()
+            }
+
+            // --- Draw Offline OSM Map Background Tiles ---
+            if (mapConfig.showOsmBackground && currentScale > 0.0) {
+                val autoZoom = kotlin.math.round(kotlin.math.log2(93113.0 * currentScale)).toInt().coerceIn(8, 11)
+                val tiles = OsmTileManager.getTilesForArea(
+                    minX = viewportTracker.minX,
+                    maxX = viewportTracker.maxX,
+                    minY = viewportTracker.minY,
+                    maxY = viewportTracker.maxY,
+                    zoom = autoZoom
+                )
+
+                for (tile in tiles) {
+                    val pTopLeft = toCanvasOffset(tile.minX, tile.maxY)
+                    val pBottomRight = toCanvasOffset(tile.maxX, tile.minY)
+
+                    val dstLeft = minOf(pTopLeft.x, pBottomRight.x)
+                    val dstTop = minOf(pTopLeft.y, pBottomRight.y)
+                    val dstRight = maxOf(pTopLeft.x, pBottomRight.x)
+                    val dstBottom = maxOf(pTopLeft.y, pBottomRight.y)
+
+                    val tileWidth = (dstRight - dstLeft).coerceAtLeast(1f)
+                    val tileHeight = (dstBottom - dstTop).coerceAtLeast(1f)
+
+                    val tileBitmap = OsmTileManager.getTileBitmap(context, tile.zoom, tile.tileX, tile.tileY)
+
+                    drawImage(
+                        image = tileBitmap,
+                        dstOffset = IntOffset(dstLeft.toInt(), dstTop.toInt()),
+                        dstSize = IntSize(tileWidth.toInt(), tileHeight.toInt())
+                    )
+                }
             }
 
             if (currentScale > 0.0) {
@@ -824,6 +864,50 @@ fun MapScreen(
                                 checked = mapConfig.showTelemetryViewport,
                                 onCheckedChange = { onUpdateMapConfig { cfg -> cfg.copy(showTelemetryViewport = it) } }
                             )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Offline OSM Map Background", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                Text("Display OpenStreetMap tiles as map background", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Switch(
+                                checked = mapConfig.showOsmBackground,
+                                onCheckedChange = { onUpdateMapConfig { cfg -> cfg.copy(showOsmBackground = it) } }
+                            )
+                        }
+
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("Download Offline Ireland Tiles:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                            Text("Fetch OpenStreetMap tiles for Ireland (zooms 8-11)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                            var isDownloading by remember { mutableStateOf(false) }
+                            var progressText by remember { mutableStateOf("") }
+                            val coroutineScope = rememberCoroutineScope()
+
+                            Button(
+                                onClick = {
+                                    isDownloading = true
+                                    coroutineScope.launch {
+                                        val count = OsmTileManager.downloadIrelandTiles(context, listOf(8, 9, 10, 11)) { current, total ->
+                                            progressText = "$current / $total"
+                                        }
+                                        isDownloading = false
+                                        Toast.makeText(context, "Downloaded $count Ireland map tiles for offline use!", Toast.LENGTH_LONG).show()
+                                    }
+                                },
+                                enabled = !isDownloading,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = if (isDownloading) "Downloading ($progressText)..." else "Download Ireland Map Tiles",
+                                    style = MaterialTheme.typography.labelMedium
+                                )
+                            }
                         }
 
                         Row(

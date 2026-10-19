@@ -5,7 +5,7 @@ A lightweight, high-precision diagnostic Android application built in Kotlin and
 
 The app operates entirely in an **Irish National Grid metric coordinate system** $(x, y)$ for all position, distance, and bearing computations. GPS bearings are transformed to grid North prior to fusion. On session launch, the EKF initializes its origin and state vector directly from an initial GPS fix.
 
-The app runs an uninterrupted foreground service holding a partial wake lock, ingests hardware sensor inputs (Accelerometer, Gyroscope / Rotation Vector), processes measurements through an advanced 6-state EKF with self-calibrating stride length ($L$), compass bias ($b_\theta$), and path-aligned (Frenet frame) error decomposition, produces $1\text{ Hz}$ metric $(x, y)$ position updates, and renders live breadcrumbs, active route waypoints, and customizable Irish Grid overlays on an abstract dynamic map canvas with viewport auto-scaling.
+The app runs an uninterrupted foreground service holding a partial wake lock, ingests hardware sensor inputs (Accelerometer, Gyroscope / Rotation Vector), processes measurements through an advanced 6-state EKF with self-calibrating stride length ($L$), compass bias ($b_\theta$), and path-aligned (Frenet frame) error decomposition, produces $1\text{ Hz}$ metric $(x, y)$ position updates, and renders live breadcrumbs, active route waypoints, customizable Irish Grid overlays, and offline OpenStreetMap (OSM) background tiles on an abstract dynamic map canvas with viewport auto-scaling.
 
 ## 2. Core Functional Requirements
 
@@ -37,14 +37,13 @@ The app runs an uninterrupted foreground service holding a partial wake lock, in
   - **Insert (`+`)**: Inserts a new waypoint after the current one.
   - **Delete (`🗑`)**: Removes a waypoint from the route.
 
-### Persistence (`AppPreferences`) & Custom Map Canvas
+### Offline OpenStreetMap (OSM) Tiles & Persistence (`AppPreferences`)
+* **Offline OSM Map Background (`OsmTileManager`):** Renders OpenStreetMap Slippy Map tiles as an offline background layer. Tile bounding box corners are converted to metric Irish Grid $(x, y)$ coordinates and mapped through `toCanvasOffset`, ensuring background tiles seamlessly align with the metric grid in both Map View and Leg View (rotated).
+* **Programmatic Downloader (`downloadIrelandTiles`):** Programmatically fetches and caches PNG tiles for the Ireland bounding box (`files/tiles/{z}/{x}/{y}.png`) for offline operation.
 * **Full State Persistence (`AppPreferences`):** Automatically saves and restores across app restarts:
-  - View mode (`MapConfig`: Map View vs. Leg View, 1km grid, 100m grid, telemetry dashboard visibility).
+  - View mode (`MapConfig`: Map View vs. Leg View, 1km grid, 100m grid, telemetry dashboard visibility, offline OSM background toggle).
   - Navigation settings (`HikeConfig`: thresholds and cool-off intervals).
   - Previously loaded course (route name and CSV content).
-* **Rotated Grid Overlays:** 1km labeled grid lines and 100m unlabeled sub-grid lines are fully visible in both Map View and Leg View (correctly rotated along the grid axis).
-* **Intelligent Waypoint Name Placement:** Renders waypoint names using angular bisector placement relative to connected leg vectors to avoid crossing leg lines.
-* **Animated Leg Transitions:** Animates leg changes in Leg View over 2 seconds (20 steps) with dynamic scale rules.
 
 ---
 
@@ -66,4 +65,4 @@ The app runs an uninterrupted foreground service holding a partial wake lock, in
 4. **Maximized Abstract Map Canvas:**
    * Maximized Compose Canvas auto-scaled to encompass all route waypoints, active leg, and recorded breadcrumbs.
    * Upper-right controls include the interactive Compass Button (toggling Map View / Leg View) and relative bearing indicator.
-   * Lower-right controls include "Fit All" view recentering and the Settings gear button (`⚙`) for comprehensive grid overlays and navigation threshold configurations.
+   * Lower-right controls include "Fit All" view recentering and the Settings gear button (`⚙`) for comprehensive grid overlays, OSM tile background, and navigation threshold configurations.
