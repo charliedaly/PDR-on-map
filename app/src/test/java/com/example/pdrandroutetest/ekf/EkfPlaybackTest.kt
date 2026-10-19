@@ -259,4 +259,53 @@ class EkfPlaybackTest {
 
         return events
     }
+
+    @Test
+    fun `inspect telemetry playback and compass bias convergence`() {
+        // Try loading from test resources classpath first
+        val resourceStream = javaClass.classLoader?.getResourceAsStream("pps_tlmtry_20261018_123410.csv")
+            ?: javaClass.classLoader?.getResourceAsStream("telemetry/pps_tlmtry_20261018_123410.csv")
+
+        val csvText = if (resourceStream != null) {
+            resourceStream.bufferedReader().use { it.readText() }
+        } else {
+            // Fallback to absolute path if placed in app/ root
+            val file = File("pps_tlmtry_20261018_123410.csv")
+            org.junit.Assert.assertTrue("Telemetry file not found at ${file.absolutePath}", file.exists())
+            file.readText()
+        }
+
+        val events = TelemetryRecorder.fromCsvString(csvText)
+        org.junit.Assert.assertTrue("No telemetry events parsed!", events.isNotEmpty())
+
+        val debugEkf = DiagnosticEkf()
+        var stepCount = 0
+
+        for ((index, event) in events.withIndex()) {
+            when (event) {
+                is TelemetryEvent.GpsFixEvent -> {
+                    debugEkf.onGpsFix(event.latitude, event.longitude, event.accuracyMeters, event.activeIntervalMs)
+                }
+                is TelemetryEvent.StepDetectedEvent -> {
+                    debugEkf.onStepDetected(event.headingRawRad, event.timestampMs)
+                    stepCount++
+                }
+                is TelemetryEvent.PredictionTickEvent -> {
+                    debugEkf.predict(event.dtSec)
+                }
+            }
+
+            if (index % 500 == 0) {
+                val state = debugEkf.getEkfState()
+                println("EVENT_CHECKPOINT_$index -> Pos: (%.1f, %.1f), Bias: %.2f°, Speed: %.2f m/s".format(
+                    state.position.value.x,
+                    state.position.value.y,
+                    Math.toDegrees(state.compassBiasRad.value),
+                    state.speedMps.value
+                ))
+            }
+        }
+        println("REPLAY_COMPLETE -> Replayed $stepCount steps successfully.")
+        org.junit.Assert.assertTrue("Replayed 0 steps!", stepCount > 0)
+    }
 }

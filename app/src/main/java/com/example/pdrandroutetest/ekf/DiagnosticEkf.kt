@@ -7,6 +7,7 @@ import com.example.pdrandroutetest.util.CoordinateUtils
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
+import kotlin.math.atan2
 import kotlin.math.sqrt
 
 data class EkfConfig(
@@ -116,10 +117,22 @@ class DiagnosticEkf(val config: EkfConfig = EkfConfig()) {
         x[IDX_X] += x[IDX_VX] * dtSec
         x[IDX_Y] += x[IDX_VY] * dtSec
 
+        val correctedHeading = currentHeadingRad - x[IDX_COMPASS_BIAS]
+        val strideL = x[IDX_STRIDE]
+
+        // Analytical partial derivatives of velocity w.r.t compass bias (b_theta)
+        val dvxDb = -(strideL * cos(correctedHeading)) / dtSec.coerceAtLeast(0.01)
+        val dvyDb =  (strideL * sin(correctedHeading)) / dtSec.coerceAtLeast(0.01)
+
         val f = Array(6) { DoubleArray(6) }
         for (i in 0..5) f[i][i] = 1.0
         f[IDX_X][IDX_VX] = dtSec
         f[IDX_Y][IDX_VY] = dtSec
+
+        // CRITICAL EKF FIX: Populate transition matrix cross-coupling
+        // so covariance propagation naturally links position to compass bias
+        f[IDX_VX][IDX_COMPASS_BIAS] = dvxDb
+        f[IDX_VY][IDX_COMPASS_BIAS] = dvyDb
 
         val fp = Array(6) { DoubleArray(6) }
         for (i in 0..5) {
@@ -174,7 +187,6 @@ class DiagnosticEkf(val config: EkfConfig = EkfConfig()) {
         val gpsLocation = CoordinateUtils.latLonToMetric(lat, lon)
 
         if (!isInitializedWithGps) {
-            // Initialize EKF state with initial GPS fix
             x[IDX_X] = gpsLocation.x
             x[IDX_Y] = gpsLocation.y
             p[IDX_X][IDX_X] = (accuracyMeters * accuracyMeters).toDouble().coerceAtLeast(1.0)
@@ -186,16 +198,21 @@ class DiagnosticEkf(val config: EkfConfig = EkfConfig()) {
         val deltaX = gpsLocation.x - x[IDX_X]
         val deltaY = gpsLocation.y - x[IDX_Y]
 
-        val correctedHeading = currentHeadingRad - x[IDX_COMPASS_BIAS]
+        val correctedHeading = atan2(sin(currentHeadingRad - x[IDX_COMPASS_BIAS]), cos(currentHeadingRad - x[IDX_COMPASS_BIAS]))
+
         val eLong = deltaX * sin(correctedHeading) + deltaY * cos(correctedHeading)
         val eLat = deltaX * cos(correctedHeading) - deltaY * sin(correctedHeading)
 
         val rVar = (accuracyMeters * accuracyMeters).toDouble().coerceAtLeast(1.0)
 
+        // 1. Along-track observation update
         val hLong = doubleArrayOf(sin(correctedHeading), cos(correctedHeading), 0.0, 0.0, 1.0, 0.0)
         updateScalarObservation(eLong, hLong, rVar)
 
-        val hLat = doubleArrayOf(cos(correctedHeading), -sin(correctedHeading), 0.0, 0.0, 0.0, 1.0)
+        // 2. Cross-track observation update (natively drives compass bias via P matrix cross-coupling)
+        val strideL = x[IDX_STRIDE]
+        val dEltDb = -strideL
+        val hLat = doubleArrayOf(cos(correctedHeading), -sin(correctedHeading), 0.0, 0.0, 0.0, dEltDb)
         updateScalarObservation(eLat, hLat, rVar)
 
         x[IDX_STRIDE] = x[IDX_STRIDE].coerceIn(config.minStrideMeters, config.maxStrideMeters)
@@ -267,8 +284,6 @@ class DiagnosticEkf(val config: EkfConfig = EkfConfig()) {
     }
 
     private fun normalizeAngleRad(angleRad: Double): Double {
-        var a = angleRad % (2 * PI)
-        if (a < 0) a += 2 * PI
-        return a
+        return atan2(sin(angleRad), cos(angleRad))
     }
 }

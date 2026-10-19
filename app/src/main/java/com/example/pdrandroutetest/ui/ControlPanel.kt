@@ -45,7 +45,9 @@ fun ControlPanel(
         1.0 to "1x",
         2.0 to "2x",
         5.0 to "5x",
-        10.0 to "10x"
+        10.0 to "10x",
+        100.0 to "100x",
+        1000.0 to "1kx",
     )
 
     Card(

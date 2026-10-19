@@ -1,6 +1,6 @@
 
 
-// --- FILE: ./androidTest/java/com/example/pdrwithekftest/ExampleInstrumentedTest.kt ---
+// --- FILE: ./app/src/androidTest/java/com/example/pdrwithekftest/ExampleInstrumentedTest.kt ---
 
 package com.example.pdrandroutetest
 
@@ -27,7 +27,7 @@ class ExampleInstrumentedTest {
     }
 }
 
-// --- FILE: ./androidTest/java/com/example/pdrandroutetest/ui/ControlPanelTest.kt ---
+// --- FILE: ./app/src/androidTest/java/com/example/pdrandroutetest/ui/ControlPanelTest.kt ---
 
 package com.example.pdrandroutetest.ui
 
@@ -38,7 +38,6 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -51,16 +50,13 @@ class ControlPanelTest {
     val composeTestRule = createComposeRule()
 
     @Test
-    fun controlPanel_withoutLoadedTrack_showsIntervalOptionsAndTrackingControls() {
+    fun controlPanel_withoutLoadedTrack_showsTrackingControls() {
         var trackingToggled = false
-        var selectedInterval = 0L
 
         composeTestRule.setContent {
             ControlPanel(
                 isTracking = false,
-                currentIntervalMs = 1000L,
                 onToggleTracking = { trackingToggled = true },
-                onIntervalSelected = { selectedInterval = it },
                 onLoadTrack = {},
                 hasLoadedTrack = false,
                 isPlaybackPlaying = false,
@@ -77,15 +73,12 @@ class ControlPanelTest {
             )
         }
 
-        composeTestRule.onNodeWithText("GPS Polling Interval:").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Live PDR Tracking:").assertIsDisplayed()
         composeTestRule.onNodeWithText("Start Tracking").assertIsDisplayed()
         composeTestRule.onNodeWithText("Load Track").assertIsDisplayed()
 
         composeTestRule.onNodeWithText("Start Tracking").performClick()
         assertTrue(trackingToggled)
-
-        composeTestRule.onNodeWithText("10s").performClick()
-        assertEquals(10000L, selectedInterval)
     }
 
     @Test
@@ -97,9 +90,7 @@ class ControlPanelTest {
         composeTestRule.setContent {
             ControlPanel(
                 isTracking = false,
-                currentIntervalMs = 1000L,
                 onToggleTracking = {},
-                onIntervalSelected = {},
                 onLoadTrack = {},
                 hasLoadedTrack = true,
                 isPlaybackPlaying = false,
@@ -138,9 +129,7 @@ class ControlPanelTest {
         composeTestRule.setContent {
             ControlPanel(
                 isTracking = false,
-                currentIntervalMs = 1000L,
                 onToggleTracking = {},
-                onIntervalSelected = {},
                 onLoadTrack = {},
                 hasLoadedTrack = true,
                 isPlaybackPlaying = false,
@@ -164,7 +153,7 @@ class ControlPanelTest {
 }
 
 
-// --- FILE: ./test/java/com/example/pdrwithekftest/ExampleUnitTest.kt ---
+// --- FILE: ./app/src/test/java/com/example/pdrwithekftest/ExampleUnitTest.kt ---
 
 package com.example.pdrandroutetest
 
@@ -184,12 +173,13 @@ class ExampleUnitTest {
     }
 }
 
-// --- FILE: ./test/java/com/example/pdrandroutetest/hike/HikeTest.kt ---
+// --- FILE: ./app/src/test/java/com/example/pdrandroutetest/hike/HikeTest.kt ---
 
 package com.example.pdrandroutetest.hike
 
 import com.example.pdrandroutetest.data.EkfState
 import com.example.pdrandroutetest.data.Estimate
+import com.example.pdrandroutetest.data.Vector2D
 import com.example.pdrandroutetest.model.Location
 import com.example.pdrandroutetest.model.Route
 import com.example.pdrandroutetest.model.Waypoint
@@ -289,13 +279,16 @@ class HikeTest {
     @Test
     fun `OFFCOURSE cool-off logic respects 2s drift and 15s steady thresholds`() {
         val route = create300mSampleRoute()
-        val hike = Hike(route)
+        val hike = Hike(route, com.example.pdrandroutetest.config.HikeConfig(driftCoolOffSec = 2L, steadyCoolOffSec = 15L))
 
         // Mark LEG_START as announced
         hike.evaluateLegState(Location(0.0, 20.0), currentTimeMs = 1000L)
 
-        // First OFFCOURSE event at t = 2000ms with 30-deg deviation
-        val ekf1 = EkfState(bearingRad = Estimate(Math.toRadians(30.0), 0.01))
+        // First OFFCOURSE event at t = 2000ms with 30-deg deviation at speed >= 0.4 m/s
+        val ekf1 = EkfState(
+            velocity = Estimate(Vector2D(0.0, 1.2), 0.01),
+            bearingRad = Estimate(Math.toRadians(30.0), 0.0001)
+        )
         val stateOffCourse1 = hike.evaluateLegState(Location(0.0, 20.0), ekfState = ekf1, currentTimeMs = 2000L)
         assertEquals(LegState.OFFCOURSE, stateOffCourse1)
 
@@ -304,7 +297,10 @@ class HikeTest {
         assertEquals(LegState.OK, stateOffCourse2)
 
         // At t = 4500ms (2500ms after first offcourse), drifting further to 40-deg (> last + 2.0) -> triggers 2s cool-off
-        val ekf2 = EkfState(bearingRad = Estimate(Math.toRadians(40.0), 0.01))
+        val ekf2 = EkfState(
+            velocity = Estimate(Vector2D(0.0, 1.2), 0.01),
+            bearingRad = Estimate(Math.toRadians(40.0), 0.0001)
+        )
         val stateOffCourse3 = hike.evaluateLegState(Location(0.0, 20.0), ekfState = ekf2, currentTimeMs = 4500L)
         assertEquals(LegState.OFFCOURSE, stateOffCourse3)
     }
@@ -342,21 +338,24 @@ class HikeTest {
         val route = create300mSampleRoute()
         val hike = Hike(route)
 
-        val msg1 = hike.update(Location(0.0, 20.0), 1000L, true)
-        assertNotNull(msg1)
-        assertTrue(msg1!!.contains("Starting leg"))
+        val res1 = hike.update(Location(0.0, 20.0), 1000L, true)
+        assertNotNull(res1)
+        assertNotNull(res1?.message)
+        assertTrue(res1!!.message!!.contains("Starting leg"))
         assertEquals(0, hike.currentLegIndex)
 
         // Reach WP2 (at 300m)
-        val msg2 = hike.update(Location(0.0, 295.0), 2000L, true)
-        assertNotNull(msg2)
-        assertTrue(msg2!!.contains("Reached waypoint"))
+        val res2 = hike.update(Location(0.0, 295.0), 2000L, true)
+        assertNotNull(res2)
+        assertNotNull(res2?.message)
+        assertTrue(res2!!.message!!.contains("Reached waypoint"))
         assertEquals(1, hike.currentLegIndex)
 
         // Reach Finish (at 600m)
-        val msg3 = hike.update(Location(0.0, 595.0), 3000L, true)
-        assertNotNull(msg3)
-        assertTrue(msg3!!.contains("Congratulations"))
+        val res3 = hike.update(Location(0.0, 595.0), 3000L, true)
+        assertNotNull(res3)
+        assertNotNull(res3?.message)
+        assertTrue(res3!!.message!!.contains("Congratulations"))
         assertTrue(hike.isCompleted)
     }
 
@@ -371,14 +370,14 @@ class HikeTest {
         hike.stop()
         assertFalse(hike.isActive)
 
-        val msg = hike.update(Location(0.0, 60.0), 2000L, true)
-        assertNull(msg)
+        val res = hike.update(Location(0.0, 60.0), 2000L, true)
+        assertNull(res)
         assertEquals(1, hike.breadcrumbs.size)
     }
 }
 
 
-// --- FILE: ./test/java/com/example/pdrandroutetest/telemetry/TelemetryPlaybackEngineTest.kt ---
+// --- FILE: ./app/src/test/java/com/example/pdrandroutetest/telemetry/TelemetryPlaybackEngineTest.kt ---
 
 package com.example.pdrandroutetest.telemetry
 
@@ -485,7 +484,7 @@ class TelemetryPlaybackEngineTest {
 }
 
 
-// --- FILE: ./test/java/com/example/pdrandroutetest/ekf/EkfPlaybackTest.kt ---
+// --- FILE: ./app/src/test/java/com/example/pdrandroutetest/ekf/EkfPlaybackTest.kt ---
 
 package com.example.pdrandroutetest.ekf
 
@@ -751,7 +750,7 @@ class EkfPlaybackTest {
 }
 
 
-// --- FILE: ./test/java/com/example/pdrandroutetest/util/CoordinateUtilsTest.kt ---
+// --- FILE: ./app/src/test/java/com/example/pdrandroutetest/util/CoordinateUtilsTest.kt ---
 
 package com.example.pdrandroutetest.util
 
@@ -810,7 +809,7 @@ class CoordinateUtilsTest {
 }
 
 
-// --- FILE: ./test/java/com/example/pdrandroutetest/util/RouteParserTest.kt ---
+// --- FILE: ./app/src/test/java/com/example/pdrandroutetest/util/RouteParserTest.kt ---
 
 package com.example.pdrandroutetest.util
 
@@ -862,7 +861,7 @@ class RouteParserTest {
 }
 
 
-// --- FILE: ./test/java/com/example/pdrandroutetest/performance/BreadcrumbUiResponsivenessTest.kt ---
+// --- FILE: ./app/src/test/java/com/example/pdrandroutetest/performance/BreadcrumbUiResponsivenessTest.kt ---
 
 package com.example.pdrandroutetest.performance
 
@@ -1078,7 +1077,7 @@ class BreadcrumbUiResponsivenessTest {
 }
 
 
-// --- FILE: ./test/java/com/example/pdrandroutetest/performance/EkfLatencyBenchmarkTest.kt ---
+// --- FILE: ./app/src/test/java/com/example/pdrandroutetest/performance/EkfLatencyBenchmarkTest.kt ---
 
 package com.example.pdrandroutetest.performance
 
@@ -1228,7 +1227,7 @@ class EkfLatencyBenchmarkTest {
 }
 
 
-// --- FILE: ./test/java/com/example/pdrandroutetest/ui/DiagnosticViewModelTest.kt ---
+// --- FILE: ./app/src/test/java/com/example/pdrandroutetest/ui/DiagnosticViewModelTest.kt ---
 
 package com.example.pdrandroutetest.ui
 
@@ -1331,22 +1330,23 @@ class DiagnosticViewModelTest {
 
     @Test
     fun `grid visibility setters update ViewModel state flows`() {
-        assertFalse(viewModel.show1kmGrid.value)
-        assertFalse(viewModel.show100mGrid.value)
+        assertFalse(viewModel.mapConfig.value.show1kmGrid)
+        assertFalse(viewModel.mapConfig.value.show100mGrid)
 
         viewModel.setShow1kmGrid(true)
-        assertTrue(viewModel.show1kmGrid.value)
+        assertTrue(viewModel.mapConfig.value.show1kmGrid)
 
         viewModel.setShow100mGrid(true)
-        assertTrue(viewModel.show100mGrid.value)
+        assertTrue(viewModel.mapConfig.value.show100mGrid)
     }
 }
 
 
-// --- FILE: ./main/java/com/example/pdrandroutetest/hike/Hike.kt ---
+// --- FILE: ./app/src/main/java/com/example/pdrandroutetest/hike/Hike.kt ---
 
 package com.example.pdrandroutetest.hike
 
+import com.example.pdrandroutetest.config.HikeConfig
 import com.example.pdrandroutetest.data.EkfState
 import com.example.pdrandroutetest.model.Breadcrumb
 import com.example.pdrandroutetest.model.Leg
@@ -1354,6 +1354,7 @@ import com.example.pdrandroutetest.model.Location
 import com.example.pdrandroutetest.model.Route
 import kotlin.math.abs
 import kotlin.math.round
+import kotlin.math.sqrt
 
 enum class LegState {
     TARGET_REACHED,
@@ -1364,6 +1365,11 @@ enum class LegState {
     OFFCOURSE,
     OK
 }
+
+data class HikeResult(
+    val state: LegState,
+    val message: String?
+)
 
 class LegAnnouncementTracker {
     var announcedLegStart: Boolean = false
@@ -1381,7 +1387,7 @@ class LegAnnouncementTracker {
     }
 }
 
-class Hike(val route: Route?) {
+class Hike(val route: Route?, val config: HikeConfig = HikeConfig()) {
     private val _breadcrumbs = mutableListOf<Breadcrumb>()
     val breadcrumbs: List<Breadcrumb>
         get() = _breadcrumbs.toList()
@@ -1398,9 +1404,6 @@ class Hike(val route: Route?) {
     var isActive: Boolean = true
         private set
 
-    var driftCoolOffSec: Long = 4L
-    var steadyCoolOffSec: Long = 6L
-
     val tracker = LegAnnouncementTracker()
 
     private var breadcrumbIdSeq = 1L
@@ -1411,6 +1414,16 @@ class Hike(val route: Route?) {
 
     fun stop() {
         isActive = false
+    }
+
+    fun setCurrentLegIndex(index: Int) {
+        val routeLegs = route?.legs ?: return
+        if (index in routeLegs.indices) {
+            currentLegIndex = index
+            currentLeg = routeLegs[index]
+            tracker.reset()
+            isCompleted = false
+        }
     }
 
     fun relativeBearingCorrection(location: Location, ekfState: EkfState? = null): Double {
@@ -1445,10 +1458,13 @@ class Hike(val route: Route?) {
         val leg = currentLeg ?: return LegState.HIKE_ENDED
         if (isCompleted) return LegState.HIKE_ENDED
 
+        val arriveRadius = if (leg.target.arrive != 10.0) leg.target.arrive else config.arriveThresholdMeters
+        val approachRadius = if (leg.target.approach != 40.0) leg.target.approach else config.approachThresholdMeters
+
         // 1. TARGET_REACHED & 2. HIKE_ENDED
         if (!tracker.announcedReached) {
             val distanceToTarget = location.distanceTo(leg.target)
-            if (distanceToTarget < leg.target.arrive) {
+            if (distanceToTarget < arriveRadius) {
                 tracker.announcedReached = true
                 return if (leg.next == null) {
                     tracker.announcedHikeEnded = true
@@ -1460,14 +1476,14 @@ class Hike(val route: Route?) {
         }
 
         // 2. HIKE_ENDED (fallback check if already marked)
-        if (!tracker.announcedHikeEnded && leg.next == null && location.distanceTo(leg.target) < leg.target.arrive) {
+        if (!tracker.announcedHikeEnded && leg.next == null && location.distanceTo(leg.target) < arriveRadius) {
             tracker.announcedHikeEnded = true
             return LegState.HIKE_ENDED
         }
 
         // 3. TOO_FAR
         if (!tracker.announcedTooFar) {
-            if (isPastTarget(location, leg)) {
+            if (isPastTarget(location, leg, arriveRadius)) {
                 tracker.announcedTooFar = true
                 return LegState.TOO_FAR
             }
@@ -1476,7 +1492,7 @@ class Hike(val route: Route?) {
         // 4. APPROACHING_TARGET
         if (!tracker.announcedApproaching) {
             val distanceToTarget = location.distanceTo(leg.target)
-            if (distanceToTarget < leg.target.approach) {
+            if (distanceToTarget < approachRadius) {
                 tracker.announcedApproaching = true
                 return LegState.APPROACHING_TARGET
             }
@@ -1489,7 +1505,7 @@ class Hike(val route: Route?) {
                 tracker.announcedLegStart = true
             } else {
                 val distanceFromStart = location.distanceTo(leg.start)
-                if (distanceFromStart > leg.start.arrive) {
+                if (distanceFromStart > arriveRadius) {
                     tracker.announcedLegStart = true
                     return LegState.LEG_START
                 }
@@ -1497,20 +1513,28 @@ class Hike(val route: Route?) {
         }
 
         // 6. OFFCOURSE
-        val requiredBearing = location.bearingTo(leg.target)
-        val hikerBearing = ekfState?.let { Math.toDegrees(it.bearingRad.value) }
-            ?: previousLocation?.bearingTo(location)
-            ?: requiredBearing
+        if (ekfState?.speedMps?.value ?: 0.0 >= config.offCourseMinSpeedMps) {
+            val requiredBearing = location.bearingTo(leg.target)
+            val hikerBearing = ekfState?.let { Math.toDegrees(it.bearingRad.value) }
+                ?: previousLocation?.bearingTo(location)
+                ?: requiredBearing
 
-        val bearingOffset = angleDifference(hikerBearing, requiredBearing)
-        if (bearingOffset > 10.0) {
-            val isDriftingFurther = bearingOffset > (lastOffCourseOffset + 2.0)
-            val coolOffMs = if (isDriftingFurther) driftCoolOffSec * 1000L else steadyCoolOffSec * 1000L
+            val bearingOffset = angleDifference(hikerBearing, requiredBearing)
 
-            if (currentTimeMs - lastOffCourseTimeMs >= coolOffMs) {
-                lastOffCourseTimeMs = currentTimeMs
-                lastOffCourseOffset = bearingOffset
-                return LegState.OFFCOURSE
+            val bearingVariance = ekfState?.bearingRad?.variance ?: 0.0
+            val bearingStdDevDeg = Math.toDegrees(sqrt(bearingVariance))
+            val twoSigmaUncertaintyDeg = 2.0 * bearingStdDevDeg
+
+            if (bearingOffset > config.offCourseHeadingDevDeg + twoSigmaUncertaintyDeg) {
+                val isDriftingFurther = bearingOffset > (lastOffCourseOffset + 2.0)
+                val coolOffMs =
+                    if (isDriftingFurther) config.driftCoolOffSec * 1000L else config.steadyCoolOffSec * 1000L
+
+                if (currentTimeMs - lastOffCourseTimeMs >= coolOffMs) {
+                    lastOffCourseTimeMs = currentTimeMs
+                    lastOffCourseOffset = bearingOffset
+                    return LegState.OFFCOURSE
+                }
             }
         }
 
@@ -1518,7 +1542,7 @@ class Hike(val route: Route?) {
         return LegState.OK
     }
 
-    private fun isPastTarget(p: Location, leg: Leg): Boolean {
+    private fun isPastTarget(p: Location, leg: Leg, arriveRadius: Double): Boolean {
         val abx = leg.target.x - leg.start.x
         val aby = leg.target.y - leg.start.y
         val apx = p.x - leg.start.x
@@ -1530,7 +1554,7 @@ class Hike(val route: Route?) {
         val t = (apx * abx + apy * aby) / abLenSq
         val distToTarget = p.distanceTo(leg.target)
 
-        return t > 1.05 && distToTarget > leg.target.arrive
+        return t > 1.05 && distToTarget > arriveRadius
     }
 
     private fun angleDifference(a: Double, b: Double): Double {
@@ -1577,7 +1601,7 @@ class Hike(val route: Route?) {
         timestampMs: Long = System.currentTimeMillis(),
         isGpsFix: Boolean = false,
         ekfState: EkfState? = null
-    ): String? {
+    ): HikeResult? {
         if (!isActive) return null
 
         val breadcrumb = Breadcrumb(
@@ -1621,12 +1645,12 @@ class Hike(val route: Route?) {
 
         val msg = stringify(state, leg, ekfState, location)
         previousLocation = location
-        return msg
+        return HikeResult(state, msg)
     }
 }
 
 
-// --- FILE: ./main/java/com/example/pdrandroutetest/hike/NavigationMessage.kt ---
+// --- FILE: ./app/src/main/java/com/example/pdrandroutetest/hike/NavigationMessage.kt ---
 
 package com.example.pdrandroutetest.hike
 
@@ -1637,7 +1661,7 @@ data class NavigationMessage(
 )
 
 
-// --- FILE: ./main/java/com/example/pdrandroutetest/telemetry/TelemetryPlaybackEngine.kt ---
+// --- FILE: ./app/src/main/java/com/example/pdrandroutetest/telemetry/TelemetryPlaybackEngine.kt ---
 
 package com.example.pdrandroutetest.telemetry
 
@@ -1891,7 +1915,7 @@ class TelemetryPlaybackEngine {
 }
 
 
-// --- FILE: ./main/java/com/example/pdrandroutetest/telemetry/TelemetryEvent.kt ---
+// --- FILE: ./app/src/main/java/com/example/pdrandroutetest/telemetry/TelemetryEvent.kt ---
 
 package com.example.pdrandroutetest.telemetry
 
@@ -1925,7 +1949,7 @@ sealed class TelemetryEvent : Serializable {
 }
 
 
-// --- FILE: ./main/java/com/example/pdrandroutetest/telemetry/TelemetryRecorder.kt ---
+// --- FILE: ./app/src/main/java/com/example/pdrandroutetest/telemetry/TelemetryRecorder.kt ---
 
 package com.example.pdrandroutetest.telemetry
 
@@ -2125,7 +2149,7 @@ class TelemetryRecorder {
 }
 
 
-// --- FILE: ./main/java/com/example/pdrandroutetest/sensor/PdrStepDetector.kt ---
+// --- FILE: ./app/src/main/java/com/example/pdrandroutetest/sensor/PdrStepDetector.kt ---
 
 package com.example.pdrandroutetest.sensor
 
@@ -2227,7 +2251,7 @@ class PdrStepDetector(
 }
 
 
-// --- FILE: ./main/java/com/example/pdrandroutetest/ekf/DiagnosticEkf.kt ---
+// --- FILE: ./app/src/main/java/com/example/pdrandroutetest/ekf/DiagnosticEkf.kt ---
 
 package com.example.pdrandroutetest.ekf
 
@@ -2505,7 +2529,7 @@ class DiagnosticEkf(val config: EkfConfig = EkfConfig()) {
 }
 
 
-// --- FILE: ./main/java/com/example/pdrandroutetest/MainActivity.kt ---
+// --- FILE: ./app/src/main/java/com/example/pdrandroutetest/MainActivity.kt ---
 
 package com.example.pdrandroutetest
 
@@ -2539,15 +2563,21 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import com.example.pdrandroutetest.repository.HikeRepository
 import com.example.pdrandroutetest.ui.ControlPanel
 import com.example.pdrandroutetest.ui.DiagnosticViewModel
+import com.example.pdrandroutetest.ui.HikeNavigationPanel
 import com.example.pdrandroutetest.ui.MapScreen
 import com.example.pdrandroutetest.ui.NavigationMessagePanel
+import com.example.pdrandroutetest.ui.RouteEditorScreen
 import com.example.pdrandroutetest.ui.TelemetryDashboard
 import com.example.pdrandroutetest.ui.theme.PDRWithEKFTestTheme
 
@@ -2569,7 +2599,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        viewModel.initTts(this)
+        HikeRepository.initPreferences(this)
 
         setContent {
             PDRWithEKFTestTheme {
@@ -2589,9 +2619,6 @@ class MainActivity : ComponentActivity() {
                     },
                     onStopTracking = {
                         viewModel.stopTracking(this)
-                    },
-                    onIntervalSelected = { intervalMs ->
-                        viewModel.setGpsPollingInterval(this, intervalMs)
                     }
                 )
             }
@@ -2628,21 +2655,17 @@ fun MainDiagnosticScreen(
     onLoadSampleRoute: () -> Unit,
     onLoadTelemetryTrackUri: (Uri) -> Unit,
     onRequestPermissionsAndStart: () -> Unit,
-    onStopTracking: () -> Unit,
-    onIntervalSelected: (Long) -> Unit
+    onStopTracking: () -> Unit
 ) {
     val ekfState by viewModel.ekfState.collectAsState()
     val isTracking by viewModel.isTracking.collectAsState()
-    val gpsIntervalMs by viewModel.gpsPollingIntervalMs.collectAsState()
     val breadcrumbs by viewModel.breadcrumbs.collectAsState()
     val activeRoute by viewModel.activeRoute.collectAsState()
     val currentTargetWaypoint by viewModel.currentTargetWaypoint.collectAsState()
-    val show1kmGrid by viewModel.show1kmGrid.collectAsState()
-    val show100mGrid by viewModel.show100mGrid.collectAsState()
-    val isLegView by viewModel.isLegView.collectAsState()
+    val mapConfig by viewModel.mapConfig.collectAsState()
+    val hikeConfig by viewModel.hikeConfig.collectAsState()
     val activeLeg by viewModel.activeLeg.collectAsState()
-    val driftCoolOffSec by viewModel.driftCoolOffSec.collectAsState()
-    val steadyCoolOffSec by viewModel.steadyCoolOffSec.collectAsState()
+    val currentLegIndex by viewModel.currentLegIndex.collectAsState()
     val navigationMessages by viewModel.navigationMessages.collectAsState()
     val relativeBearingCorrection by viewModel.relativeBearingCorrection.collectAsState()
 
@@ -2651,6 +2674,8 @@ fun MainDiagnosticScreen(
     val playbackSpeed by viewModel.playbackSpeed.collectAsState()
     val playbackProgress by viewModel.playbackProgress.collectAsState()
     val playbackEvents by viewModel.playbackEvents.collectAsState()
+
+    var showRouteEditor by remember { mutableStateOf(false) }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -2664,130 +2689,146 @@ fun MainDiagnosticScreen(
         uri?.let { onLoadTelemetryTrackUri(it) }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        if (activeRoute == null) {
-                            Text(
-                                text = "PDR & 6-State EKF Diagnostic",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                        } else {
-                            val route = activeRoute!!
-                            val lengthKm = route.totalLengthMeters / 1000.0
-                            Text(
-                                text = route.name,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "${route.numLegs} Legs • %.2f km".format(lengthKm),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
-                            )
-                        }
-                    }
-                },
-                actions = {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        if (activeRoute == null) {
-                            OutlinedButton(
-                                onClick = onLoadSampleRoute,
-                                modifier = Modifier.padding(end = 2.dp)
-                            ) {
-                                Text("Sample", style = MaterialTheme.typography.labelSmall)
+    if (showRouteEditor) {
+        RouteEditorScreen(
+            initialRoute = activeRoute,
+            onSaveRoute = { _, newRoute ->
+                viewModel.saveEditedRoute(activeRoute?.name ?: "Edited Route", newRoute)
+            },
+            onBack = {
+                showRouteEditor = false
+            }
+        )
+    } else {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Column {
+                            if (activeRoute == null) {
+                                Text(
+                                    text = "PDR & 6-State EKF Diagnostic",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            } else {
+                                val route = activeRoute!!
+                                val lengthKm = route.totalLengthMeters / 1000.0
+                                Text(
+                                    text = route.name,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "${route.numLegs} Legs • %.2f km".format(lengthKm),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                                )
                             }
                         }
-                        Button(
-                            onClick = { filePickerLauncher.launch("*/*") },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.primary
-                            )
+                    },
+                    actions = {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                if (activeRoute == null) "Load Route" else "Load New",
-                                style = MaterialTheme.typography.labelMedium
-                            )
+                            if (activeRoute == null) {
+                                OutlinedButton(
+                                    onClick = onLoadSampleRoute,
+                                    modifier = Modifier.padding(end = 2.dp)
+                                ) {
+                                    Text("Sample", style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                            Button(
+                                onClick = { filePickerLauncher.launch("*/*") },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.primary
+                                )
+                            ) {
+                                Text(
+                                    if (activeRoute == null) "Load Route" else "Load New",
+                                    style = MaterialTheme.typography.labelMedium
+                                )
+                            }
                         }
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
                 )
-            )
-        }
-    ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            TelemetryDashboard(ekfState = ekfState)
-
-            NavigationMessagePanel(messages = navigationMessages)
-
-            MapScreen(
-                route = activeRoute,
-                breadcrumbs = breadcrumbs,
-                activeEkfState = ekfState,
-                currentTargetWaypoint = currentTargetWaypoint,
-                show1kmGrid = show1kmGrid,
-                show100mGrid = show100mGrid,
-                isLegView = isLegView,
-                activeLeg = activeLeg,
-                driftCoolOffSec = driftCoolOffSec,
-                steadyCoolOffSec = steadyCoolOffSec,
-                relativeBearingCorrection = relativeBearingCorrection,
-                onToggle1kmGrid = { viewModel.setShow1kmGrid(it) },
-                onToggle100mGrid = { viewModel.setShow100mGrid(it) },
-                onToggleLegView = { viewModel.setLegView(it) },
-                onSelectDriftCoolOffSec = { viewModel.setDriftCoolOffSec(it) },
-                onSelectSteadyCoolOffSec = { viewModel.setSteadyCoolOffSec(it) },
+            }
+        ) { innerPadding ->
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-            )
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .padding(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                HikeNavigationPanel(
+                    activeRoute = activeRoute,
+                    activeLeg = activeLeg,
+                    activeEkfState = ekfState,
+                    currentLegIndex = currentLegIndex,
+                    onPrevLeg = { viewModel.goToPreviousLeg() },
+                    onNextLeg = { viewModel.goToNextLeg() },
+                    onEditRoute = { showRouteEditor = true }
+                )
 
-            ControlPanel(
-                isTracking = isTracking,
-                currentIntervalMs = gpsIntervalMs,
-                onToggleTracking = {
-                    if (isTracking) {
-                        onStopTracking()
-                    } else {
-                        onRequestPermissionsAndStart()
-                    }
-                },
-                onIntervalSelected = onIntervalSelected,
-                onLoadTrack = { trackPickerLauncher.launch("*/*") },
-                hasLoadedTrack = playbackEvents.isNotEmpty(),
-                isPlaybackPlaying = isPlaybackPlaying,
-                isPlaybackPaused = isPlaybackPaused,
-                playbackSpeed = playbackSpeed,
-                playbackCurrentIndex = playbackProgress.currentIndex,
-                playbackTotalEvents = playbackProgress.totalEvents,
-                onPlayPlayback = { viewModel.startPlayback() },
-                onPausePlayback = { viewModel.pausePlayback() },
-                onStopPlayback = { viewModel.stopPlayback() },
-                onStepBackPlayback = { viewModel.stepBackPlayback() },
-                onStepForwardPlayback = { viewModel.stepForwardPlayback() },
-                onSpeedSelected = { speed -> viewModel.setPlaybackSpeed(speed) }
-            )
+                if (mapConfig.showTelemetryViewport) {
+                    TelemetryDashboard(ekfState = ekfState)
+                }
+
+                NavigationMessagePanel(messages = navigationMessages)
+
+                MapScreen(
+                    route = activeRoute,
+                    breadcrumbs = breadcrumbs,
+                    activeEkfState = ekfState,
+                    currentTargetWaypoint = currentTargetWaypoint,
+                    mapConfig = mapConfig,
+                    hikeConfig = hikeConfig,
+                    activeLeg = activeLeg,
+                    relativeBearingCorrection = relativeBearingCorrection,
+                    onUpdateMapConfig = { viewModel.updateMapConfig(it) },
+                    onUpdateHikeConfig = { viewModel.updateHikeConfig(it) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                )
+
+                ControlPanel(
+                    isTracking = isTracking,
+                    onToggleTracking = {
+                        if (isTracking) {
+                            onStopTracking()
+                        } else {
+                            onRequestPermissionsAndStart()
+                        }
+                    },
+                    onLoadTrack = { trackPickerLauncher.launch("*/*") },
+                    hasLoadedTrack = playbackEvents.isNotEmpty(),
+                    isPlaybackPlaying = isPlaybackPlaying,
+                    isPlaybackPaused = isPlaybackPaused,
+                    playbackSpeed = playbackSpeed,
+                    playbackCurrentIndex = playbackProgress.currentIndex,
+                    playbackTotalEvents = playbackProgress.totalEvents,
+                    onPlayPlayback = { viewModel.startPlayback() },
+                    onPausePlayback = { viewModel.pausePlayback() },
+                    onStopPlayback = { viewModel.stopPlayback() },
+                    onStepBackPlayback = { viewModel.stepBackPlayback() },
+                    onStepForwardPlayback = { viewModel.stepForwardPlayback() },
+                    onSpeedSelected = { speed -> viewModel.setPlaybackSpeed(speed) }
+                )
+            }
         }
     }
 }
 
 
-// --- FILE: ./main/java/com/example/pdrandroutetest/util/CoordinateUtils.kt ---
+// --- FILE: ./app/src/main/java/com/example/pdrandroutetest/util/CoordinateUtils.kt ---
 
 package com.example.pdrandroutetest.util
 
@@ -3139,7 +3180,7 @@ object CoordinateUtils {
 }
 
 
-// --- FILE: ./main/java/com/example/pdrandroutetest/util/TtsManager.kt ---
+// --- FILE: ./app/src/main/java/com/example/pdrandroutetest/util/TtsManager.kt ---
 
 package com.example.pdrandroutetest.util
 
@@ -3149,7 +3190,10 @@ import android.speech.tts.UtteranceProgressListener
 import android.util.Log
 import java.util.Locale
 
-class TtsManager(context: Context) : TextToSpeech.OnInitListener {
+class TtsManager(
+    context: Context,
+    private val onSpeechDone: (() -> Unit)? = null
+) : TextToSpeech.OnInitListener {
 
     private var tts: TextToSpeech? = TextToSpeech(context.applicationContext, this)
     private var isInitialized = false
@@ -3165,17 +3209,20 @@ class TtsManager(context: Context) : TextToSpeech.OnInitListener {
             override fun onDone(utteranceId: String?) {
                 isSpeaking = false
                 Log.d("TtsManager", "TTS Done: $utteranceId")
+                onSpeechDone?.invoke()
             }
 
             @Deprecated("Deprecated in Java")
             override fun onError(utteranceId: String?) {
                 isSpeaking = false
                 Log.e("TtsManager", "TTS Error: $utteranceId")
+                onSpeechDone?.invoke()
             }
 
             override fun onError(utteranceId: String?, errorCode: Int) {
                 isSpeaking = false
                 Log.e("TtsManager", "TTS Error ($errorCode): $utteranceId")
+                onSpeechDone?.invoke()
             }
         })
     }
@@ -3188,12 +3235,15 @@ class TtsManager(context: Context) : TextToSpeech.OnInitListener {
             }
             isInitialized = true
             Log.i("TtsManager", "TextToSpeech initialized successfully.")
+            onSpeechDone?.invoke()
         } else {
             Log.e("TtsManager", "TextToSpeech initialization failed with status: $status")
         }
     }
 
-    fun speak(text: String, queueMode: Int = TextToSpeech.QUEUE_ADD) {
+    fun isReady(): Boolean = isInitialized
+
+    fun speak(text: String, queueMode: Int = TextToSpeech.QUEUE_FLUSH) {
         if (!isInitialized || text.isBlank()) return
 
         val utteranceId = "HikeMsg_${System.currentTimeMillis()}"
@@ -3218,7 +3268,7 @@ class TtsManager(context: Context) : TextToSpeech.OnInitListener {
 }
 
 
-// --- FILE: ./main/java/com/example/pdrandroutetest/util/LoggingUtils.kt ---
+// --- FILE: ./app/src/main/java/com/example/pdrandroutetest/util/LoggingUtils.kt ---
 
 package com.example.pdrandroutetest.util
 
@@ -3235,7 +3285,7 @@ object LoggingUtils {
 }
 
 
-// --- FILE: ./main/java/com/example/pdrandroutetest/util/RouteParser.kt ---
+// --- FILE: ./app/src/main/java/com/example/pdrandroutetest/util/RouteParser.kt ---
 
 package com.example.pdrandroutetest.util
 
@@ -3405,7 +3455,7 @@ object RouteParser {
 }
 
 
-// --- FILE: ./main/java/com/example/pdrandroutetest/model/Leg.kt ---
+// --- FILE: ./app/src/main/java/com/example/pdrandroutetest/model/Leg.kt ---
 
 package com.example.pdrandroutetest.model
 
@@ -3422,7 +3472,7 @@ class Leg(
 }
 
 
-// --- FILE: ./main/java/com/example/pdrandroutetest/model/Breadcrumb.kt ---
+// --- FILE: ./app/src/main/java/com/example/pdrandroutetest/model/Breadcrumb.kt ---
 
 package com.example.pdrandroutetest.model
 
@@ -3437,7 +3487,7 @@ data class Breadcrumb(
 )
 
 
-// --- FILE: ./main/java/com/example/pdrandroutetest/model/Route.kt ---
+// --- FILE: ./app/src/main/java/com/example/pdrandroutetest/model/Route.kt ---
 
 package com.example.pdrandroutetest.model
 
@@ -3498,7 +3548,7 @@ class Route(
 }
 
 
-// --- FILE: ./main/java/com/example/pdrandroutetest/model/Waypoint.kt ---
+// --- FILE: ./app/src/main/java/com/example/pdrandroutetest/model/Waypoint.kt ---
 
 package com.example.pdrandroutetest.model
 
@@ -3511,8 +3561,8 @@ class Waypoint(
     val name: String = "",
     val description: String = "",
     var legDescription: String? = null,
-    val arrive: Double = 15.0,
-    val approach: Double = 100.0
+    val arrive: Double = 10.0,
+    val approach: Double = 40.0
 ) : Location(x, y, altitude) {
 
     companion object {
@@ -3589,7 +3639,7 @@ class Waypoint(
 }
 
 
-// --- FILE: ./main/java/com/example/pdrandroutetest/model/Location.kt ---
+// --- FILE: ./app/src/main/java/com/example/pdrandroutetest/model/Location.kt ---
 
 package com.example.pdrandroutetest.model
 
@@ -3635,7 +3685,97 @@ open class Location(
 }
 
 
-// --- FILE: ./main/java/com/example/pdrandroutetest/service/DiagnosticForegroundService.kt ---
+// --- FILE: ./app/src/main/java/com/example/pdrandroutetest/config/AppConfig.kt ---
+
+package com.example.pdrandroutetest.config
+
+data class HikeConfig(
+    val arriveThresholdMeters: Double = 10.0,
+    val approachThresholdMeters: Double = 40.0,
+    val offCourseHeadingDevDeg: Double = 10.0,
+    val offCourseMinSpeedMps: Double = 0.4,
+    val driftCoolOffSec: Long = 4L,
+    val steadyCoolOffSec: Long = 6L
+)
+
+data class MapConfig(
+    val isLegView: Boolean = false,
+    val show1kmGrid: Boolean = false,
+    val show100mGrid: Boolean = false,
+    val gpsPollingIntervalMs: Long = 1000L,
+    val showTelemetryViewport: Boolean = true
+)
+
+
+// --- FILE: ./app/src/main/java/com/example/pdrandroutetest/config/AppPreferences.kt ---
+
+package com.example.pdrandroutetest.config
+
+import android.content.Context
+import android.content.SharedPreferences
+
+class AppPreferences(context: Context) {
+
+    private val prefs: SharedPreferences = context.getSharedPreferences("hiking_tool_prefs", Context.MODE_PRIVATE)
+
+    fun saveMapConfig(config: MapConfig) {
+        prefs.edit()
+            .putBoolean("is_leg_view", config.isLegView)
+            .putBoolean("show_1km_grid", config.show1kmGrid)
+            .putBoolean("show_100m_grid", config.show100mGrid)
+            .putLong("gps_interval_ms", config.gpsPollingIntervalMs)
+            .putBoolean("show_telemetry", config.showTelemetryViewport)
+            .apply()
+    }
+
+    fun loadMapConfig(): MapConfig {
+        return MapConfig(
+            isLegView = prefs.getBoolean("is_leg_view", false),
+            show1kmGrid = prefs.getBoolean("show_1km_grid", false),
+            show100mGrid = prefs.getBoolean("show_100m_grid", false),
+            gpsPollingIntervalMs = prefs.getLong("gps_interval_ms", 1000L),
+            showTelemetryViewport = prefs.getBoolean("show_telemetry", true)
+        )
+    }
+
+    fun saveHikeConfig(config: HikeConfig) {
+        prefs.edit()
+            .putFloat("arrive_threshold", config.arriveThresholdMeters.toFloat())
+            .putFloat("approach_threshold", config.approachThresholdMeters.toFloat())
+            .putFloat("offcourse_dev_deg", config.offCourseHeadingDevDeg.toFloat())
+            .putFloat("offcourse_min_speed", config.offCourseMinSpeedMps.toFloat())
+            .putLong("drift_cooloff_sec", config.driftCoolOffSec)
+            .putLong("steady_cooloff_sec", config.steadyCoolOffSec)
+            .apply()
+    }
+
+    fun loadHikeConfig(): HikeConfig {
+        return HikeConfig(
+            arriveThresholdMeters = prefs.getFloat("arrive_threshold", 10.0f).toDouble(),
+            approachThresholdMeters = prefs.getFloat("approach_threshold", 40.0f).toDouble(),
+            offCourseHeadingDevDeg = prefs.getFloat("offcourse_dev_deg", 10.0f).toDouble(),
+            offCourseMinSpeedMps = prefs.getFloat("offcourse_min_speed", 0.4f).toDouble(),
+            driftCoolOffSec = prefs.getLong("drift_cooloff_sec", 4L),
+            steadyCoolOffSec = prefs.getLong("steady_cooloff_sec", 6L)
+        )
+    }
+
+    fun saveLastRoute(routeName: String, csvContent: String) {
+        prefs.edit()
+            .putString("last_route_name", routeName)
+            .putString("last_route_csv", csvContent)
+            .apply()
+    }
+
+    fun loadLastRoute(): Pair<String, String>? {
+        val name = prefs.getString("last_route_name", null) ?: return null
+        val csv = prefs.getString("last_route_csv", null) ?: return null
+        return Pair(name, csv)
+    }
+}
+
+
+// --- FILE: ./app/src/main/java/com/example/pdrandroutetest/service/DiagnosticForegroundService.kt ---
 
 package com.example.pdrandroutetest.service
 
@@ -3656,7 +3796,6 @@ import com.example.pdrandroutetest.model.Breadcrumb
 import com.example.pdrandroutetest.model.Location
 import com.example.pdrandroutetest.repository.HikeRepository
 import com.example.pdrandroutetest.sensor.PdrStepDetector
-import com.example.pdrandroutetest.util.TtsManager
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
@@ -3682,7 +3821,6 @@ class DiagnosticForegroundService : Service() {
     private lateinit var stepDetector: PdrStepDetector
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private var locationCallback: LocationCallback? = null
-    private var ttsManager: TtsManager? = null
 
     private var wakeLock: PowerManager.WakeLock? = null
     private var breadcrumbIdSeq = 1L
@@ -3692,7 +3830,7 @@ class DiagnosticForegroundService : Service() {
         super.onCreate()
         ekfEngine = DiagnosticEkf()
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
-        ttsManager = TtsManager(this)
+        HikeRepository.initTts(this)
 
         stepDetector = PdrStepDetector(this) { headingRawRad, timestampMs ->
             ekfEngine.onStepDetected(headingRawRad, timestampMs)
@@ -3709,7 +3847,6 @@ class DiagnosticForegroundService : Service() {
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "PDRWithEKFTest::WakeLock")
 
         observeGpsPollingInterval()
-        observeHikeMessages()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -3770,16 +3907,6 @@ class DiagnosticForegroundService : Service() {
                 if (intervalMs != activeGpsIntervalMs) {
                     activeGpsIntervalMs = intervalMs
                     updateLocationRequestInterval(intervalMs)
-                }
-            }
-            .launchIn(serviceScope)
-    }
-
-    private fun observeHikeMessages() {
-        HikeRepository.hikeMessage
-            .onEach { message ->
-                if (!message.isNullOrBlank()) {
-                    ttsManager?.speak(message)
                 }
             }
             .launchIn(serviceScope)
@@ -3905,12 +4032,6 @@ class DiagnosticForegroundService : Service() {
             .build()
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        ttsManager?.shutdown()
-        ttsManager = null
-    }
-
     override fun onBind(intent: Intent?): IBinder? = null
 
     companion object {
@@ -3925,7 +4046,7 @@ class DiagnosticForegroundService : Service() {
 }
 
 
-// --- FILE: ./main/java/com/example/pdrandroutetest/data/Models.kt ---
+// --- FILE: ./app/src/main/java/com/example/pdrandroutetest/data/Models.kt ---
 
 package com.example.pdrandroutetest.data
 
@@ -3961,7 +4082,7 @@ data class EkfState(
 }
 
 
-// --- FILE: ./main/java/com/example/pdrandroutetest/ui/ControlPanel.kt ---
+// --- FILE: ./app/src/main/java/com/example/pdrandroutetest/ui/ControlPanel.kt ---
 
 package com.example.pdrandroutetest.ui
 
@@ -3990,9 +4111,7 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun ControlPanel(
     isTracking: Boolean,
-    currentIntervalMs: Long,
     onToggleTracking: () -> Unit,
-    onIntervalSelected: (Long) -> Unit,
     onLoadTrack: () -> Unit,
     hasLoadedTrack: Boolean,
     isPlaybackPlaying: Boolean,
@@ -4008,13 +4127,6 @@ fun ControlPanel(
     onSpeedSelected: (Double) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val intervalOptions = listOf(
-        1000L to "1s (1Hz)",
-        10000L to "10s",
-        20000L to "20s",
-        100000L to "100s"
-    )
-
     val speedOptions = listOf(
         1.0 to "1x",
         2.0 to "2x",
@@ -4041,7 +4153,7 @@ fun ControlPanel(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = if (hasLoadedTrack) "Track Playback:" else "GPS Polling Interval:",
+                    text = if (hasLoadedTrack) "Track Playback:" else "Live PDR Tracking:",
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary
@@ -4160,26 +4272,13 @@ fun ControlPanel(
                         )
                     }
                 }
-            } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    intervalOptions.forEach { (ms, label) ->
-                        FilterChip(
-                            selected = currentIntervalMs == ms,
-                            onClick = { onIntervalSelected(ms) },
-                            label = { Text(label, style = MaterialTheme.typography.labelSmall) }
-                        )
-                    }
-                }
             }
         }
     }
 }
 
 
-// --- FILE: ./main/java/com/example/pdrandroutetest/ui/NavigationMessagePanel.kt ---
+// --- FILE: ./app/src/main/java/com/example/pdrandroutetest/ui/NavigationMessagePanel.kt ---
 
 package com.example.pdrandroutetest.ui
 
@@ -4272,7 +4371,7 @@ fun NavigationMessagePanel(
 }
 
 
-// --- FILE: ./main/java/com/example/pdrandroutetest/ui/TelemetryDashboard.kt ---
+// --- FILE: ./app/src/main/java/com/example/pdrandroutetest/ui/TelemetryDashboard.kt ---
 
 package com.example.pdrandroutetest.ui
 
@@ -4408,7 +4507,361 @@ private fun TelemetryItem(
 }
 
 
-// --- FILE: ./main/java/com/example/pdrandroutetest/ui/theme/Type.kt ---
+// --- FILE: ./app/src/main/java/com/example/pdrandroutetest/ui/RouteEditorScreen.kt ---
+
+package com.example.pdrandroutetest.ui
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.example.pdrandroutetest.model.Route
+import com.example.pdrandroutetest.model.Waypoint
+
+@Composable
+fun SpreadsheetCell(
+    value: String,
+    onValueChange: (String) -> Unit,
+    keyboardType: KeyboardType = KeyboardType.Text,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        shape = RoundedCornerShape(4.dp),
+        color = Color(0xFF1E293B),
+        modifier = modifier.height(28.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 6.dp),
+            contentAlignment = Alignment.CenterStart
+        ) {
+            BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
+                textStyle = TextStyle(
+                    fontSize = 11.sp,
+                    color = Color.White,
+                    fontWeight = FontWeight.Medium
+                ),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun RouteEditorScreen(
+    initialRoute: Route?,
+    onSaveRoute: (String, Route) -> Unit,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val routeName = initialRoute?.name ?: "Editable Route"
+    val initialWaypoints = remember(initialRoute) {
+        if (initialRoute != null && initialRoute.legs.isNotEmpty()) {
+            val list = mutableListOf<Waypoint>()
+            initialRoute.legs.forEach { leg ->
+                if (list.isEmpty() || list.last() != leg.start) {
+                    list.add(leg.start)
+                }
+            }
+            list.add(initialRoute.legs.last().target)
+            list
+        } else if (initialRoute != null) {
+            initialRoute.waypoints
+        } else {
+            listOf(
+                Waypoint.fromMetric("Start", 0.0, 0.0),
+                Waypoint.fromMetric("Target", 0.0, 100.0)
+            )
+        }
+    }
+
+    var waypoints by remember { mutableStateOf(initialWaypoints) }
+
+    Scaffold(
+        modifier = modifier.fillMaxSize(),
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text(text = "Edit Route: $routeName", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                },
+                navigationIcon = {
+                    // Return Arrow (←)
+                    IconButton(onClick = {
+                        val newRoute = Route.createFromWaypoints(routeName, waypoints)
+                        val csv = waypoints.joinToString("\n") { wp ->
+                            "${wp.name},${wp.x},${wp.y},${wp.altitude}"
+                        }
+                        onSaveRoute(csv, newRoute)
+                        onBack()
+                    }) {
+                        Text("←", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    }
+                },
+                actions = {
+                    // Vertical / Reverse Arrow on top right (↕)
+                    IconButton(onClick = {
+                        waypoints = waypoints.reversed()
+                    }) {
+                        Text("↕", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            )
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(4.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            // Column Headers (rendered once at the top)
+            Surface(
+                shape = RoundedCornerShape(4.dp),
+                color = Color(0xFF1E293B),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Name", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color(0xFF9FB3C8), modifier = Modifier.weight(1.0f))
+                    Text("Easting (X)", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color(0xFF9FB3C8), modifier = Modifier.weight(1.0f))
+                    Text("Northing (Y)", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color(0xFF9FB3C8), modifier = Modifier.weight(1.0f))
+                    Text("Alt", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color(0xFF9FB3C8), modifier = Modifier.weight(0.5f))
+                    Text("Actions", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color(0xFF9FB3C8), modifier = Modifier.weight(1.2f))
+                }
+            }
+
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                itemsIndexed(waypoints) { index, wp ->
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = Color(0xFF0F172A),
+                        tonalElevation = 1.dp,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 6.dp, vertical = 3.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            var nameVal by remember(wp) { mutableStateOf(wp.name) }
+                            var xVal by remember(wp) { mutableStateOf(wp.x.toInt().toString()) }
+                            var yVal by remember(wp) { mutableStateOf(wp.y.toInt().toString()) }
+                            var altVal by remember(wp) { mutableStateOf(wp.altitude.toInt().toString()) }
+
+                            // Name cell
+                            SpreadsheetCell(
+                                value = nameVal,
+                                onValueChange = {
+                                    nameVal = it
+                                    val list = waypoints.toMutableList()
+                                    list[index] = Waypoint.fromMetric(
+                                        name = it,
+                                        x = xVal.toDoubleOrNull() ?: wp.x,
+                                        y = yVal.toDoubleOrNull() ?: wp.y,
+                                        altitude = altVal.toDoubleOrNull() ?: wp.altitude,
+                                        arrive = wp.arrive,
+                                        approach = wp.approach
+                                    )
+                                    waypoints = list
+                                },
+                                modifier = Modifier.weight(1.0f)
+                            )
+
+                            // Easting (X) cell
+                            SpreadsheetCell(
+                                value = xVal,
+                                onValueChange = {
+                                    xVal = it
+                                    val list = waypoints.toMutableList()
+                                    list[index] = Waypoint.fromMetric(
+                                        name = nameVal,
+                                        x = it.toDoubleOrNull() ?: wp.x,
+                                        y = yVal.toDoubleOrNull() ?: wp.y,
+                                        altitude = altVal.toDoubleOrNull() ?: wp.altitude,
+                                        arrive = wp.arrive,
+                                        approach = wp.approach
+                                    )
+                                    waypoints = list
+                                },
+                                keyboardType = KeyboardType.Number,
+                                modifier = Modifier.weight(1.0f)
+                            )
+
+                            // Northing (Y) cell
+                            SpreadsheetCell(
+                                value = yVal,
+                                onValueChange = {
+                                    yVal = it
+                                    val list = waypoints.toMutableList()
+                                    list[index] = Waypoint.fromMetric(
+                                        name = nameVal,
+                                        x = xVal.toDoubleOrNull() ?: wp.x,
+                                        y = it.toDoubleOrNull() ?: wp.y,
+                                        altitude = altVal.toDoubleOrNull() ?: wp.altitude,
+                                        arrive = wp.arrive,
+                                        approach = wp.approach
+                                    )
+                                    waypoints = list
+                                },
+                                keyboardType = KeyboardType.Number,
+                                modifier = Modifier.weight(1.0f)
+                            )
+
+                            // Altitude cell
+                            SpreadsheetCell(
+                                value = altVal,
+                                onValueChange = {
+                                    altVal = it
+                                    val list = waypoints.toMutableList()
+                                    list[index] = Waypoint.fromMetric(
+                                        name = nameVal,
+                                        x = xVal.toDoubleOrNull() ?: wp.x,
+                                        y = yVal.toDoubleOrNull() ?: wp.y,
+                                        altitude = it.toDoubleOrNull() ?: wp.altitude,
+                                        arrive = wp.arrive,
+                                        approach = wp.approach
+                                    )
+                                    waypoints = list
+                                },
+                                keyboardType = KeyboardType.Number,
+                                modifier = Modifier.weight(0.5f)
+                            )
+
+                            // In-place action buttons (Up, Down, Plus, Delete)
+                            Row(
+                                modifier = Modifier.weight(1.2f),
+                                horizontalArrangement = Arrangement.SpaceEvenly,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                // Up arrow (↑)
+                                IconButton(
+                                    onClick = {
+                                        if (index > 0) {
+                                            val list = waypoints.toMutableList()
+                                            val item = list.removeAt(index)
+                                            list.add(index - 1, item)
+                                            waypoints = list
+                                        }
+                                    },
+                                    enabled = index > 0,
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Text("↑", color = if (index > 0) Color.White else Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+
+                                // Down arrow (↓)
+                                IconButton(
+                                    onClick = {
+                                        if (index < waypoints.size - 1) {
+                                            val list = waypoints.toMutableList()
+                                            val item = list.removeAt(index)
+                                            list.add(index + 1, item)
+                                            waypoints = list
+                                        }
+                                    },
+                                    enabled = index < waypoints.size - 1,
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Text("↓", color = if (index < waypoints.size - 1) Color.White else Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+
+                                // Plus (+)
+                                IconButton(
+                                    onClick = {
+                                        val list = waypoints.toMutableList()
+                                        val newWp = Waypoint.fromMetric(
+                                            name = "W${waypoints.size + 1}",
+                                            x = wp.x + 50.0,
+                                            y = wp.y + 50.0,
+                                            altitude = wp.altitude
+                                        )
+                                        list.add(index + 1, newWp)
+                                        waypoints = list
+                                    },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Text("+", color = Color(0xFF4CAF50), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                }
+
+                                // Delete (🗑)
+                                IconButton(
+                                    onClick = {
+                                        if (waypoints.size > 2) {
+                                            val list = waypoints.toMutableList()
+                                            list.removeAt(index)
+                                            waypoints = list
+                                        }
+                                    },
+                                    enabled = waypoints.size > 2,
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Text("🗑", color = if (waypoints.size > 2) Color(0xFFFF5252) else Color.Gray, fontSize = 9.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+// --- FILE: ./app/src/main/java/com/example/pdrandroutetest/ui/theme/Type.kt ---
 
 package com.example.pdrandroutetest.ui.theme
 
@@ -4445,7 +4898,7 @@ val Typography = Typography(
     */
 )
 
-// --- FILE: ./main/java/com/example/pdrandroutetest/ui/theme/Color.kt ---
+// --- FILE: ./app/src/main/java/com/example/pdrandroutetest/ui/theme/Color.kt ---
 
 package com.example.pdrandroutetest.ui.theme
 
@@ -4459,7 +4912,7 @@ val Purple40 = Color(0xFF6650a4)
 val PurpleGrey40 = Color(0xFF625b71)
 val Pink40 = Color(0xFF7D5260)
 
-// --- FILE: ./main/java/com/example/pdrandroutetest/ui/theme/Theme.kt ---
+// --- FILE: ./app/src/main/java/com/example/pdrandroutetest/ui/theme/Theme.kt ---
 
 package com.example.pdrandroutetest.ui.theme
 
@@ -4520,7 +4973,7 @@ fun PDRWithEKFTestTheme(
     )
 }
 
-// --- FILE: ./main/java/com/example/pdrandroutetest/ui/DiagnosticViewModel.kt ---
+// --- FILE: ./app/src/main/java/com/example/pdrandroutetest/ui/DiagnosticViewModel.kt ---
 
 package com.example.pdrandroutetest.ui
 
@@ -4530,6 +4983,8 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.pdrandroutetest.config.HikeConfig
+import com.example.pdrandroutetest.config.MapConfig
 import com.example.pdrandroutetest.data.EkfState
 import com.example.pdrandroutetest.model.Breadcrumb
 import com.example.pdrandroutetest.model.Route
@@ -4551,17 +5006,28 @@ class DiagnosticViewModel : ViewModel() {
     val ekfState: StateFlow<EkfState> = HikeRepository.ekfStateFlow
     val isTracking: StateFlow<Boolean> = HikeRepository.isTracking
     val gpsPollingIntervalMs: StateFlow<Long> = HikeRepository.gpsPollingIntervalMs
+    val mapConfig: StateFlow<MapConfig> = HikeRepository.mapConfig
+    val hikeConfig: StateFlow<HikeConfig> = HikeRepository.hikeConfig
     val activeRoute: StateFlow<Route?> = HikeRepository.activeRoute
-    val show1kmGrid: StateFlow<Boolean> = HikeRepository.show1kmGrid
-    val show100mGrid: StateFlow<Boolean> = HikeRepository.show100mGrid
-    val isLegView: StateFlow<Boolean> = HikeRepository.isLegView
-    val driftCoolOffSec: StateFlow<Long> = HikeRepository.driftCoolOffSec
-    val steadyCoolOffSec: StateFlow<Long> = HikeRepository.steadyCoolOffSec
     val hikeMessage: StateFlow<String?> = HikeRepository.hikeMessage
     val navigationMessages: StateFlow<List<com.example.pdrandroutetest.hike.NavigationMessage>> = HikeRepository.navigationMessages
     val relativeBearingCorrection: StateFlow<Double> = HikeRepository.relativeBearingCorrection
     val currentTargetWaypoint: StateFlow<com.example.pdrandroutetest.model.Waypoint?> = HikeRepository.currentTargetWaypoint
     val activeLeg: StateFlow<com.example.pdrandroutetest.model.Leg?> = HikeRepository.activeLeg
+    val currentLegIndex: StateFlow<Int> = HikeRepository.currentLegIndex
+
+    fun goToPreviousLeg() {
+        val hike = HikeRepository.activeHike ?: return
+        val newIndex = (hike.currentLegIndex - 1).coerceAtLeast(0)
+        HikeRepository.setCurrentLegIndex(newIndex)
+    }
+
+    fun goToNextLeg() {
+        val hike = HikeRepository.activeHike ?: return
+        val routeLegs = HikeRepository.activeRoute.value?.legs ?: return
+        val newIndex = (hike.currentLegIndex + 1).coerceAtMost(routeLegs.size - 1)
+        HikeRepository.setCurrentLegIndex(newIndex)
+    }
 
     val isPlaybackPlaying: StateFlow<Boolean> = HikeRepository.telemetryPlaybackEngine.isPlaying
     val isPlaybackPaused: StateFlow<Boolean> = HikeRepository.telemetryPlaybackEngine.isPaused
@@ -4587,7 +5053,7 @@ class DiagnosticViewModel : ViewModel() {
             } ?: return
             val routeName = RouteParser.extractRouteNameFromUri(context, uri)
             val parsedRoute = Route.parseFromCsvContent(routeName, csvContent)
-            HikeRepository.setActiveRoute(parsedRoute)
+            HikeRepository.setActiveRouteWithContent(routeName, csvContent, parsedRoute)
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -4596,7 +5062,15 @@ class DiagnosticViewModel : ViewModel() {
     fun loadSampleRoute() {
         val sampleCsv = RouteParser.generateSampleIrishGridCsv()
         val route = Route.parseFromCsvContent("Sample Irish Route", sampleCsv)
-        HikeRepository.setActiveRoute(route)
+        HikeRepository.setActiveRouteWithContent("Sample Irish Route", sampleCsv, route)
+    }
+
+    fun updateHikeConfig(transform: (HikeConfig) -> HikeConfig) {
+        HikeRepository.updateHikeConfig(transform)
+    }
+
+    fun updateMapConfig(transform: (MapConfig) -> MapConfig) {
+        HikeRepository.updateMapConfig(transform)
     }
 
     fun loadTelemetryTrackFromUri(context: Context, uri: Uri) {
@@ -4614,21 +5088,15 @@ class DiagnosticViewModel : ViewModel() {
             ).show()
         } catch (e: Exception) {
             e.printStackTrace()
-            Toast.makeText(
-                context,
-                "Failed to load telemetry track: ${e.message}",
-                Toast.LENGTH_LONG
-            ).show()
+            Toast.makeText(context, "Error loading telemetry track", Toast.LENGTH_LONG).show()
         }
     }
 
     fun startPlayback() {
-        if (isTracking.value) {
-            // Stop service tracking before playing back a recorded track
-            HikeRepository.setTracking(false)
+        viewModelScope.launch {
+            _breadcrumbs.value = emptyList()
+            HikeRepository.telemetryPlaybackEngine.play(viewModelScope)
         }
-        _breadcrumbs.value = emptyList()
-        HikeRepository.telemetryPlaybackEngine.play(viewModelScope)
     }
 
     fun pausePlayback() {
@@ -4640,45 +5108,41 @@ class DiagnosticViewModel : ViewModel() {
     }
 
     fun stepForwardPlayback() {
-        if (isTracking.value) {
-            HikeRepository.setTracking(false)
-        }
         viewModelScope.launch {
             HikeRepository.telemetryPlaybackEngine.stepForward()
+            _breadcrumbs.value = HikeRepository.getBreadcrumbHistory()
         }
     }
 
     fun stepBackPlayback() {
-        if (isTracking.value) {
-            HikeRepository.setTracking(false)
-        }
         viewModelScope.launch {
             HikeRepository.telemetryPlaybackEngine.stepBack()
+            _breadcrumbs.value = HikeRepository.getBreadcrumbHistory()
         }
     }
 
-    fun setPlaybackSpeed(multiplier: Double) {
-        HikeRepository.telemetryPlaybackEngine.setSpeedMultiplier(multiplier)
+    fun setPlaybackSpeed(speed: Double) {
+        HikeRepository.telemetryPlaybackEngine.setSpeedMultiplier(speed)
     }
 
     fun setShow1kmGrid(show: Boolean) {
-        HikeRepository.setShow1kmGrid(show)
+        updateMapConfig { it.copy(show1kmGrid = show) }
     }
 
     fun setShow100mGrid(show: Boolean) {
-        HikeRepository.setShow100mGrid(show)
+        updateMapConfig { it.copy(show100mGrid = show) }
     }
 
     fun setLegView(isLeg: Boolean) {
-        HikeRepository.setLegView(isLeg)
+        updateMapConfig { it.copy(isLegView = isLeg) }
     }
 
     fun setDriftCoolOffSec(sec: Long) {
-        HikeRepository.setDriftCoolOffSec(sec)
+        updateHikeConfig { it.copy(driftCoolOffSec = sec) }
     }
 
     fun setSteadyCoolOffSec(sec: Long) {
-        HikeRepository.setSteadyCoolOffSec(sec)
+        updateHikeConfig { it.copy(steadyCoolOffSec = sec) }
     }
 
     fun startTracking(context: Context) {
@@ -4722,30 +5186,174 @@ class DiagnosticViewModel : ViewModel() {
         context.startService(intent)
     }
 
-    private var ttsManager: com.example.pdrandroutetest.util.TtsManager? = null
-
-    fun initTts(context: Context) {
-        if (ttsManager == null) {
-            ttsManager = com.example.pdrandroutetest.util.TtsManager(context.applicationContext)
-            HikeRepository.hikeMessage
-                .onEach { message ->
-                    if (!message.isNullOrBlank()) {
-                        ttsManager?.speak(message)
-                    }
-                }
-                .launchIn(viewModelScope)
+    fun saveEditedRoute(routeName: String, route: Route) {
+        val csv = route.waypoints.joinToString("\n") { wp ->
+            "${wp.name},${wp.x},${wp.y},${wp.altitude}"
         }
+        HikeRepository.setActiveRouteWithContent(routeName, csv, route)
     }
 
-    override fun onCleared() {
-        super.onCleared()
-        ttsManager?.shutdown()
-        ttsManager = null
+    fun initTts(context: Context) {
+        HikeRepository.initTts(context)
     }
 }
 
 
-// --- FILE: ./main/java/com/example/pdrandroutetest/ui/MapScreen.kt ---
+// --- FILE: ./app/src/main/java/com/example/pdrandroutetest/ui/HikeNavigationPanel.kt ---
+
+package com.example.pdrandroutetest.ui
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.example.pdrandroutetest.data.EkfState
+import com.example.pdrandroutetest.model.Leg
+import com.example.pdrandroutetest.model.Route
+import java.util.Locale
+
+@Composable
+fun HikeNavigationPanel(
+    activeRoute: Route?,
+    activeLeg: Leg?,
+    activeEkfState: EkfState,
+    currentLegIndex: Int,
+    onPrevLeg: () -> Unit,
+    onNextLeg: () -> Unit,
+    onEditRoute: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val totalLegs = activeRoute?.legs?.size ?: 0
+    val canGoPrev = currentLegIndex > 0
+    val canGoNext = activeLeg?.next != null || (currentLegIndex < totalLegs - 1 && totalLegs > 0)
+
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(10.dp),
+        color = Color(0xFF1E293B),
+        tonalElevation = 2.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            // Line 1: "Leg" label + 3 icon-only buttons further apart (Left Arrow, Right Arrow, Pencil)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Leg ${currentLegIndex + 1} of ${if (totalLegs > 0) totalLegs else 1}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Left Arrow Button (icons only, no text)
+                    IconButton(
+                        onClick = onPrevLeg,
+                        enabled = canGoPrev,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Text(
+                            text = "◀",
+                            color = if (canGoPrev) Color.White else Color.Gray,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    // Right Arrow Button (icons only, no text)
+                    IconButton(
+                        onClick = onNextLeg,
+                        enabled = canGoNext,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Text(
+                            text = "▶",
+                            color = if (canGoNext) Color.White else Color.Gray,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    // Pencil Button (opens route editor screen)
+                    IconButton(
+                        onClick = onEditRoute,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Text(
+                            text = "✎",
+                            color = Color(0xFFFFB300),
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+
+            // Line 2: Current leg, start name, bearing to target, length to target, target name
+            val startName = activeLeg?.start?.name?.ifBlank { "Start" } ?: "Start"
+            val targetName = activeLeg?.target?.name?.ifBlank { "Target" } ?: "Target"
+            val legBearing = if (activeLeg != null) activeLeg.start.bearingTo(activeLeg.target) else 0.0
+            val legLength = if (activeLeg != null) activeLeg.start.distanceTo(activeLeg.target) else 0.0
+
+            Text(
+                text = "$startName ➔ %03.0f° • %.0fm ➔ $targetName".format(Locale.US, legBearing, legLength),
+                style = MaterialTheme.typography.bodySmall,
+                color = Color(0xFF9FB3C8),
+                fontWeight = FontWeight.SemiBold
+            )
+
+            // Line 3: Hiker: (000 000) 000° 10000m 0.0m/s
+            val hikerLoc = activeEkfState.position.value
+            val easting6 = ((hikerLoc.x.toInt() % 100000) / 100).coerceIn(0, 999)
+            val northing6 = ((hikerLoc.y.toInt() % 100000) / 100).coerceIn(0, 999)
+            val gridRefStr = String.format(Locale.US, "%03d %03d", easting6, northing6)
+
+            val hikerBearingDeg = Math.toDegrees(activeEkfState.bearingRad.value)
+            val normalizedBearing = (hikerBearingDeg % 360.0 + 360.0) % 360.0
+            val distFromTarget = if (activeLeg != null) Math.hypot(activeLeg.target.x - hikerLoc.x, activeLeg.target.y - hikerLoc.y) else 0.0
+            val speedMps = activeEkfState.speedMps.value
+
+            Text(
+                text = "Hiker: ($gridRefStr) %03.0f° %.0fm %.1fm/s".format(
+                    Locale.US,
+                    normalizedBearing,
+                    distFromTarget,
+                    speedMps
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = Color(0xFF00E5FF),
+                fontWeight = FontWeight.Medium
+            )
+        }
+    }
+}
+
+
+// --- FILE: ./app/src/main/java/com/example/pdrandroutetest/ui/MapScreen.kt ---
 
 package com.example.pdrandroutetest.ui
 
@@ -4761,8 +5369,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -4794,6 +5404,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.pdrandroutetest.config.HikeConfig
+import com.example.pdrandroutetest.config.MapConfig
 import com.example.pdrandroutetest.data.EkfState
 import com.example.pdrandroutetest.model.Breadcrumb
 import com.example.pdrandroutetest.model.Leg
@@ -4871,20 +5483,19 @@ fun MapScreen(
     breadcrumbs: List<Breadcrumb>,
     activeEkfState: EkfState,
     currentTargetWaypoint: Waypoint? = null,
-    show1kmGrid: Boolean = false,
-    show100mGrid: Boolean = false,
-    isLegView: Boolean = false,
+    mapConfig: MapConfig = MapConfig(),
+    hikeConfig: HikeConfig = HikeConfig(),
     activeLeg: Leg? = null,
-    driftCoolOffSec: Long = 2L,
-    steadyCoolOffSec: Long = 15L,
     relativeBearingCorrection: Double = 0.0,
-    onToggle1kmGrid: (Boolean) -> Unit = {},
-    onToggle100mGrid: (Boolean) -> Unit = {},
-    onToggleLegView: (Boolean) -> Unit = {},
-    onSelectDriftCoolOffSec: (Long) -> Unit = {},
-    onSelectSteadyCoolOffSec: (Long) -> Unit = {},
+    onUpdateMapConfig: ((MapConfig) -> MapConfig) -> Unit = {},
+    onUpdateHikeConfig: ((HikeConfig) -> HikeConfig) -> Unit = {},
+    onIntervalSelected: (Long) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val isLegView = mapConfig.isLegView
+    val show1kmGrid = mapConfig.show1kmGrid
+    val show100mGrid = mapConfig.show100mGrid
+
     val viewportTracker = remember { ViewportTracker() }
 
     var zoomScale by remember { mutableFloatStateOf(1f) }
@@ -4979,18 +5590,6 @@ fun MapScreen(
             val vx = uy
             val vy = -ux
 
-            // Scale rules for Leg View
-            val prevLen = previousLegState?.distanceMeters ?: legLen
-            val newLen = activeLeg?.distanceMeters ?: legLen
-            val viewportHeightMeters = heightPx / baseScale.toDouble()
-
-            val targetScaleFactor = if (newLen < prevLen || newLen < 0.75 * viewportHeightMeters) {
-                1.35
-            } else {
-                1.35 * (newLen / (0.75 * viewportHeightMeters))
-            }
-            val interpScaleFactor = 1.35 + transitionProgress * (targetScaleFactor - 1.35)
-
             fun toCanvasOffset(xMeters: Double, yMeters: Double): Offset {
                 if (isLegView && legStart != null) {
                     val apx = xMeters - interpStartX
@@ -4999,7 +5598,7 @@ fun MapScreen(
                     val progress = apx * ux + apy * uy
                     val offset = apx * vx + apy * vy
 
-                    val spanYLeg = legLen * interpScaleFactor
+                    val spanYLeg = legLen * 1.35
                     val spanXLeg = spanYLeg * (widthPx / heightPx).coerceIn(0.5f, 2.0f)
                     val scaleLeg = minOf(widthPx / spanXLeg, heightPx / spanYLeg) * zoomScale
 
@@ -5019,144 +5618,127 @@ fun MapScreen(
                 }
             }
 
-            // --- Draw Map Grids (only in Map View) ---
-            if (!isLegView) {
-                val currentScale = baseScale * zoomScale
-                if (currentScale > 0f) {
-                    val leftMeters = centerX + (0f - originCx - panOffset.x) / currentScale
-                    val rightMeters = centerX + (widthPx - originCx - panOffset.x) / currentScale
-                    val topMeters = centerY - (0f - originCy - panOffset.y) / currentScale
-                    val bottomMeters = centerY - (heightPx - originCy - panOffset.y) / currentScale
+            // --- Draw Map Grids (visible and rotated in both Map View & Leg View) ---
+            val currentScale: Double = if (isLegView && legStart != null) {
+                ((minOf(widthPx, heightPx) / (legLen * 1.35)) * zoomScale).toDouble()
+            } else {
+                (baseScale * zoomScale).toDouble()
+            }
 
-                    val minVisX = minOf(leftMeters, rightMeters)
-                    val maxVisX = maxOf(leftMeters, rightMeters)
-                    val minVisY = minOf(topMeters, bottomMeters)
-                    val maxVisY = maxOf(topMeters, bottomMeters)
+            if (currentScale > 0.0) {
+                val leftMeters = centerX + (0f - originCx - panOffset.x) / currentScale
+                val rightMeters = centerX + (widthPx - originCx - panOffset.x) / currentScale
+                val topMeters = centerY - (0f - originCy - panOffset.y) / currentScale
+                val bottomMeters = centerY - (heightPx - originCy - panOffset.y) / currentScale
 
-                    // 1) Draw 100m gridlines (unlabeled)
-                    if (show100mGrid) {
-                        val spacing100mPx = 100.0 * currentScale.toDouble()
-                        if (spacing100mPx >= 4.0) {
-                            val start100mX = (kotlin.math.floor(minVisX / 100.0) * 100.0).toInt()
-                            val end100mX = (kotlin.math.ceil(maxVisX / 100.0) * 100.0).toInt()
+                val minVisX = minOf(leftMeters, rightMeters) - 2000.0
+                val maxVisX = maxOf(leftMeters, rightMeters) + 2000.0
+                val minVisY = minOf(topMeters, bottomMeters) - 2000.0
+                val maxVisY = maxOf(topMeters, bottomMeters) + 2000.0
 
-                            for (xMeters in start100mX..end100mX step 100) {
-                                if (show1kmGrid && xMeters % 1000 == 0) continue
-                                val p = toCanvasOffset(xMeters.toDouble(), minVisY)
-                                if (p.x in 0f..widthPx) {
-                                    drawLine(
-                                        color = Color(0xFF1E293B),
-                                        start = Offset(p.x, 0f),
-                                        end = Offset(p.x, heightPx),
-                                        strokeWidth = 1f
-                                    )
-                                }
-                            }
+                // 1) Draw 100m gridlines (unlabeled, rotated)
+                if (show100mGrid) {
+                    val spacing100mPx = 100.0 * currentScale.toDouble()
+                    if (spacing100mPx >= 4.0) {
+                        val start100mX = (kotlin.math.floor(minVisX / 100.0) * 100.0).toInt()
+                        val end100mX = (kotlin.math.ceil(maxVisX / 100.0) * 100.0).toInt()
 
-                            val start100mY = (kotlin.math.floor(minVisY / 100.0) * 100.0).toInt()
-                            val end100mY = (kotlin.math.ceil(maxVisY / 100.0) * 100.0).toInt()
+                        for (xMeters in start100mX..end100mX step 100) {
+                            if (show1kmGrid && xMeters % 1000 == 0) continue
+                            val p1 = toCanvasOffset(xMeters.toDouble(), minVisY)
+                            val p2 = toCanvasOffset(xMeters.toDouble(), maxVisY)
+                            drawLine(
+                                color = Color(0xFF1E293B),
+                                start = p1,
+                                end = p2,
+                                strokeWidth = 1f
+                            )
+                        }
 
-                            for (yMeters in start100mY..end100mY step 100) {
-                                if (show1kmGrid && yMeters % 1000 == 0) continue
-                                val p = toCanvasOffset(minVisX, yMeters.toDouble())
-                                if (p.y in 0f..heightPx) {
-                                    drawLine(
-                                        color = Color(0xFF1E293B),
-                                        start = Offset(0f, p.y),
-                                        end = Offset(widthPx, p.y),
-                                        strokeWidth = 1f
-                                    )
-                                }
-                            }
+                        val start100mY = (kotlin.math.floor(minVisY / 100.0) * 100.0).toInt()
+                        val end100mY = (kotlin.math.ceil(maxVisY / 100.0) * 100.0).toInt()
+
+                        for (yMeters in start100mY..end100mY step 100) {
+                            if (show1kmGrid && yMeters % 1000 == 0) continue
+                            val p1 = toCanvasOffset(minVisX, yMeters.toDouble())
+                            val p2 = toCanvasOffset(maxVisX, yMeters.toDouble())
+                            drawLine(
+                                color = Color(0xFF1E293B),
+                                start = p1,
+                                end = p2,
+                                strokeWidth = 1f
+                            )
+                        }
+                    }
+                }
+
+                // 2) Draw 1km gridlines (labeled by 2-digit Irish Grid reference, rotated)
+                if (show1kmGrid) {
+                    val start1kmX = (kotlin.math.floor(minVisX / 1000.0) * 1000.0).toInt()
+                    val end1kmX = (kotlin.math.ceil(maxVisX / 1000.0) * 1000.0).toInt()
+
+                    for (xMeters in start1kmX..end1kmX step 1000) {
+                        val p1 = toCanvasOffset(xMeters.toDouble(), minVisY)
+                        val p2 = toCanvasOffset(xMeters.toDouble(), maxVisY)
+
+                        drawLine(
+                            color = Color(0xFF334E68).copy(alpha = 0.75f),
+                            start = p1,
+                            end = p2,
+                            strokeWidth = 1.5f
+                        )
+
+                        val digits = (kotlin.math.abs(xMeters) / 1000) % 100
+                        val labelStr = String.format(Locale.US, "%02d", digits)
+
+                        val textResult = textMeasurer.measure(
+                            text = labelStr,
+                            style = TextStyle(
+                                color = Color(0xFF9FB3C8),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        )
+
+                        if (p1.x in 0f..widthPx && p1.y in 0f..heightPx) {
+                            drawText(
+                                textLayoutResult = textResult,
+                                topLeft = Offset(p1.x + 4f, p1.y + 4f)
+                            )
                         }
                     }
 
-                    // 2) Draw 1km gridlines (labeled by 2-digit Irish Grid reference)
-                    if (show1kmGrid) {
-                        val start1kmX = (kotlin.math.floor(minVisX / 1000.0) * 1000.0).toInt()
-                        val end1kmX = (kotlin.math.ceil(maxVisX / 1000.0) * 1000.0).toInt()
+                    val start1kmY = (kotlin.math.floor(minVisY / 1000.0) * 1000.0).toInt()
+                    val end1kmY = (kotlin.math.ceil(maxVisY / 1000.0) * 1000.0).toInt()
 
-                        for (xMeters in start1kmX..end1kmX step 1000) {
-                            val p = toCanvasOffset(xMeters.toDouble(), minVisY)
-                            val canvasX = p.x
-                            if (canvasX in -20f..(widthPx + 20f)) {
-                                drawLine(
-                                    color = Color(0xFF334E68).copy(alpha = 0.75f),
-                                    start = Offset(canvasX, 0f),
-                                    end = Offset(canvasX, heightPx),
-                                    strokeWidth = 1.5f
-                                )
+                    for (yMeters in start1kmY..end1kmY step 1000) {
+                        val p1 = toCanvasOffset(minVisX, yMeters.toDouble())
+                        val p2 = toCanvasOffset(maxVisX, yMeters.toDouble())
 
-                                val digits = (kotlin.math.abs(xMeters) / 1000) % 100
-                                val labelStr = String.format(Locale.US, "%02d", digits)
+                        drawLine(
+                            color = Color(0xFF334E68).copy(alpha = 0.75f),
+                            start = p1,
+                            end = p2,
+                            strokeWidth = 1.5f
+                        )
 
-                                val textResult = textMeasurer.measure(
-                                    text = labelStr,
-                                    style = TextStyle(
-                                        color = Color(0xFF9FB3C8),
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                )
+                        val digits = (kotlin.math.abs(yMeters) / 1000) % 100
+                        val labelStr = String.format(Locale.US, "%02d", digits)
 
-                                drawText(
-                                    textLayoutResult = textResult,
-                                    topLeft = Offset(
-                                        (canvasX + 4f).coerceIn(4f, widthPx - textResult.size.width - 4f),
-                                        8f
-                                    )
-                                )
-                                drawText(
-                                    textLayoutResult = textResult,
-                                    topLeft = Offset(
-                                        (canvasX + 4f).coerceIn(4f, widthPx - textResult.size.width - 4f),
-                                        heightPx - textResult.size.height - 8f
-                                    )
-                                )
-                            }
-                        }
+                        val textResult = textMeasurer.measure(
+                            text = labelStr,
+                            style = TextStyle(
+                                color = Color(0xFF9FB3C8),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        )
 
-                        val start1kmY = (kotlin.math.floor(minVisY / 1000.0) * 1000.0).toInt()
-                        val end1kmY = (kotlin.math.ceil(maxVisY / 1000.0) * 1000.0).toInt()
-
-                        for (yMeters in start1kmY..end1kmY step 1000) {
-                            val p = toCanvasOffset(minVisX, yMeters.toDouble())
-                            val canvasY = p.y
-                            if (canvasY in -20f..(heightPx + 20f)) {
-                                drawLine(
-                                    color = Color(0xFF334E68).copy(alpha = 0.75f),
-                                    start = Offset(0f, canvasY),
-                                    end = Offset(widthPx, canvasY),
-                                    strokeWidth = 1.5f
-                                )
-
-                                val digits = (kotlin.math.abs(yMeters) / 1000) % 100
-                                val labelStr = String.format(Locale.US, "%02d", digits)
-
-                                val textResult = textMeasurer.measure(
-                                    text = labelStr,
-                                    style = TextStyle(
-                                        color = Color(0xFF9FB3C8),
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                )
-
-                                drawText(
-                                    textLayoutResult = textResult,
-                                    topLeft = Offset(
-                                        8f,
-                                        (canvasY - textResult.size.height - 2f).coerceIn(4f, heightPx - textResult.size.height - 4f)
-                                    )
-                                )
-                                drawText(
-                                    textLayoutResult = textResult,
-                                    topLeft = Offset(
-                                        widthPx - textResult.size.width - 8f,
-                                        (canvasY - textResult.size.height - 2f).coerceIn(4f, heightPx - textResult.size.height - 4f)
-                                    )
-                                )
-                            }
+                        if (p1.x in 0f..widthPx && p1.y in 0f..heightPx) {
+                            drawText(
+                                textLayoutResult = textResult,
+                                topLeft = Offset(p1.x + 4f, p1.y + 4f)
+                            )
                         }
                     }
                 }
@@ -5166,7 +5748,7 @@ fun MapScreen(
             if (activeLeg != null) {
                 val targetCenter = toCanvasOffset(activeLeg.target.x, activeLeg.target.y)
                 val effectiveScale = if (isLegView) {
-                    (minOf(widthPx, heightPx) / (legLen * interpScaleFactor)) * zoomScale
+                    (minOf(widthPx, heightPx) / (legLen * 1.35)) * zoomScale
                 } else {
                     baseScale.toDouble() * zoomScale.toDouble()
                 }
@@ -5440,60 +6022,60 @@ fun MapScreen(
             )
         }
 
-        // Upper Right UI Stack (North Indicator + Relative Bearing Indicator)
-        if (activeEkfState.isInitializedWithGps) {
-            Column(
+        // Upper Right UI Stack (North Indicator + Relative Bearing Indicator - Always Visible)
+        Column(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalAlignment = Alignment.End
+        ) {
+            // 1. North / Compass Button (Always Visible - Toggles Map View <-> Leg View)
+            Box(
                 modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(8.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-                horizontalAlignment = Alignment.End
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color.Black.copy(alpha = 0.75f))
+                    .clickable { onUpdateMapConfig { it.copy(isLegView = !it.isLegView) } }
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                contentAlignment = Alignment.Center
             ) {
-                // 1. North / Compass Button (Toggles Map View <-> Leg View)
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Color.Black.copy(alpha = 0.75f))
-                        .clickable { onToggleLegView(!isLegView) }
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                    contentAlignment = Alignment.Center
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Canvas(modifier = Modifier.size(20.dp)) {
-                            val center = Offset(size.width / 2f, size.height / 2f)
-                            val radius = size.width / 2f - 2f
-                            val northAngle = if (isLegView && activeLeg != null) {
-                                -activeLeg.start.bearingTo(activeLeg.target)
-                            } else {
-                                0.0
-                            }
-                            val angleRad = Math.toRadians(northAngle)
-                            val tipX = center.x + (radius * 0.8f * sin(angleRad)).toFloat()
-                            val tipY = center.y - (radius * 0.8f * cos(angleRad)).toFloat()
-
-                            drawCircle(color = Color(0xFF1E293B), radius = radius, center = center)
-                            drawLine(
-                                color = Color(0xFFFF5252),
-                                start = center,
-                                end = Offset(tipX, tipY),
-                                strokeWidth = 3f
-                            )
-                            drawCircle(color = Color.White, radius = 2f, center = center)
+                    Canvas(modifier = Modifier.size(20.dp)) {
+                        val center = Offset(size.width / 2f, size.height / 2f)
+                        val radius = size.width / 2f - 2f
+                        val northAngle = if (isLegView && activeLeg != null) {
+                            -activeLeg.start.bearingTo(activeLeg.target)
+                        } else {
+                            0.0
                         }
-                        Text(
-                            text = if (isLegView) "Leg View" else "North",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 9.sp
-                        )
-                    }
-                }
+                        val angleRad = Math.toRadians(northAngle)
+                        val tipX = center.x + (radius * 0.8f * sin(angleRad)).toFloat()
+                        val tipY = center.y - (radius * 0.8f * cos(angleRad)).toFloat()
 
-                // 2. Relative Bearing Indicator (Underneath North Indicator)
+                        drawCircle(color = Color(0xFF1E293B), radius = radius, center = center)
+                        drawLine(
+                            color = Color(0xFFFF5252),
+                            start = center,
+                            end = Offset(tipX, tipY),
+                            strokeWidth = 3f
+                        )
+                        drawCircle(color = Color.White, radius = 2f, center = center)
+                    }
+                    Text(
+                        text = if (isLegView) "Leg View" else "North",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 9.sp
+                    )
+                }
+            }
+
+            // 2. Relative Bearing Indicator (Visible when EKF initialized with GPS)
+            if (activeEkfState.isInitializedWithGps) {
                 Box(
                     modifier = Modifier
                         .background(Color.Black.copy(alpha = 0.75f), RoundedCornerShape(8.dp))
@@ -5572,15 +6154,35 @@ fun MapScreen(
             }
         }
 
-        // Settings Dialog Window
+        // Comprehensive Map & Hike Settings Dialog
         if (showSettingsDialog) {
             AlertDialog(
                 onDismissRequest = { showSettingsDialog = false },
                 title = {
-                    Text("Map Settings", fontWeight = FontWeight.Bold)
+                    Text("Map & Navigation Settings", fontWeight = FontWeight.Bold)
                 },
                 text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Telemetry Dashboard", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                Text("Toggle visibility of live EKF state viewport", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Switch(
+                                checked = mapConfig.showTelemetryViewport,
+                                onCheckedChange = { onUpdateMapConfig { cfg -> cfg.copy(showTelemetryViewport = it) } }
+                            )
+                        }
+
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -5592,7 +6194,7 @@ fun MapScreen(
                             }
                             Switch(
                                 checked = show1kmGrid,
-                                onCheckedChange = { onToggle1kmGrid(it) }
+                                onCheckedChange = { onUpdateMapConfig { cfg -> cfg.copy(show1kmGrid = it) } }
                             )
                         }
 
@@ -5607,18 +6209,97 @@ fun MapScreen(
                             }
                             Switch(
                                 checked = show100mGrid,
-                                onCheckedChange = { onToggle100mGrid(it) }
+                                onCheckedChange = { onUpdateMapConfig { cfg -> cfg.copy(show100mGrid = it) } }
                             )
+                        }
+
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("GPS Polling Interval:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                            Text("Frequency of GPS updates during active tracking", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                listOf(
+                                    1000L to "1s",
+                                    5000L to "5s",
+                                    10000L to "10s",
+                                    30000L to "30s",
+                                    100000L to "100s"
+                                ).forEach { (ms, label) ->
+                                    FilterChip(
+                                        selected = mapConfig.gpsPollingIntervalMs == ms,
+                                        onClick = {
+                                            onUpdateMapConfig { cfg -> cfg.copy(gpsPollingIntervalMs = ms) }
+                                            onIntervalSelected(ms)
+                                        },
+                                        label = { Text(label, style = MaterialTheme.typography.labelSmall) }
+                                    )
+                                }
+                            }
+                        }
+
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("Target Arrival Threshold:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                            Text("Distance to trigger TARGET_REACHED (meters)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                listOf(5.0, 10.0, 15.0, 20.0).forEach { dist ->
+                                    FilterChip(
+                                        selected = hikeConfig.arriveThresholdMeters == dist,
+                                        onClick = { onUpdateHikeConfig { cfg -> cfg.copy(arriveThresholdMeters = dist) } },
+                                        label = { Text("%.0fm".format(dist), style = MaterialTheme.typography.labelSmall) }
+                                    )
+                                }
+                            }
+                        }
+
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("Target Approach Threshold:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                            Text("Distance to trigger APPROACHING_TARGET (meters)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                listOf(20.0, 40.0, 60.0, 100.0).forEach { dist ->
+                                    FilterChip(
+                                        selected = hikeConfig.approachThresholdMeters == dist,
+                                        onClick = { onUpdateHikeConfig { cfg -> cfg.copy(approachThresholdMeters = dist) } },
+                                        label = { Text("%.0fm".format(dist), style = MaterialTheme.typography.labelSmall) }
+                                    )
+                                }
+                            }
+                        }
+
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("Off-Course Heading Deviation:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                            Text("Degrees deviation to trigger OFFCOURSE alert", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                listOf(5.0, 10.0, 15.0, 20.0).forEach { deg ->
+                                    FilterChip(
+                                        selected = hikeConfig.offCourseHeadingDevDeg == deg,
+                                        onClick = { onUpdateHikeConfig { cfg -> cfg.copy(offCourseHeadingDevDeg = deg) } },
+                                        label = { Text("%.0f°".format(deg), style = MaterialTheme.typography.labelSmall) }
+                                    )
+                                }
+                            }
+                        }
+
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("Off-Course Min Speed:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                            Text("Minimum speed (m/s) to evaluate off-course heading", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                listOf(0.2, 0.4, 0.6, 0.8).forEach { speed ->
+                                    FilterChip(
+                                        selected = hikeConfig.offCourseMinSpeedMps == speed,
+                                        onClick = { onUpdateHikeConfig { cfg -> cfg.copy(offCourseMinSpeedMps = speed) } },
+                                        label = { Text("%.1f".format(speed), style = MaterialTheme.typography.labelSmall) }
+                                    )
+                                }
+                            }
                         }
 
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text("Off-Course Drift Cool-off:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                             Text("Cool-off when course drifts further (seconds)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                listOf(1L, 2L, 3L, 5L).forEach { sec ->
+                                listOf(1L, 2L, 4L, 6L).forEach { sec ->
                                     FilterChip(
-                                        selected = driftCoolOffSec == sec,
-                                        onClick = { onSelectDriftCoolOffSec(sec) },
+                                        selected = hikeConfig.driftCoolOffSec == sec,
+                                        onClick = { onUpdateHikeConfig { cfg -> cfg.copy(driftCoolOffSec = sec) } },
                                         label = { Text("${sec}s", style = MaterialTheme.typography.labelSmall) }
                                     )
                                 }
@@ -5629,10 +6310,10 @@ fun MapScreen(
                             Text("Off-Course Steady Cool-off:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                             Text("Cool-off when holding steady off-course heading (seconds)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                listOf(5L, 10L, 15L, 30L).forEach { sec ->
+                                listOf(4L, 6L, 10L, 15L).forEach { sec ->
                                     FilterChip(
-                                        selected = steadyCoolOffSec == sec,
-                                        onClick = { onSelectSteadyCoolOffSec(sec) },
+                                        selected = hikeConfig.steadyCoolOffSec == sec,
+                                        onClick = { onUpdateHikeConfig { cfg -> cfg.copy(steadyCoolOffSec = sec) } },
                                         label = { Text("${sec}s", style = MaterialTheme.typography.labelSmall) }
                                     )
                                 }
@@ -5689,12 +6370,17 @@ private fun computeIntelligentLabelAngle(
 }
 
 
-// --- FILE: ./main/java/com/example/pdrandroutetest/repository/HikeRepository.kt ---
+// --- FILE: ./app/src/main/java/com/example/pdrandroutetest/repository/HikeRepository.kt ---
 
 package com.example.pdrandroutetest.repository
 
+import android.content.Context
+import com.example.pdrandroutetest.config.AppPreferences
+import com.example.pdrandroutetest.config.HikeConfig
+import com.example.pdrandroutetest.config.MapConfig
 import com.example.pdrandroutetest.data.EkfState
 import com.example.pdrandroutetest.hike.Hike
+import com.example.pdrandroutetest.hike.LegState
 import com.example.pdrandroutetest.hike.NavigationMessage
 import com.example.pdrandroutetest.model.Breadcrumb
 import com.example.pdrandroutetest.model.Leg
@@ -5702,6 +6388,7 @@ import com.example.pdrandroutetest.model.Route
 import com.example.pdrandroutetest.model.Waypoint
 import com.example.pdrandroutetest.telemetry.TelemetryPlaybackEngine
 import com.example.pdrandroutetest.telemetry.TelemetryRecorder
+import com.example.pdrandroutetest.util.TtsManager
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -5710,6 +6397,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.concurrent.ConcurrentLinkedQueue
+
+data class TtsQueueItem(
+    val state: LegState?,
+    val message: String,
+    val timestampMs: Long = System.currentTimeMillis()
+)
 
 object HikeRepository {
     private val _ekfStateFlow = MutableStateFlow(EkfState())
@@ -5727,20 +6420,15 @@ object HikeRepository {
     private val _activeRoute = MutableStateFlow<Route?>(null)
     val activeRoute: StateFlow<Route?> = _activeRoute.asStateFlow()
 
-    private val _show1kmGrid = MutableStateFlow(false)
-    val show1kmGrid: StateFlow<Boolean> = _show1kmGrid.asStateFlow()
+    private val _mapConfig = MutableStateFlow(MapConfig())
+    val mapConfig: StateFlow<MapConfig> = _mapConfig.asStateFlow()
 
-    private val _show100mGrid = MutableStateFlow(false)
-    val show100mGrid: StateFlow<Boolean> = _show100mGrid.asStateFlow()
+    private val _hikeConfig = MutableStateFlow(HikeConfig())
+    val hikeConfig: StateFlow<HikeConfig> = _hikeConfig.asStateFlow()
 
-    private val _isLegView = MutableStateFlow(false)
-    val isLegView: StateFlow<Boolean> = _isLegView.asStateFlow()
-
-    private val _driftCoolOffSec = MutableStateFlow(2L)
-    val driftCoolOffSec: StateFlow<Long> = _driftCoolOffSec.asStateFlow()
-
-    private val _steadyCoolOffSec = MutableStateFlow(15L)
-    val steadyCoolOffSec: StateFlow<Long> = _steadyCoolOffSec.asStateFlow()
+    val show1kmGrid: StateFlow<Boolean> = _mapConfig.asStateFlow().let {
+        MutableStateFlow(_mapConfig.value.show1kmGrid)
+    }
 
     private val _hikeMessage = MutableStateFlow<String?>(null)
     val hikeMessage: StateFlow<String?> = _hikeMessage.asStateFlow()
@@ -5757,29 +6445,121 @@ object HikeRepository {
     private val _activeLeg = MutableStateFlow<Leg?>(null)
     val activeLeg: StateFlow<Leg?> = _activeLeg.asStateFlow()
 
+    private val _currentLegIndex = MutableStateFlow(0)
+    val currentLegIndex: StateFlow<Int> = _currentLegIndex.asStateFlow()
+
     private var currentHike: Hike? = null
     val activeHike: Hike?
         get() = currentHike
+
+    private var appPreferences: AppPreferences? = null
+    private var ttsManager: TtsManager? = null
+    private var isTtsSpeaking = false
+    private val pendingTtsQueue = mutableListOf<TtsQueueItem>()
 
     val telemetryRecorder = TelemetryRecorder()
     val telemetryPlaybackEngine = TelemetryPlaybackEngine()
 
     private val breadcrumbHistory = ConcurrentLinkedQueue<Breadcrumb>()
 
+    fun initPreferences(context: Context) {
+        if (appPreferences == null) {
+            val prefs = AppPreferences(context.applicationContext)
+            appPreferences = prefs
+
+            val loadedMapConfig = prefs.loadMapConfig()
+            val loadedHikeConfig = prefs.loadHikeConfig()
+
+            _mapConfig.value = loadedMapConfig
+            _hikeConfig.value = loadedHikeConfig
+
+            val lastRoute = prefs.loadLastRoute()
+            if (lastRoute != null && _activeRoute.value == null) {
+                try {
+                    val route = Route.parseFromCsvContent(lastRoute.first, lastRoute.second)
+                    _activeRoute.value = route
+                    _currentTargetWaypoint.value = route.legs.firstOrNull()?.target
+                    _activeLeg.value = route.legs.firstOrNull()
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
+        initTts(context)
+    }
+
+    fun initTts(context: Context) {
+        if (ttsManager == null) {
+            ttsManager = TtsManager(context.applicationContext, onSpeechDone = {
+                onTtsSpeechFinished()
+            })
+        }
+    }
+
+    fun shutdownTts() {
+        clearTtsQueue()
+        ttsManager?.shutdown()
+        ttsManager = null
+    }
+
+    @Synchronized
+    fun enqueueTtsMessage(state: LegState?, message: String) {
+        if (message.isBlank()) return
+
+        if (state == LegState.OFFCOURSE) {
+            pendingTtsQueue.removeAll { it.state == LegState.OFFCOURSE }
+        }
+
+        pendingTtsQueue.add(TtsQueueItem(state, message))
+        processNextTtsItem()
+    }
+
+    @Synchronized
+    private fun onTtsSpeechFinished() {
+        isTtsSpeaking = false
+        processNextTtsItem()
+    }
+
+    @Synchronized
+    private fun processNextTtsItem() {
+        if (isTtsSpeaking) return
+        if (pendingTtsQueue.isEmpty()) return
+
+        val nextItem = pendingTtsQueue.removeAt(0)
+        isTtsSpeaking = true
+        ttsManager?.speak(nextItem.message)
+    }
+
+    @Synchronized
+    fun clearTtsQueue() {
+        pendingTtsQueue.clear()
+        isTtsSpeaking = false
+        ttsManager?.stop()
+    }
+
     fun updateEkfState(state: EkfState) {
         _ekfStateFlow.value = state
+    }
+
+    fun setCurrentLegIndex(index: Int) {
+        currentHike?.setCurrentLegIndex(index)
+        _currentLegIndex.value = currentHike?.currentLegIndex ?: 0
+        _activeLeg.value = currentHike?.currentLeg
+        _currentTargetWaypoint.value = currentHike?.currentLeg?.target ?: _activeRoute.value?.legs?.firstOrNull()?.target
     }
 
     suspend fun emitBreadcrumb(breadcrumb: Breadcrumb) {
         breadcrumbHistory.add(breadcrumb)
         _breadcrumbsFlow.emit(breadcrumb)
         currentHike?.let { hike ->
-            val msg = hike.update(
+            val result = hike.update(
                 location = breadcrumb.location,
                 timestampMs = breadcrumb.timestampMs,
                 isGpsFix = breadcrumb.isGpsFix,
                 ekfState = breadcrumb.ekfState
             )
+            val msg = result?.message
+            val state = result?.state
             if (!msg.isNullOrBlank()) {
                 _hikeMessage.value = msg
                 _navigationMessages.value = _navigationMessages.value + NavigationMessage(
@@ -5787,28 +6567,30 @@ object HikeRepository {
                     text = msg,
                     timestampMs = breadcrumb.timestampMs
                 )
+                enqueueTtsMessage(state, msg)
             }
             _relativeBearingCorrection.value = hike.relativeBearingCorrection(breadcrumb.location, breadcrumb.ekfState)
+            _currentLegIndex.value = hike.currentLegIndex
         }
         _currentTargetWaypoint.value = currentHike?.currentLeg?.target ?: _activeRoute.value?.legs?.firstOrNull()?.target
         _activeLeg.value = currentHike?.currentLeg ?: _activeRoute.value?.legs?.firstOrNull()
     }
 
     fun startHike(route: Route?) {
-        currentHike = Hike(route).apply {
-            driftCoolOffSec = _driftCoolOffSec.value
-            steadyCoolOffSec = _steadyCoolOffSec.value
-        }
+        currentHike = Hike(route, _hikeConfig.value)
         _hikeMessage.value = null
         _navigationMessages.value = emptyList()
         _relativeBearingCorrection.value = 0.0
+        _currentLegIndex.value = currentHike?.currentLegIndex ?: 0
         _currentTargetWaypoint.value = currentHike?.currentLeg?.target ?: route?.legs?.firstOrNull()?.target
         _activeLeg.value = currentHike?.currentLeg ?: route?.legs?.firstOrNull()
+        clearTtsQueue()
         clearBreadcrumbs()
     }
 
     fun stopHike() {
         currentHike?.stop()
+        clearTtsQueue()
     }
 
     fun setTracking(tracking: Boolean) {
@@ -5827,30 +6609,43 @@ object HikeRepository {
 
     fun setActiveRoute(route: Route?) {
         _activeRoute.value = route
-        _currentTargetWaypoint.value = currentHike?.currentLeg?.target ?: route?.legs?.firstOrNull()?.target
-        _activeLeg.value = currentHike?.currentLeg ?: route?.legs?.firstOrNull()
+        if (route != null) {
+            startHike(route)
+        } else {
+            currentHike = null
+            _activeLeg.value = null
+            _currentTargetWaypoint.value = null
+            _currentLegIndex.value = 0
+        }
+    }
+
+    fun setActiveRouteWithContent(routeName: String, csvContent: String, route: Route) {
+        setActiveRoute(route)
+        appPreferences?.saveLastRoute(routeName, csvContent)
+    }
+
+    fun updateMapConfig(transform: (MapConfig) -> MapConfig) {
+        val newConfig = transform(_mapConfig.value)
+        _mapConfig.value = newConfig
+        appPreferences?.saveMapConfig(newConfig)
+    }
+
+    fun updateHikeConfig(transform: (HikeConfig) -> HikeConfig) {
+        val newConfig = transform(_hikeConfig.value)
+        _hikeConfig.value = newConfig
+        appPreferences?.saveHikeConfig(newConfig)
     }
 
     fun setShow1kmGrid(show: Boolean) {
-        _show1kmGrid.value = show
+        updateMapConfig { it.copy(show1kmGrid = show) }
     }
 
     fun setShow100mGrid(show: Boolean) {
-        _show100mGrid.value = show
+        updateMapConfig { it.copy(show100mGrid = show) }
     }
 
     fun setLegView(isLeg: Boolean) {
-        _isLegView.value = isLeg
-    }
-
-    fun setDriftCoolOffSec(sec: Long) {
-        _driftCoolOffSec.value = sec.coerceAtLeast(1L)
-        currentHike?.driftCoolOffSec = sec.coerceAtLeast(1L)
-    }
-
-    fun setSteadyCoolOffSec(sec: Long) {
-        _steadyCoolOffSec.value = sec.coerceAtLeast(1L)
-        currentHike?.steadyCoolOffSec = sec.coerceAtLeast(1L)
+        updateMapConfig { it.copy(isLegView = isLeg) }
     }
 
     fun getBreadcrumbHistory(): List<Breadcrumb> {

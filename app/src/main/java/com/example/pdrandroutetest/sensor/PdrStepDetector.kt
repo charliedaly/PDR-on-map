@@ -5,6 +5,7 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.os.SystemClock
 import kotlin.math.PI
 import kotlin.math.atan2
 import kotlin.math.sqrt
@@ -59,7 +60,12 @@ class PdrStepDetector(
     }
 
     override fun onSensorChanged(event: SensorEvent) {
-        val eventTimestampMs = if (event.timestamp > 0) event.timestamp / 1_000_000L else System.currentTimeMillis()
+        val eventTimestampMs = if (event.timestamp > 0) {
+            // Convert elapsed realtime nanos to current wall-clock epoch milliseconds
+            System.currentTimeMillis() - (SystemClock.elapsedRealtimeNanos() - event.timestamp) / 1_000_000L
+        } else {
+            System.currentTimeMillis()
+        }
 
         when (event.sensor.type) {
             Sensor.TYPE_ROTATION_VECTOR -> {
