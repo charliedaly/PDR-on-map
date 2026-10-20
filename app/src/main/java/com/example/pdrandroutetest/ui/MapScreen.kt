@@ -42,7 +42,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
@@ -275,9 +277,9 @@ fun MapScreen(
                 (baseScale * zoomScale).toDouble()
             }
 
-            // --- Draw Offline OSM Map Background Tiles ---
+            // --- Draw Offline OSM Map Background Tiles (Hardware 4-Corner Quad PolyToPoly Projection) ---
             if (mapConfig.showOsmBackground && currentScale > 0.0) {
-                val autoZoom = kotlin.math.round(kotlin.math.log2(93113.0 * currentScale)).toInt().coerceIn(8, 11)
+                val autoZoom = kotlin.math.round(kotlin.math.log2(93113.0 * currentScale)).toInt().coerceIn(8, 18)
                 val tiles = OsmTileManager.getTilesForArea(
                     minX = viewportTracker.minX,
                     maxX = viewportTracker.maxX,
@@ -286,25 +288,43 @@ fun MapScreen(
                     zoom = autoZoom
                 )
 
+                val tilePaint = android.graphics.Paint().apply {
+                    isAntiAlias = true
+                    isFilterBitmap = true
+                }
+
+                val srcPoly = floatArrayOf(
+                    0f, 0f,       // Top-Left (NW)
+                    256f, 0f,     // Top-Right (NE)
+                    256f, 256f,   // Bottom-Right (SE)
+                    0f, 256f      // Bottom-Left (SW)
+                )
+
                 for (tile in tiles) {
-                    val pTopLeft = toCanvasOffset(tile.minX, tile.maxY)
-                    val pBottomRight = toCanvasOffset(tile.maxX, tile.minY)
+                    val corners = OsmTileManager.getTileCorners(tile.zoom, tile.tileX, tile.tileY)
 
-                    val dstLeft = minOf(pTopLeft.x, pBottomRight.x)
-                    val dstTop = minOf(pTopLeft.y, pBottomRight.y)
-                    val dstRight = maxOf(pTopLeft.x, pBottomRight.x)
-                    val dstBottom = maxOf(pTopLeft.y, pBottomRight.y)
+                    val pNW = toCanvasOffset(corners.nwMetric.x, corners.nwMetric.y)
+                    val pNE = toCanvasOffset(corners.neMetric.x, corners.neMetric.y)
+                    val pSE = toCanvasOffset(corners.seMetric.x, corners.seMetric.y)
+                    val pSW = toCanvasOffset(corners.swMetric.x, corners.swMetric.y)
 
-                    val tileWidth = (dstRight - dstLeft).coerceAtLeast(1f)
-                    val tileHeight = (dstBottom - dstTop).coerceAtLeast(1f)
-
-                    val tileBitmap = OsmTileManager.getTileBitmap(context, tile.zoom, tile.tileX, tile.tileY)
-
-                    drawImage(
-                        image = tileBitmap,
-                        dstOffset = IntOffset(dstLeft.toInt(), dstTop.toInt()),
-                        dstSize = IntSize(tileWidth.toInt(), tileHeight.toInt())
+                    val dstPoly = floatArrayOf(
+                        pNW.x, pNW.y,
+                        pNE.x, pNE.y,
+                        pSE.x, pSE.y,
+                        pSW.x, pSW.y
                     )
+
+                    val polyMatrix = android.graphics.Matrix()
+                    if (polyMatrix.setPolyToPoly(srcPoly, 0, dstPoly, 0, 4)) {
+                        val tileImageBitmap = OsmTileManager.getTileBitmap(context, tile.zoom, tile.tileX, tile.tileY)
+                        val androidBitmap = tileImageBitmap.asAndroidBitmap()
+
+                        drawContext.canvas.nativeCanvas.save()
+                        drawContext.canvas.nativeCanvas.concat(polyMatrix)
+                        drawContext.canvas.nativeCanvas.drawBitmap(androidBitmap, 0f, 0f, tilePaint)
+                        drawContext.canvas.nativeCanvas.restore()
+                    }
                 }
             }
 
@@ -322,7 +342,7 @@ fun MapScreen(
                 // 1) Draw 100m gridlines (unlabeled, rotated)
                 if (show100mGrid) {
                     val spacing100mPx = 100.0 * currentScale.toDouble()
-                    if (spacing100mPx >= 4.0) {
+                    if (spacing100mPx >= 3.0) {
                         val start100mX = (kotlin.math.floor(minVisX / 100.0) * 100.0).toInt()
                         val end100mX = (kotlin.math.ceil(maxVisX / 100.0) * 100.0).toInt()
 
@@ -331,10 +351,10 @@ fun MapScreen(
                             val p1 = toCanvasOffset(xMeters.toDouble(), minVisY)
                             val p2 = toCanvasOffset(xMeters.toDouble(), maxVisY)
                             drawLine(
-                                color = Color(0xFF1E293B),
+                                color = Color(0xFF38BDF8).copy(alpha = 0.4f),
                                 start = p1,
                                 end = p2,
-                                strokeWidth = 1f
+                                strokeWidth = 1.25f
                             )
                         }
 
@@ -346,10 +366,10 @@ fun MapScreen(
                             val p1 = toCanvasOffset(minVisX, yMeters.toDouble())
                             val p2 = toCanvasOffset(maxVisX, yMeters.toDouble())
                             drawLine(
-                                color = Color(0xFF1E293B),
+                                color = Color(0xFF38BDF8).copy(alpha = 0.4f),
                                 start = p1,
                                 end = p2,
-                                strokeWidth = 1f
+                                strokeWidth = 1.25f
                             )
                         }
                     }
@@ -365,10 +385,10 @@ fun MapScreen(
                         val p2 = toCanvasOffset(xMeters.toDouble(), maxVisY)
 
                         drawLine(
-                            color = Color(0xFF334E68).copy(alpha = 0.75f),
+                            color = Color(0xFF94A3B8).copy(alpha = 0.85f),
                             start = p1,
                             end = p2,
-                            strokeWidth = 1.5f
+                            strokeWidth = 1.75f
                         )
 
                         val digits = (kotlin.math.abs(xMeters) / 1000) % 100
@@ -378,15 +398,20 @@ fun MapScreen(
                             text = labelStr,
                             style = TextStyle(
                                 color = Color(0xFF9FB3C8),
-                                fontSize = 10.sp,
+                                fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold
                             )
                         )
 
-                        if (p1.x in 0f..widthPx && p1.y in 0f..heightPx) {
+                        val canvasX = p1.x
+                        if (canvasX in 0f..widthPx) {
                             drawText(
                                 textLayoutResult = textResult,
-                                topLeft = Offset(p1.x + 4f, p1.y + 4f)
+                                topLeft = Offset((canvasX + 4f).coerceIn(4f, widthPx - textResult.size.width - 4f), 8f)
+                            )
+                            drawText(
+                                textLayoutResult = textResult,
+                                topLeft = Offset((canvasX + 4f).coerceIn(4f, widthPx - textResult.size.width - 4f), heightPx - textResult.size.height - 8f)
                             )
                         }
                     }
@@ -412,15 +437,20 @@ fun MapScreen(
                             text = labelStr,
                             style = TextStyle(
                                 color = Color(0xFF9FB3C8),
-                                fontSize = 10.sp,
+                                fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold
                             )
                         )
 
-                        if (p1.x in 0f..widthPx && p1.y in 0f..heightPx) {
+                        val canvasY = p1.y
+                        if (canvasY in 0f..heightPx) {
                             drawText(
                                 textLayoutResult = textResult,
-                                topLeft = Offset(p1.x + 4f, p1.y + 4f)
+                                topLeft = Offset(8f, (canvasY - textResult.size.height / 2f).coerceIn(4f, heightPx - textResult.size.height - 4f))
+                            )
+                            drawText(
+                                textLayoutResult = textResult,
+                                topLeft = Offset(widthPx - textResult.size.width - 8f, (canvasY - textResult.size.height / 2f).coerceIn(4f, heightPx - textResult.size.height - 4f))
                             )
                         }
                     }
@@ -883,7 +913,7 @@ fun MapScreen(
 
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text("Download Offline Ireland Tiles:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                            Text("Fetch OpenStreetMap tiles for Ireland (zooms 8-11)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("Fetch OpenStreetMap tiles for Ireland (zooms 8-14)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
                             var isDownloading by remember { mutableStateOf(false) }
                             var progressText by remember { mutableStateOf("") }
@@ -893,7 +923,7 @@ fun MapScreen(
                                 onClick = {
                                     isDownloading = true
                                     coroutineScope.launch {
-                                        val count = OsmTileManager.downloadIrelandTiles(context, listOf(8, 9, 10, 11)) { current, total ->
+                                        val count = OsmTileManager.downloadIrelandTiles(context, listOf(8, 9, 10, 11, 12, 13, 14)) { current, total ->
                                             progressText = "$current / $total"
                                         }
                                         isDownloading = false
@@ -907,6 +937,37 @@ fun MapScreen(
                                     text = if (isDownloading) "Downloading ($progressText)..." else "Download Ireland Map Tiles",
                                     style = MaterialTheme.typography.labelMedium
                                 )
+                            }
+                        }
+
+                        if (route != null && route.waypoints.isNotEmpty()) {
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text("Download Route Area Map Tiles:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                Text("Fetch high-res tiles for '${route.name}' (zooms 10-18)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                                var isDownloadingRoute by remember { mutableStateOf(false) }
+                                var routeProgressText by remember { mutableStateOf("") }
+                                val coroutineScope = rememberCoroutineScope()
+
+                                Button(
+                                    onClick = {
+                                        isDownloadingRoute = true
+                                        coroutineScope.launch {
+                                            val count = OsmTileManager.downloadRouteAreaTiles(context, route, listOf(10, 11, 12, 13, 14, 15, 16, 17, 18)) { current, total ->
+                                                routeProgressText = "$current / $total"
+                                            }
+                                            isDownloadingRoute = false
+                                            Toast.makeText(context, "Downloaded $count tiles for route '${route.name}'!", Toast.LENGTH_LONG).show()
+                                        }
+                                    },
+                                    enabled = !isDownloadingRoute,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(
+                                        text = if (isDownloadingRoute) "Downloading Route ($routeProgressText)..." else "Download Route Area Tiles",
+                                        style = MaterialTheme.typography.labelMedium
+                                    )
+                                }
                             }
                         }
 

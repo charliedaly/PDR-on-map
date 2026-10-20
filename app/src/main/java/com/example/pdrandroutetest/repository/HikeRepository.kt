@@ -245,8 +245,20 @@ object HikeRepository {
         }
     }
 
-    fun setActiveRouteWithContent(routeName: String, csvContent: String, route: Route) {
-        setActiveRoute(route)
+    fun updateRouteWithoutClearing(route: Route?) {
+        _activeRoute.value = route
+        currentHike?.updateRoute(route)
+        _currentTargetWaypoint.value = currentHike?.currentLeg?.target ?: route?.legs?.firstOrNull()?.target
+        _activeLeg.value = currentHike?.currentLeg ?: route?.legs?.firstOrNull()
+        _currentLegIndex.value = currentHike?.currentLegIndex ?: 0
+    }
+
+    fun setActiveRouteWithContent(routeName: String, csvContent: String, route: Route, preserveTracking: Boolean = false) {
+        if (preserveTracking) {
+            updateRouteWithoutClearing(route)
+        } else {
+            setActiveRoute(route)
+        }
         appPreferences?.saveLastRoute(routeName, csvContent)
     }
 

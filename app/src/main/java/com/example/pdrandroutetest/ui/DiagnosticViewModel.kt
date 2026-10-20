@@ -213,7 +213,7 @@ class DiagnosticViewModel : ViewModel() {
         val csv = route.waypoints.joinToString("\n") { wp ->
             "${wp.name},${wp.x},${wp.y},${wp.altitude}"
         }
-        HikeRepository.setActiveRouteWithContent(routeName, csv, route)
+        HikeRepository.setActiveRouteWithContent(routeName, csv, route, preserveTracking = true)
     }
 
     fun initTts(context: Context) {

@@ -41,7 +41,7 @@ class LegAnnouncementTracker {
     }
 }
 
-class Hike(val route: Route?, val config: HikeConfig = HikeConfig()) {
+class Hike(var route: Route?, val config: HikeConfig = HikeConfig()) {
     private val _breadcrumbs = mutableListOf<Breadcrumb>()
     val breadcrumbs: List<Breadcrumb>
         get() = _breadcrumbs.toList()
@@ -57,6 +57,15 @@ class Hike(val route: Route?, val config: HikeConfig = HikeConfig()) {
 
     var isActive: Boolean = true
         private set
+
+    fun updateRoute(newRoute: Route?) {
+        route = newRoute
+        val legs = newRoute?.legs ?: emptyList()
+        if (currentLegIndex >= legs.size) {
+            currentLegIndex = (legs.size - 1).coerceAtLeast(0)
+        }
+        currentLeg = legs.getOrNull(currentLegIndex)
+    }
 
     val tracker = LegAnnouncementTracker()
 

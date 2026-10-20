@@ -42,6 +42,22 @@ private val letterCorrectionMap = mapOf(
 
 private val dynamic10kmOffsetMap = mutableMapOf<String, GridOffset>()
 
+private val gridLetters = arrayOf(
+    arrayOf('A', 'B', 'C', 'D', 'E'),
+    arrayOf('F', 'G', 'H', 'J', 'K'),
+    arrayOf('L', 'M', 'N', 'O', 'P'),
+    arrayOf('Q', 'R', 'S', 'T', 'U'),
+    arrayOf('V', 'W', 'X', 'Y', 'Z')
+)
+
+private val gridLetterMap = mapOf(
+    'A' to Pair(0.0, 400000.0), 'B' to Pair(100000.0, 400000.0), 'C' to Pair(200000.0, 400000.0), 'D' to Pair(300000.0, 400000.0), 'E' to Pair(400000.0, 400000.0),
+    'F' to Pair(0.0, 300000.0), 'G' to Pair(100000.0, 300000.0), 'H' to Pair(200000.0, 300000.0), 'J' to Pair(300000.0, 300000.0), 'K' to Pair(400000.0, 300000.0),
+    'L' to Pair(0.0, 200000.0), 'M' to Pair(100000.0, 200000.0), 'N' to Pair(200000.0, 200000.0), 'O' to Pair(300000.0, 200000.0), 'P' to Pair(400000.0, 200000.0),
+    'Q' to Pair(0.0, 100000.0), 'R' to Pair(100000.0, 100000.0), 'S' to Pair(200000.0, 100000.0), 'T' to Pair(300000.0, 100000.0), 'U' to Pair(400000.0, 100000.0),
+    'V' to Pair(0.0, 0.0),      'W' to Pair(100000.0, 0.0),      'X' to Pair(200000.0, 0.0),      'Y' to Pair(300000.0, 0.0),      'Z' to Pair(400000.0, 0.0)
+)
+
 private fun loadIrishGridOffsetsInternal(context: Context, fileName: String = "irish_grid_offsets_10km.json") {
     try {
         val jsonString = context.assets.open(fileName).bufferedReader().use { it.readText() }
@@ -287,14 +303,22 @@ object CoordinateUtils {
      */
     fun latLonToMetric(lat: Double, lon: Double): Location {
         val gridRef = IrishGridConverter.Wgs84ToIrishGrid(LatLon(lat, lon))
-        return Location(x = gridRef.easting, y = gridRef.northing, altitude = 0.0)
+        val baseOffset = gridLetterMap[gridRef.letter] ?: Pair(0.0, 0.0)
+        return Location(
+            x = baseOffset.first + gridRef.easting,
+            y = baseOffset.second + gridRef.northing,
+            altitude = 0.0
+        )
     }
 
     /**
      * Converts Irish National Grid metric Location (x, y) into WGS84 latitude and longitude Pair(lat, lon).
      */
     fun metricToLatLon(location: Location): Pair<Double, Double> {
-        val letter = 'W'
+        val col = (location.x / 100000.0).toInt().coerceIn(0, 4)
+        val row = (4 - (location.y / 100000.0).toInt()).coerceIn(0, 4)
+        val letter = gridLetters[row][col]
+
         val localE = (location.x % 100000.0).let { if (it < 0) it + 100000.0 else it }
         val localN = (location.y % 100000.0).let { if (it < 0) it + 100000.0 else it }
         val gridRefStr = String.format(Locale.US, "%c%05d%05d", letter, localE.toInt(), localN.toInt())
@@ -328,17 +352,25 @@ object CoordinateUtils {
         val cleaned = ref.trim().uppercase()
         if (cleaned.isEmpty()) return Location(0.0, 0.0)
 
-        val hasLetter = cleaned[0] in 'A'..'Z'
+        val hasLetter = cleaned[0] in 'A'..'Z' && cleaned[0] != 'I'
+        val letter = if (hasLetter) cleaned[0] else 'V'
         val numericPart = if (hasLetter) cleaned.substring(1).replace(Regex("\\s+"), "") else cleaned.replace(Regex("\\s+"), "")
 
         val halfLen = numericPart.length / 2
         val eastingStr = if (halfLen > 0) numericPart.substring(0, halfLen) else "0"
         val northingStr = if (halfLen > 0) numericPart.substring(halfLen) else numericPart
 
-        val localE = eastingStr.padEnd(5, '0').take(5).toDoubleOrNull() ?: 0.0
-        val localN = northingStr.padEnd(5, '0').take(5).toDoubleOrNull() ?: 0.0
+        val padFactor = 5 - eastingStr.length
+        val multiplier = 10.0.pow(padFactor.coerceAtLeast(0))
 
-        return Location(localE, localN)
+        val localE = (eastingStr.toDoubleOrNull() ?: 0.0) * multiplier
+        val localN = (northingStr.toDoubleOrNull() ?: 0.0) * multiplier
+
+        val baseOffset = gridLetterMap[letter] ?: Pair(0.0, 0.0)
+        val globalE = baseOffset.first + localE
+        val globalN = baseOffset.second + localN
+
+        return Location(globalE, globalN)
     }
 
     internal fun parseGridRefToLocation(ref: String, altitude: Double = 0.0): Location {

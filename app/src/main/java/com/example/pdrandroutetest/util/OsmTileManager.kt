@@ -10,6 +10,7 @@ import android.util.LruCache
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import com.example.pdrandroutetest.model.Location
+import com.example.pdrandroutetest.model.Route
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -34,9 +35,19 @@ data class TileBounds(
     val tileY: Int
 )
 
+data class TileCorners(
+    val zoom: Int,
+    val tileX: Int,
+    val tileY: Int,
+    val nwMetric: Location,
+    val neMetric: Location,
+    val seMetric: Location,
+    val swMetric: Location
+)
+
 object OsmTileManager {
 
-    private val memoryCache = LruCache<String, ImageBitmap>(100)
+    private val memoryCache = LruCache<String, ImageBitmap>(300)
 
     // Ireland WGS84 Bounding Box
     const val IRELAND_MIN_LAT = 51.4
@@ -62,6 +73,24 @@ object OsmTileManager {
     private fun cos(rad: Double): Double = kotlin.math.cos(rad)
 
     fun tileToBoundingBox(zoom: Int, tileX: Int, tileY: Int): TileBounds {
+        val corners = getTileCorners(zoom, tileX, tileY)
+        val minX = minOf(corners.nwMetric.x, corners.swMetric.x)
+        val maxX = maxOf(corners.neMetric.x, corners.seMetric.x)
+        val minY = minOf(corners.swMetric.y, corners.seMetric.y)
+        val maxY = maxOf(corners.nwMetric.y, corners.neMetric.y)
+
+        return TileBounds(
+            minX = minX,
+            maxX = maxX,
+            minY = minY,
+            maxY = maxY,
+            zoom = zoom,
+            tileX = tileX,
+            tileY = tileY
+        )
+    }
+
+    fun getTileCorners(zoom: Int, tileX: Int, tileY: Int): TileCorners {
         val n = 2.0.pow(zoom)
         val lonWest = tileX.toDouble() / n * 360.0 - 180.0
         val lonEast = (tileX + 1).toDouble() / n * 360.0 - 180.0
@@ -73,21 +102,18 @@ object OsmTileManager {
         val latSouth = Math.toDegrees(latSouthRad)
 
         val nwMetric = CoordinateUtils.latLonToMetric(latNorth, lonWest)
+        val neMetric = CoordinateUtils.latLonToMetric(latNorth, lonEast)
         val seMetric = CoordinateUtils.latLonToMetric(latSouth, lonEast)
+        val swMetric = CoordinateUtils.latLonToMetric(latSouth, lonWest)
 
-        val minX = minOf(nwMetric.x, seMetric.x)
-        val maxX = maxOf(nwMetric.x, seMetric.x)
-        val minY = minOf(nwMetric.y, seMetric.y)
-        val maxY = maxOf(nwMetric.y, seMetric.y)
-
-        return TileBounds(
-            minX = minX,
-            maxX = maxX,
-            minY = minY,
-            maxY = maxY,
+        return TileCorners(
             zoom = zoom,
             tileX = tileX,
-            tileY = tileY
+            tileY = tileY,
+            nwMetric = nwMetric,
+            neMetric = neMetric,
+            seMetric = seMetric,
+            swMetric = swMetric
         )
     }
 
@@ -149,7 +175,17 @@ object OsmTileManager {
         } catch (_: Exception) {
         }
 
-        // 3. Fallback: Generate offline topographical background tile
+        // 3. Parent tile fallback (up to 3 zoom levels higher up for seamless high-zoom panning)
+        if (zoom > 8) {
+            val parentZoom = zoom - 1
+            val parentX = tileX / 2
+            val parentY = tileY / 2
+            val parentBitmap = getTileBitmap(context, parentZoom, parentX, parentY)
+            memoryCache.put(cacheKey, parentBitmap)
+            return parentBitmap
+        }
+
+        // 4. Fallback: Generate offline topographical background tile
         val fallbackBitmap = generateFallbackTile(zoom, tileX, tileY)
         val img = fallbackBitmap.asImageBitmap()
         memoryCache.put(cacheKey, img)
@@ -188,7 +224,7 @@ object OsmTileManager {
      */
     suspend fun downloadIrelandTiles(
         context: Context,
-        zoomLevels: List<Int> = listOf(8, 9, 10, 11),
+        zoomLevels: List<Int> = listOf(8, 9, 10, 11, 12, 13, 14),
         onProgress: (Int, Int) -> Unit = { _, _ -> }
     ): Int = withContext(Dispatchers.IO) {
         val totalTilesList = mutableListOf<Triple<Int, Int, Int>>()
@@ -248,6 +284,102 @@ object OsmTileManager {
 
         clearCache()
         Log.i("OsmTileManager", "Completed tile downloads. Successfully ready: $successCount / $total")
+        return@withContext successCount
+    }
+
+    /**
+     * Programmatically downloads OSM tiles for a specific Route area (with 1km buffer)
+     * across specified zoom levels and saves to local file storage.
+     */
+    suspend fun downloadRouteAreaTiles(
+        context: Context,
+        route: Route,
+        zoomLevels: List<Int> = listOf(10, 11, 12, 13, 14, 15, 16, 17, 18),
+        onProgress: (Int, Int) -> Unit = { _, _ -> }
+    ): Int = withContext(Dispatchers.IO) {
+        if (route.waypoints.isEmpty()) return@withContext 0
+
+        var minX = Double.MAX_VALUE
+        var maxX = -Double.MAX_VALUE
+        var minY = Double.MAX_VALUE
+        var maxY = -Double.MAX_VALUE
+
+        route.waypoints.forEach { wp ->
+            if (wp.x < minX) minX = wp.x
+            if (wp.x > maxX) maxX = wp.x
+            if (wp.y < minY) minY = wp.y
+            if (wp.y > maxY) maxY = wp.y
+        }
+
+        // Add 1km safety buffer around route
+        minX -= 1000.0
+        maxX += 1000.0
+        minY -= 1000.0
+        maxY += 1000.0
+
+        val swLatLon = CoordinateUtils.metricToLatLon(Location(minX, minY))
+        val neLatLon = CoordinateUtils.metricToLatLon(Location(maxX, maxY))
+
+        val minLat = minOf(swLatLon.first, neLatLon.first)
+        val maxLat = maxOf(swLatLon.first, neLatLon.first)
+        val minLon = minOf(swLatLon.second, neLatLon.second)
+        val maxLon = maxOf(swLatLon.second, neLatLon.second)
+
+        val totalTilesList = mutableListOf<Triple<Int, Int, Int>>()
+
+        for (z in zoomLevels) {
+            val minTileX = lonToTileX(minLon, z)
+            val maxTileX = lonToTileX(maxLon, z)
+            val minTileY = latToTileY(maxLat, z)
+            val maxTileY = latToTileY(minLat, z)
+
+            for (x in minTileX..maxTileX) {
+                for (y in minTileY..maxTileY) {
+                    totalTilesList.add(Triple(z, x, y))
+                }
+            }
+        }
+
+        val total = totalTilesList.size
+        var downloaded = 0
+        var successCount = 0
+
+        Log.i("OsmTileManager", "Downloading $total route area tiles for '${route.name}' across zooms $zoomLevels")
+
+        for (tile in totalTilesList) {
+            val (z, x, y) = tile
+            val tileDir = File(context.filesDir, "tiles/$z/$x")
+            if (!tileDir.exists()) tileDir.mkdirs()
+
+            val tileFile = File(tileDir, "$y.png")
+            if (!tileFile.exists() || tileFile.length() == 0L) {
+                try {
+                    val tileUrl = "https://tile.openstreetmap.org/$z/$x/$y.png"
+                    val conn = URL(tileUrl).openConnection() as HttpURLConnection
+                    conn.setRequestProperty("User-Agent", "HikingTool/1.0 (Android PDR Diagnostic App)")
+                    conn.connectTimeout = 8000
+                    conn.readTimeout = 8000
+
+                    if (conn.responseCode == 200) {
+                        conn.inputStream.use { input ->
+                            FileOutputStream(tileFile).use { output ->
+                                input.copyTo(output)
+                            }
+                        }
+                        if (tileFile.length() > 0) successCount++
+                    }
+                } catch (e: Exception) {
+                    Log.e("OsmTileManager", "Failed route tile $z/$x/$y: ${e.message}")
+                }
+            } else {
+                successCount++
+            }
+            downloaded++
+            onProgress(downloaded, total)
+        }
+
+        clearCache()
+        Log.i("OsmTileManager", "Completed route area tile downloads: $successCount / $total ready.")
         return@withContext successCount
     }
 }
