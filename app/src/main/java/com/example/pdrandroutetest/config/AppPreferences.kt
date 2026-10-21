@@ -19,13 +19,14 @@ class AppPreferences(context: Context) {
     }
 
     fun loadMapConfig(): MapConfig {
+        prefs.edit().putBoolean("show_osm_bg", false).apply()
         return MapConfig(
             isLegView = prefs.getBoolean("is_leg_view", false),
             show1kmGrid = prefs.getBoolean("show_1km_grid", false),
             show100mGrid = prefs.getBoolean("show_100m_grid", false),
             gpsPollingIntervalMs = prefs.getLong("gps_interval_ms", 1000L),
             showTelemetryViewport = prefs.getBoolean("show_telemetry", true),
-            showOsmBackground = prefs.getBoolean("show_osm_bg", false)
+            showOsmBackground = false // Force disabled on startup
         )
     }
 
