@@ -91,13 +91,8 @@ object OsmTileProjectionUtils {
         maxY: Double,
         zoom: Int = 10
     ): List<MetricTileCorners> {
-        val effectiveMinX = if (maxX - minX < 100.0) 70000.0 else minX
-        val effectiveMaxX = if (maxX - minX < 100.0) 100000.0 else maxX
-        val effectiveMinY = if (maxY - minY < 100.0) 70000.0 else minY
-        val effectiveMaxY = if (maxY - minY < 100.0) 100000.0 else maxY
-
-        val swLatLon = CoordinateUtils.metricToLatLon(Location(effectiveMinX, effectiveMinY))
-        val neLatLon = CoordinateUtils.metricToLatLon(Location(effectiveMaxX, effectiveMaxY))
+        val swLatLon = CoordinateUtils.metricToLatLon(Location(minX, minY))
+        val neLatLon = CoordinateUtils.metricToLatLon(Location(maxX, maxY))
 
         val minLat = minOf(swLatLon.first, neLatLon.first)
         val maxLat = maxOf(swLatLon.first, neLatLon.first)
@@ -115,6 +110,14 @@ object OsmTileProjectionUtils {
                 tiles.add(tileToMetricCorners(zoom, tx, ty))
             }
         }
-        return tiles.toList()
+
+        val cx = (minX + maxX) / 2.0
+        val cy = (minY + maxY) / 2.0
+
+        return tiles.sortedBy { tile ->
+            val tcx = (tile.minX + tile.maxX) / 2.0
+            val tcy = (tile.minY + tile.maxY) / 2.0
+            kotlin.math.hypot(tcx - cx, tcy - cy)
+        }
     }
 }

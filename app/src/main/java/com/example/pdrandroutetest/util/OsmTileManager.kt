@@ -60,9 +60,13 @@ object OsmTileManager {
     const val IRELAND_MIN_LON = -10.5
     const val IRELAND_MAX_LON = -5.5
 
+    // Reactive Compose state trigger to automatically re-render map canvas when background tiles finish decoding from disk
+    val tileCacheVersion = androidx.compose.runtime.mutableIntStateOf(0)
+
     fun clearCache() {
         memoryCache.evictAll()
         cornerCache.evictAll()
+        tileCacheVersion.intValue++
     }
 
     fun lonToTileX(lon: Double, zoom: Int): Int = OsmTileProjectionUtils.lonToTileX(lon, zoom)
@@ -102,6 +106,7 @@ object OsmTileManager {
                     val bitmap = BitmapFactory.decodeFile(tileFile.absolutePath)
                     if (bitmap != null) {
                         memoryCache.put(cacheKey, bitmap.asImageBitmap())
+                        tileCacheVersion.intValue++
                         return@launch
                     }
                 }
@@ -112,23 +117,31 @@ object OsmTileManager {
                     val bitmap = BitmapFactory.decodeStream(stream)
                     if (bitmap != null) {
                         memoryCache.put(cacheKey, bitmap.asImageBitmap())
+                        tileCacheVersion.intValue++
                         return@launch
                     }
                 }
 
-                // 3. Single-level parent fallback (if zoom > 8)
-                if (zoom > 8) {
-                    val pZoom = zoom - 1
-                    val pX = tileX / 2
-                    val pY = tileY / 2
+                // 3. Multi-level parent fallback (up to 4 zoom levels higher)
+                var pZoom = zoom - 1
+                var pX = tileX / 2
+                var pY = tileY / 2
+                var depth = 0
+
+                while (pZoom >= 8 && depth < 4) {
                     val pFile = File(context.filesDir, "tiles/$pZoom/$pX/$pY.png")
                     if (pFile.exists() && pFile.length() > 0) {
                         val bitmap = BitmapFactory.decodeFile(pFile.absolutePath)
                         if (bitmap != null) {
                             memoryCache.put(cacheKey, bitmap.asImageBitmap())
+                            tileCacheVersion.intValue++
                             return@launch
                         }
                     }
+                    pZoom--
+                    pX /= 2
+                    pY /= 2
+                    depth++
                 }
             } catch (_: Exception) {
             }
@@ -201,6 +214,7 @@ object OsmTileManager {
         }
 
         clearCache()
+        TileDownloadManifest.markIrelandDownloaded(context)
         Log.i("OsmTileManager", "Completed tile downloads. Successfully ready: $successCount / $total")
         return@withContext successCount
     }
@@ -212,7 +226,7 @@ object OsmTileManager {
     suspend fun downloadRouteAreaTiles(
         context: Context,
         route: Route,
-        zoomLevels: List<Int> = listOf(10, 11, 12, 13, 14),
+        zoomLevels: List<Int> = listOf(10, 11, 12, 13, 14, 15, 16, 17, 18),
         onProgress: (Int, Int) -> Unit = { _, _ -> }
     ): Int = withContext(Dispatchers.IO) {
         if (route.waypoints.isEmpty()) return@withContext 0
@@ -297,7 +311,58 @@ object OsmTileManager {
         }
 
         clearCache()
+        TileDownloadManifest.markRouteDownloaded(context, route.name)
         Log.i("OsmTileManager", "Completed route area tile downloads: $successCount / $total ready.")
         return@withContext successCount
+    }
+}
+
+object TileDownloadManifest {
+    private val downloadedRoutes = mutableSetOf<String>()
+    private var irelandDownloaded = false
+    private var isLoaded = false
+
+    fun isRouteDownloaded(context: Context, routeName: String): Boolean {
+        ensureLoaded(context)
+        return downloadedRoutes.contains(routeName)
+    }
+
+    fun isIrelandDownloaded(context: Context): Boolean {
+        ensureLoaded(context)
+        return irelandDownloaded
+    }
+
+    fun markRouteDownloaded(context: Context, routeName: String) {
+        ensureLoaded(context)
+        downloadedRoutes.add(routeName)
+        save(context)
+    }
+
+    fun markIrelandDownloaded(context: Context) {
+        ensureLoaded(context)
+        irelandDownloaded = true
+        save(context)
+    }
+
+    private fun ensureLoaded(context: Context) {
+        if (isLoaded) return
+        try {
+            val prefs = context.getSharedPreferences("osm_tile_manifest", Context.MODE_PRIVATE)
+            irelandDownloaded = prefs.getBoolean("ireland_downloaded", false)
+            val set = prefs.getStringSet("downloaded_routes", emptySet()) ?: emptySet()
+            downloadedRoutes.clear()
+            downloadedRoutes.addAll(set)
+            isLoaded = true
+        } catch (_: Exception) {}
+    }
+
+    private fun save(context: Context) {
+        try {
+            val prefs = context.getSharedPreferences("osm_tile_manifest", Context.MODE_PRIVATE)
+            prefs.edit()
+                .putBoolean("ireland_downloaded", irelandDownloaded)
+                .putStringSet("downloaded_routes", downloadedRoutes.toSet())
+                .apply()
+        } catch (_: Exception) {}
     }
 }

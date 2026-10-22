@@ -63,6 +63,7 @@ import com.example.pdrandroutetest.model.Leg
 import com.example.pdrandroutetest.model.Route
 import com.example.pdrandroutetest.model.Waypoint
 import com.example.pdrandroutetest.util.OsmTileManager
+import com.example.pdrandroutetest.util.TileDownloadManifest
 import kotlinx.coroutines.delay
 import java.util.Locale
 import kotlin.math.cos
@@ -215,6 +216,7 @@ fun MapScreen(
             }
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
+            if (OsmTileManager.tileCacheVersion.intValue < 0) return@Canvas
             val widthPx = size.width
             val heightPx = size.height
 
@@ -310,14 +312,14 @@ fun MapScreen(
                 if (mapConfig.showOsmBackground) {
                     try {
                         val startTime = System.currentTimeMillis()
-                        val autoZoom = kotlin.math.round(kotlin.math.log2(93113.0 * currentScale)).toInt().coerceIn(8, 14)
+                        val autoZoom = kotlin.math.round(kotlin.math.log2(93113.0 * currentScale)).toInt().coerceIn(8, 18)
                         val tiles = OsmTileManager.getTilesForArea(
                             minX = minVisX,
                             maxX = maxVisX,
                             minY = minVisY,
                             maxY = maxVisY,
                             zoom = autoZoom
-                        ).take(36)
+                        ).take(64)
 
                         android.util.Log.d("PDR_DIAG", "CANVAS_DRAW -> zoom: $autoZoom, tiles: ${tiles.size}, scale: %.4f".format(currentScale))
 
@@ -938,6 +940,8 @@ fun MapScreen(
                             var progressText by remember { mutableStateOf("") }
                             val coroutineScope = rememberCoroutineScope()
 
+                            val isIrelandFullyCached = TileDownloadManifest.isIrelandDownloaded(context)
+
                             Button(
                                 onClick = {
                                     isDownloading = true
@@ -950,11 +954,19 @@ fun MapScreen(
                                     }
                                 },
                                 enabled = !isDownloading,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (isIrelandFullyCached) Color(0xFF16A34A) else MaterialTheme.colorScheme.primary
+                                ),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Text(
-                                    text = if (isDownloading) "Downloading ($progressText)..." else "Download Ireland Map Tiles",
-                                    style = MaterialTheme.typography.labelMedium
+                                    text = when {
+                                        isDownloading -> "Downloading ($progressText)..."
+                                        isIrelandFullyCached -> "✓ Ireland Base Map Cached"
+                                        else -> "Download Ireland Map Tiles"
+                                    },
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = Color.White
                                 )
                             }
                         }
@@ -968,6 +980,8 @@ fun MapScreen(
                                 var routeProgressText by remember { mutableStateOf("") }
                                 val coroutineScope = rememberCoroutineScope()
 
+                                val isRouteFullyCached = TileDownloadManifest.isRouteDownloaded(context, route.name)
+
                                 Button(
                                     onClick = {
                                         isDownloadingRoute = true
@@ -980,11 +994,19 @@ fun MapScreen(
                                         }
                                     },
                                     enabled = !isDownloadingRoute,
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (isRouteFullyCached) Color(0xFF16A34A) else MaterialTheme.colorScheme.primary
+                                    ),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Text(
-                                        text = if (isDownloadingRoute) "Downloading Route ($routeProgressText)..." else "Download Route Area Tiles",
-                                        style = MaterialTheme.typography.labelMedium
+                                        text = when {
+                                            isDownloadingRoute -> "Downloading Route ($routeProgressText)..."
+                                            isRouteFullyCached -> "✓ Route Area Tiles Cached"
+                                            else -> "Download Route Area Tiles"
+                                        },
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = Color.White
                                     )
                                 }
                             }
