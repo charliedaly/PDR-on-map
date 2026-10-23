@@ -28,6 +28,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -35,9 +36,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import com.example.pdrandroutetest.repository.HikeRepository
 import com.example.pdrandroutetest.ui.ControlPanel
 import com.example.pdrandroutetest.ui.DiagnosticViewModel
@@ -142,7 +146,17 @@ fun MainDiagnosticScreen(
     val playbackProgress by viewModel.playbackProgress.collectAsState()
     val playbackEvents by viewModel.playbackEvents.collectAsState()
 
+    val context = LocalContext.current
     var showRouteEditor by remember { mutableStateOf(false) }
+    var showSaveBreadcrumbsDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(navigationMessages) {
+        if (navigationMessages.any { it.text.contains("Hike completed", ignoreCase = true) }) {
+            if (breadcrumbs.isNotEmpty()) {
+                showSaveBreadcrumbsDialog = true
+            }
+        }
+    }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -271,6 +285,9 @@ fun MainDiagnosticScreen(
                     onToggleTracking = {
                         if (isTracking) {
                             onStopTracking()
+                            if (breadcrumbs.isNotEmpty()) {
+                                showSaveBreadcrumbsDialog = true
+                            }
                         } else {
                             onRequestPermissionsAndStart()
                         }
@@ -290,6 +307,31 @@ fun MainDiagnosticScreen(
                     onSpeedSelected = { speed -> viewModel.setPlaybackSpeed(speed) }
                 )
             }
+        }
+
+        if (showSaveBreadcrumbsDialog) {
+            AlertDialog(
+                onDismissRequest = { showSaveBreadcrumbsDialog = false },
+                title = { Text("Save Breadcrumbs?", fontWeight = FontWeight.Bold) },
+                text = { Text("Would you like to save your recorded breadcrumb track as a .gpx file (bc-yyyymmdd-hhmm.gpx)?") },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            showSaveBreadcrumbsDialog = false
+                            viewModel.exportBreadcrumbs(context)
+                        }
+                    ) {
+                        Text("Save")
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = { showSaveBreadcrumbsDialog = false }
+                    ) {
+                        Text("Discard")
+                    }
+                }
+            )
         }
     }
 }

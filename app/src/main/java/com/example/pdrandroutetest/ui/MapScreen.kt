@@ -118,8 +118,8 @@ internal class ViewportTracker {
             minXVal = 0.0; maxXVal = 100.0; minYVal = 0.0; maxYVal = 100.0
         }
 
-        val spanX = (maxXVal - minXVal).coerceAtLeast(20.0)
-        val spanY = (maxYVal - minYVal).coerceAtLeast(20.0)
+        val spanX = (maxXVal - minXVal).coerceAtLeast(1000.0)
+        val spanY = (maxYVal - minYVal).coerceAtLeast(1000.0)
         val marginX = spanX * 0.15
         val marginY = spanY * 0.15
 
@@ -208,10 +208,16 @@ fun MapScreen(
             .clip(RoundedCornerShape(12.dp))
             .background(Color(0xFF0A0F1A))
             .pointerInput(Unit) {
-                detectTransformGestures { _, pan, zoom, _ ->
-                    zoomScale = (zoomScale * zoom).coerceIn(0.2f, 15f)
-                    panOffset += pan
-                    android.util.Log.d("PDR_DIAG", "GESTURE -> zoomScale: %.2f, panOffset: (%.1f, %.1f)".format(zoomScale, panOffset.x, panOffset.y))
+                detectTransformGestures { centroid, pan, zoom, _ ->
+                    val oldZoomScale = zoomScale
+                    val newZoomScale = (zoomScale * zoom).coerceIn(0.01f, 30f)
+                    val effectiveZoom = newZoomScale / oldZoomScale
+
+                    val center = Offset(size.width / 2f, size.height / 2f)
+                    val f = centroid - center
+
+                    panOffset = f + pan - (f - panOffset) * effectiveZoom
+                    zoomScale = newZoomScale
                 }
             }
     ) {
@@ -263,6 +269,12 @@ fun MapScreen(
             val vx = uy
             val vy = -ux
 
+            val currentScale: Double = if (isLegView && legStart != null) {
+                ((minOf(widthPx, heightPx) / (legLen * 1.35)) * zoomScale).toDouble()
+            } else {
+                (baseScale * zoomScale).toDouble()
+            }
+
             fun toCanvasOffset(xMeters: Double, yMeters: Double): Offset {
                 if (isLegView && legStart != null) {
                     val apx = xMeters - interpStartX
@@ -281,20 +293,10 @@ fun MapScreen(
 
                     return Offset(cx, cy)
                 } else {
-                    val rawCx = originCx + ((xMeters - centerX) * baseScale).toFloat()
-                    val rawCy = originCy - ((yMeters - centerY) * baseScale).toFloat()
-
-                    val zoomedX = originCx + (rawCx - originCx) * zoomScale + panOffset.x
-                    val zoomedY = originCy + (rawCy - originCy) * zoomScale + panOffset.y
-
-                    return Offset(zoomedX, zoomedY)
+                    val cx = originCx + ((xMeters - centerX) * currentScale).toFloat() + panOffset.x
+                    val cy = originCy - ((yMeters - centerY) * currentScale).toFloat() + panOffset.y
+                    return Offset(cx, cy)
                 }
-            }
-
-            val currentScale: Double = if (isLegView && legStart != null) {
-                ((minOf(widthPx, heightPx) / (legLen * 1.35)) * zoomScale).toDouble()
-            } else {
-                (baseScale * zoomScale).toDouble()
             }
 
             if (currentScale > 0.0) {
@@ -308,22 +310,14 @@ fun MapScreen(
                 val minVisY = minOf(topMeters, bottomMeters) - 500.0
                 val maxVisY = maxOf(topMeters, bottomMeters) + 500.0
 
-                // --- Draw Offline OSM Map Background Tiles (Hardware 4-Corner Quad PolyToPoly Projection) ---
+                // --- Draw Offline OSM Map Background Tiles (Two-Pass Layered Renderer) ---
                 if (mapConfig.showOsmBackground) {
                     try {
                         val startTime = System.currentTimeMillis()
                         val autoZoom = kotlin.math.round(kotlin.math.log2(93113.0 * currentScale)).toInt().coerceIn(8, 18)
-                        val tiles = OsmTileManager.getTilesForArea(
-                            minX = minVisX,
-                            maxX = maxVisX,
-                            minY = minVisY,
-                            maxY = maxVisY,
-                            zoom = autoZoom
-                        ).take(64)
+                        val baseZoom = autoZoom.coerceAtMost(14)
 
-                        android.util.Log.d("PDR_DIAG", "CANVAS_DRAW -> zoom: $autoZoom, tiles: ${tiles.size}, scale: %.4f".format(currentScale))
-
-                        for (tile in tiles) {
+                        val drawSingleTile: (com.example.pdrandroutetest.util.MetricTileCorners, Boolean) -> Unit = { tile, fromCacheOnly ->
                             val corners = OsmTileManager.getTileCorners(tile.zoom, tile.tileX, tile.tileY)
 
                             val pNW = toCanvasOffset(corners.nwMetric.x, corners.nwMetric.y)
@@ -331,29 +325,55 @@ fun MapScreen(
                             val pSE = toCanvasOffset(corners.seMetric.x, corners.seMetric.y)
                             val pSW = toCanvasOffset(corners.swMetric.x, corners.swMetric.y)
 
-                            if (!pNW.x.isFinite() || !pNW.y.isFinite() ||
-                                !pNE.x.isFinite() || !pNE.y.isFinite() ||
-                                !pSE.x.isFinite() || !pSE.y.isFinite() ||
-                                !pSW.x.isFinite() || !pSW.y.isFinite()) continue
+                            if (pNW.x.isFinite() && pNW.y.isFinite() &&
+                                pNE.x.isFinite() && pNE.y.isFinite() &&
+                                pSE.x.isFinite() && pSE.y.isFinite() &&
+                                pSW.x.isFinite() && pSW.y.isFinite()) {
 
-                            sharedDstPoly[0] = pNW.x; sharedDstPoly[1] = pNW.y
-                            sharedDstPoly[2] = pNE.x; sharedDstPoly[3] = pNE.y
-                            sharedDstPoly[4] = pSE.x; sharedDstPoly[5] = pSE.y
-                            sharedDstPoly[6] = pSW.x; sharedDstPoly[7] = pSW.y
+                                sharedDstPoly[0] = pNW.x; sharedDstPoly[1] = pNW.y
+                                sharedDstPoly[2] = pNE.x; sharedDstPoly[3] = pNE.y
+                                sharedDstPoly[4] = pSE.x; sharedDstPoly[5] = pSE.y
+                                sharedDstPoly[6] = pSW.x; sharedDstPoly[7] = pSW.y
 
-                            sharedPolyMatrix.reset()
-                            if (sharedPolyMatrix.setPolyToPoly(sharedSrcPoly, 0, sharedDstPoly, 0, 4)) {
-                                val tileImageBitmap = OsmTileManager.getTileBitmap(context, tile.zoom, tile.tileX, tile.tileY)
-                                val androidBitmap = tileImageBitmap.asAndroidBitmap()
+                                sharedPolyMatrix.reset()
+                                if (sharedPolyMatrix.setPolyToPoly(sharedSrcPoly, 0, sharedDstPoly, 0, 4)) {
+                                    val tileImageBitmap = if (fromCacheOnly) {
+                                        OsmTileManager.getTileBitmapFromCacheOnly(context, tile.zoom, tile.tileX, tile.tileY)
+                                    } else {
+                                        OsmTileManager.getTileBitmap(context, tile.zoom, tile.tileX, tile.tileY)
+                                    }
 
-                                if (!androidBitmap.isRecycled) {
-                                    drawContext.canvas.nativeCanvas.save()
-                                    drawContext.canvas.nativeCanvas.concat(sharedPolyMatrix)
-                                    drawContext.canvas.nativeCanvas.drawBitmap(androidBitmap, 0f, 0f, sharedTilePaint)
-                                    drawContext.canvas.nativeCanvas.restore()
+                                    if (tileImageBitmap != null) {
+                                        val androidBitmap = tileImageBitmap.asAndroidBitmap()
+                                        if (!androidBitmap.isRecycled) {
+                                            drawContext.canvas.nativeCanvas.save()
+                                            drawContext.canvas.nativeCanvas.concat(sharedPolyMatrix)
+                                            drawContext.canvas.nativeCanvas.drawBitmap(androidBitmap, 0f, 0f, sharedTilePaint)
+                                            drawContext.canvas.nativeCanvas.restore()
+                                        }
+                                    }
                                 }
                             }
                         }
+
+                        // Pass 1: Draw continuous base map layer (Ireland base map, zooms 8..14)
+                        val baseTiles = OsmTileManager.getTilesForArea(
+                            minX = minVisX, maxX = maxVisX, minY = minVisY, maxY = maxVisY, zoom = baseZoom
+                        )
+                        for (tile in baseTiles) {
+                            drawSingleTile(tile, false)
+                        }
+
+                        // Pass 2: Draw high-resolution route area tile overlay (zooms 15..18)
+                        if (autoZoom > 14) {
+                            val highResTiles = OsmTileManager.getTilesForArea(
+                                minX = minVisX, maxX = maxVisX, minY = minVisY, maxY = maxVisY, zoom = autoZoom
+                            )
+                            for (tile in highResTiles) {
+                                drawSingleTile(tile, true)
+                            }
+                        }
+
                         android.util.Log.d("PDR_DIAG", "CANVAS_DRAW_DONE -> time: ${System.currentTimeMillis() - startTime} ms")
                     } catch (e: Exception) {
                         android.util.Log.e("MapScreen", "Error rendering OSM background tiles: ${e.message}", e)

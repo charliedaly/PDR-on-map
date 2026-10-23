@@ -14,6 +14,7 @@ import com.example.pdrandroutetest.model.Route
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -82,6 +83,72 @@ object OsmTileManager {
         return corners
     }
 
+    fun hasTileOnDiskOrCache(context: Context, zoom: Int, tileX: Int, tileY: Int): Boolean {
+        val cacheKey = "$zoom/$tileX/$tileY"
+        if (memoryCache.get(cacheKey) != null) return true
+        val tileFile = File(context.filesDir, "tiles/$zoom/$tileX/$tileY.png")
+        return tileFile.exists() && tileFile.length() > 0L
+    }
+
+    @OptIn(DelicateCoroutinesApi::class)
+    fun getTileBitmapFromCacheOnly(context: Context, zoom: Int, tileX: Int, tileY: Int): ImageBitmap? {
+        val cacheKey = "$zoom/$tileX/$tileY"
+        memoryCache.get(cacheKey)?.let { return it }
+
+        GlobalScope.launch(Dispatchers.IO) {
+            try {
+                var pZoom = zoom
+                var pX = tileX
+                var pY = tileY
+
+                while (pZoom >= 8) {
+                    val pFile = File(context.filesDir, "tiles/$pZoom/$pX/$pY.png")
+                    if (pFile.exists() && pFile.length() > 0) {
+                        val parentBitmap = BitmapFactory.decodeFile(pFile.absolutePath)
+                        if (parentBitmap != null) {
+                            val deltaZ = zoom - pZoom
+                            if (deltaZ == 0) {
+                                memoryCache.put(cacheKey, parentBitmap.asImageBitmap())
+                            } else {
+                                val subGridSize = 1 shl deltaZ
+                                val subSize = (256 / subGridSize).coerceAtLeast(1)
+
+                                val subX = tileX % subGridSize
+                                val subY = tileY % subGridSize
+
+                                val cropX = (subX * subSize).coerceIn(0, 256 - subSize)
+                                val cropY = (subY * subSize).coerceIn(0, 256 - subSize)
+
+                                val croppedBitmap = Bitmap.createBitmap(parentBitmap, cropX, cropY, subSize, subSize)
+                                val scaledBitmap = Bitmap.createScaledBitmap(croppedBitmap, 256, 256, true)
+                                memoryCache.put(cacheKey, scaledBitmap.asImageBitmap())
+                            }
+                            notifyTileCacheUpdated()
+                            return@launch
+                        }
+                    }
+                    pZoom--
+                    pX /= 2
+                    pY /= 2
+                }
+            } catch (_: Exception) {}
+        }
+
+        return null
+    }
+
+    private var pendingNotifyJob: kotlinx.coroutines.Job? = null
+
+    @OptIn(DelicateCoroutinesApi::class)
+    @Synchronized
+    private fun notifyTileCacheUpdated() {
+        if (pendingNotifyJob?.isActive == true) return
+        pendingNotifyJob = GlobalScope.launch(Dispatchers.Main) {
+            delay(100L)
+            tileCacheVersion.intValue++
+        }
+    }
+
     fun getTilesForArea(
         minX: Double,
         maxX: Double,
@@ -93,61 +160,12 @@ object OsmTileManager {
     }
 
     @OptIn(DelicateCoroutinesApi::class)
-    fun getTileBitmap(context: Context, zoom: Int, tileX: Int, tileY: Int): ImageBitmap {
+    fun getTileBitmap(context: Context, zoom: Int, tileX: Int, tileY: Int): ImageBitmap? {
         val cacheKey = "$zoom/$tileX/$tileY"
         memoryCache.get(cacheKey)?.let { return it }
 
-        // Non-blocking background load (returns fallback immediately to prevent main thread blocking)
-        GlobalScope.launch(Dispatchers.IO) {
-            try {
-                // 1. Check local file storage
-                val tileFile = File(context.filesDir, "tiles/$zoom/$tileX/$tileY.png")
-                if (tileFile.exists() && tileFile.length() > 0) {
-                    val bitmap = BitmapFactory.decodeFile(tileFile.absolutePath)
-                    if (bitmap != null) {
-                        memoryCache.put(cacheKey, bitmap.asImageBitmap())
-                        tileCacheVersion.intValue++
-                        return@launch
-                    }
-                }
-
-                // 2. Check assets folder
-                val assetPath = "tiles/$zoom/$tileX/$tileY.png"
-                context.assets.open(assetPath).use { stream ->
-                    val bitmap = BitmapFactory.decodeStream(stream)
-                    if (bitmap != null) {
-                        memoryCache.put(cacheKey, bitmap.asImageBitmap())
-                        tileCacheVersion.intValue++
-                        return@launch
-                    }
-                }
-
-                // 3. Multi-level parent fallback (up to 4 zoom levels higher)
-                var pZoom = zoom - 1
-                var pX = tileX / 2
-                var pY = tileY / 2
-                var depth = 0
-
-                while (pZoom >= 8 && depth < 4) {
-                    val pFile = File(context.filesDir, "tiles/$pZoom/$pX/$pY.png")
-                    if (pFile.exists() && pFile.length() > 0) {
-                        val bitmap = BitmapFactory.decodeFile(pFile.absolutePath)
-                        if (bitmap != null) {
-                            memoryCache.put(cacheKey, bitmap.asImageBitmap())
-                            tileCacheVersion.intValue++
-                            return@launch
-                        }
-                    }
-                    pZoom--
-                    pX /= 2
-                    pY /= 2
-                    depth++
-                }
-            } catch (_: Exception) {
-            }
-        }
-
-        return fallbackImageBitmap
+        getTileBitmapFromCacheOnly(context, zoom, tileX, tileY)
+        return null
     }
 
     /**

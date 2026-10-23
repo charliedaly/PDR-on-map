@@ -16,6 +16,7 @@ import com.example.pdrandroutetest.service.DiagnosticForegroundService
 import com.example.pdrandroutetest.telemetry.PlaybackProgress
 import com.example.pdrandroutetest.telemetry.TelemetryEvent
 import com.example.pdrandroutetest.telemetry.TelemetryRecorder
+import com.example.pdrandroutetest.util.HikerTrackExporter
 import com.example.pdrandroutetest.util.RouteParser
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -75,11 +76,19 @@ class DiagnosticViewModel : ViewModel() {
                 inputStream.bufferedReader().use { it.readText() }
             } ?: return
             val routeName = RouteParser.extractRouteNameFromUri(context, uri)
-            val parsedRoute = Route.parseFromCsvContent(routeName, csvContent)
+            val parsedRoute = Route.parseFromCsvContent(routeName, csvContent, sourceUri = uri)
+            android.util.Log.d("DiagnosticViewModel", "Loaded route '$routeName' with sourceUri: $uri")
             HikeRepository.setActiveRouteWithContent(routeName, csvContent, parsedRoute)
         } catch (e: Exception) {
             e.printStackTrace()
         }
+    }
+
+    fun exportBreadcrumbs(context: Context) {
+        val history = HikeRepository.getBreadcrumbHistory()
+        val currentRoute = activeRoute.value
+        android.util.Log.d("DiagnosticViewModel", "Exporting breadcrumbs. Active route: ${currentRoute?.name}, sourceUri: ${currentRoute?.sourceUri}")
+        HikerTrackExporter.exportBreadcrumbsToGpx(context, history, currentRoute?.sourceUri)
     }
 
     fun loadSampleRoute() {

@@ -1,11 +1,13 @@
 package com.example.pdrandroutetest.model
 
+import android.net.Uri
 import com.example.pdrandroutetest.util.RouteParser
 
 class Route(
     val name: String,
     val waypoints: List<Waypoint>,
-    val legs: List<Leg>
+    val legs: List<Leg>,
+    val sourceUri: Uri? = null
 ) {
     val totalLengthMeters: Double
         get() = legs.sumOf { it.distanceMeters }
@@ -14,9 +16,9 @@ class Route(
         get() = legs.size
 
     companion object {
-        fun createFromWaypoints(name: String, rawWaypoints: List<Waypoint>): Route {
+        fun createFromWaypoints(name: String, rawWaypoints: List<Waypoint>, sourceUri: Uri? = null): Route {
             if (rawWaypoints.isEmpty()) {
-                return Route(name, emptyList(), emptyList())
+                return Route(name, emptyList(), emptyList(), sourceUri)
             }
 
             // 1. Process legs sequentially and fill in next pointer & leg descriptions
@@ -46,12 +48,12 @@ class Route(
                 }
             }
 
-            return Route(name = name, waypoints = uniqueWaypoints, legs = legs)
+            return Route(name = name, waypoints = uniqueWaypoints, legs = legs, sourceUri = sourceUri)
         }
 
-        fun parseFromCsvContent(routeName: String, csvContent: String): Route {
+        fun parseFromCsvContent(routeName: String, csvContent: String, sourceUri: Uri? = null): Route {
             val waypoints = RouteParser.parseCsv(csvContent)
-            return createFromWaypoints(routeName, waypoints)
+            return createFromWaypoints(routeName, waypoints, sourceUri)
         }
     }
 }
