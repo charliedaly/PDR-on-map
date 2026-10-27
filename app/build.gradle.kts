@@ -4,13 +4,13 @@ plugins {
 }
 
 android {
-    namespace = "com.example.pdrandroutetest"
+    namespace = "com.example.irishhike"
     compileSdk {
         version = release(37)
     }
 
     defaultConfig {
-        applicationId = "com.example.pdrandroutetest"
+        applicationId = "com.example.irishhike"
         minSdk = 24
         targetSdk = 37
         versionCode = 1
