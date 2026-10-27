@@ -79,7 +79,7 @@ object HikerTrackExporter {
         }
     }
 
-    private fun resolveTargetDirectory(context: Context, routeUri: Uri?): File {
+    fun resolveTargetDirectory(context: Context, routeUri: Uri?): File {
         if (routeUri != null) {
             val uriString = routeUri.toString()
             Log.d(TAG, "Resolving target directory for routeUri: $uriString")

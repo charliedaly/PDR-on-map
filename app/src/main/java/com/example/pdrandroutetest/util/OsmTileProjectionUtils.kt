@@ -91,8 +91,13 @@ object OsmTileProjectionUtils {
         maxY: Double,
         zoom: Int = 10
     ): List<MetricTileCorners> {
-        val swLatLon = CoordinateUtils.metricToLatLon(Location(minX, minY))
-        val neLatLon = CoordinateUtils.metricToLatLon(Location(maxX, maxY))
+        val effectiveMinX = minX.coerceIn(0.0, 450000.0)
+        val effectiveMaxX = maxX.coerceIn(0.0, 450000.0)
+        val effectiveMinY = minY.coerceIn(0.0, 500000.0)
+        val effectiveMaxY = maxY.coerceIn(0.0, 500000.0)
+
+        val swLatLon = CoordinateUtils.metricToLatLon(Location(effectiveMinX, effectiveMinY))
+        val neLatLon = CoordinateUtils.metricToLatLon(Location(effectiveMaxX, effectiveMaxY))
 
         val minLat = minOf(swLatLon.first, neLatLon.first)
         val maxLat = maxOf(swLatLon.first, neLatLon.first)

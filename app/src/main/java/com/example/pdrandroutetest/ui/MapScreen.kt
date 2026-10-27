@@ -210,7 +210,7 @@ fun MapScreen(
             .pointerInput(Unit) {
                 detectTransformGestures { centroid, pan, zoom, _ ->
                     val oldZoomScale = zoomScale
-                    val newZoomScale = (zoomScale * zoom).coerceIn(0.01f, 30f)
+                    val newZoomScale = (zoomScale * zoom).coerceIn(0.001f, 1000.0f)
                     val effectiveZoom = newZoomScale / oldZoomScale
 
                     val center = Offset(size.width / 2f, size.height / 2f)
@@ -300,15 +300,27 @@ fun MapScreen(
             }
 
             if (currentScale > 0.0) {
-                val leftMeters = centerX + (0f - originCx - panOffset.x) / currentScale
-                val rightMeters = centerX + (widthPx - originCx - panOffset.x) / currentScale
-                val topMeters = centerY - (0f - originCy - panOffset.y) / currentScale
-                val bottomMeters = centerY - (heightPx - originCy - panOffset.y) / currentScale
+                val minVisX: Double
+                val maxVisX: Double
+                val minVisY: Double
+                val maxVisY: Double
 
-                val minVisX = minOf(leftMeters, rightMeters) - 500.0
-                val maxVisX = maxOf(leftMeters, rightMeters) + 500.0
-                val minVisY = minOf(topMeters, bottomMeters) - 500.0
-                val maxVisY = maxOf(topMeters, bottomMeters) + 500.0
+                if (isLegView && legStart != null && legTarget != null) {
+                    minVisX = minOf(interpStartX, interpTargetX) - 1000.0
+                    maxVisX = maxOf(interpStartX, interpTargetX) + 1000.0
+                    minVisY = minOf(interpStartY, interpTargetY) - 1000.0
+                    maxVisY = maxOf(interpStartY, interpTargetY) + 1000.0
+                } else {
+                    val leftMeters = centerX + (0f - originCx - panOffset.x) / currentScale
+                    val rightMeters = centerX + (widthPx - originCx - panOffset.x) / currentScale
+                    val topMeters = centerY - (0f - originCy - panOffset.y) / currentScale
+                    val bottomMeters = centerY - (heightPx - originCy - panOffset.y) / currentScale
+
+                    minVisX = minOf(leftMeters, rightMeters) - 500.0
+                    maxVisX = maxOf(leftMeters, rightMeters) + 500.0
+                    minVisY = minOf(topMeters, bottomMeters) - 500.0
+                    maxVisY = maxOf(topMeters, bottomMeters) + 500.0
+                }
 
                 // --- Draw Offline OSM Map Background Tiles (Two-Pass Layered Renderer) ---
                 if (mapConfig.showOsmBackground) {
@@ -646,14 +658,25 @@ fun MapScreen(
                 }
             }
 
+            // 1-pixel adaptive decimation filter
+            val renderBreadcrumbs = mutableListOf<Breadcrumb>()
+            var lastOffset: Offset? = null
+            for (bc in validBreadcrumbs) {
+                val offset = toCanvasOffset(bc.location.x, bc.location.y)
+                if (bc.isGpsFix || lastOffset == null || (offset.x - lastOffset.x).let { it * it } + (offset.y - lastOffset.y).let { it * it } >= 1.0f) {
+                    renderBreadcrumbs.add(bc)
+                    lastOffset = offset
+                }
+            }
+
             // Draw historical breadcrumb path trajectory lines
-            if (validBreadcrumbs.size >= 2) {
+            if (renderBreadcrumbs.size >= 2) {
                 val path = Path()
-                val firstPoint = toCanvasOffset(validBreadcrumbs[0].location.x, validBreadcrumbs[0].location.y)
+                val firstPoint = toCanvasOffset(renderBreadcrumbs[0].location.x, renderBreadcrumbs[0].location.y)
                 path.moveTo(firstPoint.x, firstPoint.y)
 
-                for (i in 1 until validBreadcrumbs.size) {
-                    val point = toCanvasOffset(validBreadcrumbs[i].location.x, validBreadcrumbs[i].location.y)
+                for (i in 1 until renderBreadcrumbs.size) {
+                    val point = toCanvasOffset(renderBreadcrumbs[i].location.x, renderBreadcrumbs[i].location.y)
                     path.lineTo(point.x, point.y)
                 }
 
@@ -665,7 +688,7 @@ fun MapScreen(
             }
 
             // Draw historical breadcrumbs (cyan for PDR, bright red for GPS fixes)
-            validBreadcrumbs.forEach { bc ->
+            renderBreadcrumbs.forEach { bc ->
                 val center = toCanvasOffset(bc.location.x, bc.location.y)
                 val dotColor = if (bc.isGpsFix) Color(0xFFFF3333) else Color(0xFF00E5FF)
                 val haloColor = if (bc.isGpsFix) Color(0xFFFF3333).copy(alpha = 0.35f) else Color(0xFF00E5FF).copy(alpha = 0.15f)

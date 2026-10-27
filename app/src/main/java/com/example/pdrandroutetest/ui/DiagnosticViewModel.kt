@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.launch
 
 class DiagnosticViewModel : ViewModel() {
@@ -111,6 +112,7 @@ class DiagnosticViewModel : ViewModel() {
                 inputStream.bufferedReader().use { it.readText() }
             } ?: return
             val events = TelemetryRecorder.fromCsvString(csvContent)
+            HikeRepository.setActiveRoute(null)
             HikeRepository.telemetryPlaybackEngine.loadEvents(events)
             _breadcrumbs.value = emptyList()
             Toast.makeText(
@@ -196,8 +198,8 @@ class DiagnosticViewModel : ViewModel() {
         }
         context.startService(intent)
 
-        val dir = context.getExternalFilesDir("telemetry") ?: context.filesDir
-        val file = HikeRepository.telemetryRecorder.saveToTimestampedFile(dir)
+        val targetDir = HikerTrackExporter.resolveTargetDirectory(context, activeRoute.value?.sourceUri)
+        val file = HikeRepository.telemetryRecorder.saveToTimestampedFile(targetDir)
         if (file != null) {
             val count = HikeRepository.telemetryRecorder.getEvents().size
             android.util.Log.i("DiagnosticViewModel", "Saved $count telemetry events to ${file.absolutePath}")

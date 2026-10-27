@@ -52,16 +52,19 @@ class AppPreferences(context: Context) {
         )
     }
 
-    fun saveLastRoute(routeName: String, csvContent: String) {
+    fun saveLastRoute(routeName: String, csvContent: String, sourceUriStr: String? = null) {
         prefs.edit()
             .putString("last_route_name", routeName)
             .putString("last_route_csv", csvContent)
+            .putString("last_route_uri", sourceUriStr)
             .apply()
     }
 
-    fun loadLastRoute(): Pair<String, String>? {
+    fun loadLastRoute(): Triple<String, String, android.net.Uri?>? {
         val name = prefs.getString("last_route_name", null) ?: return null
         val csv = prefs.getString("last_route_csv", null) ?: return null
-        return Pair(name, csv)
+        val uriStr = prefs.getString("last_route_uri", null)
+        val uri = uriStr?.let { android.net.Uri.parse(it) }
+        return Triple(name, csv, uri)
     }
 }

@@ -102,7 +102,7 @@ object HikeRepository {
             val lastRoute = prefs.loadLastRoute()
             if (lastRoute != null && _activeRoute.value == null) {
                 try {
-                    val route = Route.parseFromCsvContent(lastRoute.first, lastRoute.second)
+                    val route = Route.parseFromCsvContent(lastRoute.first, lastRoute.second, sourceUri = lastRoute.third)
                     _activeRoute.value = route
                     _currentTargetWaypoint.value = route.legs.firstOrNull()?.target
                     _activeLeg.value = route.legs.firstOrNull()
@@ -259,7 +259,7 @@ object HikeRepository {
         } else {
             setActiveRoute(route)
         }
-        appPreferences?.saveLastRoute(routeName, csvContent)
+        appPreferences?.saveLastRoute(routeName, csvContent, route.sourceUri?.toString())
     }
 
     fun updateMapConfig(transform: (MapConfig) -> MapConfig) {

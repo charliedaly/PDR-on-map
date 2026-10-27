@@ -4,6 +4,8 @@ import com.example.pdrandroutetest.data.EkfState
 import com.example.pdrandroutetest.data.Estimate
 import com.example.pdrandroutetest.data.Vector2D
 import com.example.pdrandroutetest.util.CoordinateUtils
+import com.example.pdrandroutetest.util.GpsValidationResult
+import com.example.pdrandroutetest.util.GpsValidationUtils
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.atan2
@@ -141,12 +143,19 @@ class DiagnosticEkf(val config: EkfConfig = EkfConfig()) {
             p[i][i] += config.qDiag[i] * dtSec
         }
 
+        p[IDX_X][IDX_X] = p[IDX_X][IDX_X].coerceAtMost(100.0)
+        p[IDX_Y][IDX_Y] = p[IDX_Y][IDX_Y].coerceAtMost(100.0)
+
         return getEkfState()
     }
 
     @Synchronized
     fun onStepDetected(headingRawRad: Double, timestampMs: Long) {
         if (!isInitializedWithGps) return
+
+        val currentSpeedMps = kotlin.math.hypot(x[IDX_VX], x[IDX_VY])
+        // Suppress PDR step integration when vehicle speed > 3.0 m/s is detected
+        if (currentSpeedMps > 3.0) return
 
         stepCount++
         currentHeadingRad = headingRawRad
@@ -179,10 +188,11 @@ class DiagnosticEkf(val config: EkfConfig = EkfConfig()) {
         fStep[IDX_X][IDX_COMPASS_BIAS] = -strideL * cos(correctedHeading)
         fStep[IDX_Y][IDX_COMPASS_BIAS] = strideL * sin(correctedHeading)
 
-        fStep[IDX_VX][IDX_STRIDE] = x[IDX_VX] / strideL
-        fStep[IDX_VY][IDX_STRIDE] = x[IDX_VY] / strideL
-        fStep[IDX_VX][IDX_COMPASS_BIAS] = -x[IDX_VY]
-        fStep[IDX_VY][IDX_COMPASS_BIAS] = x[IDX_VX]
+        // Decouple velocity from compass bias in F_step to prevent variance explosion
+        fStep[IDX_VX][IDX_STRIDE] = 0.0
+        fStep[IDX_VY][IDX_STRIDE] = 0.0
+        fStep[IDX_VX][IDX_COMPASS_BIAS] = 0.0
+        fStep[IDX_VY][IDX_COMPASS_BIAS] = 0.0
 
         // Propagate P = F_step * P * F_step^T
         val fp = Array(6) { DoubleArray(6) }
@@ -208,6 +218,9 @@ class DiagnosticEkf(val config: EkfConfig = EkfConfig()) {
 
         p[IDX_STRIDE][IDX_STRIDE] += config.qDiag[IDX_STRIDE]
         p[IDX_COMPASS_BIAS][IDX_COMPASS_BIAS] += config.qDiag[IDX_COMPASS_BIAS]
+
+        p[IDX_X][IDX_X] = p[IDX_X][IDX_X].coerceAtMost(100.0)
+        p[IDX_Y][IDX_Y] = p[IDX_Y][IDX_Y].coerceAtMost(100.0)
     }
 
     @Synchronized
@@ -219,8 +232,8 @@ class DiagnosticEkf(val config: EkfConfig = EkfConfig()) {
         if (!isInitializedWithGps) {
             x[IDX_X] = gpsLocation.x
             x[IDX_Y] = gpsLocation.y
-            p[IDX_X][IDX_X] = (accuracyMeters * accuracyMeters).toDouble().coerceAtLeast(1.0)
-            p[IDX_Y][IDX_Y] = (accuracyMeters * accuracyMeters).toDouble().coerceAtLeast(1.0)
+            p[IDX_X][IDX_X] = (accuracyMeters * accuracyMeters).toDouble().coerceIn(1.0, 100.0)
+            p[IDX_Y][IDX_Y] = (accuracyMeters * accuracyMeters).toDouble().coerceIn(1.0, 100.0)
             isInitializedWithGps = true
             return getEkfState(activeIntervalMs)
         }
@@ -232,7 +245,7 @@ class DiagnosticEkf(val config: EkfConfig = EkfConfig()) {
         val correctedHeading = normalizeAngleRad(currentHeadingRad - x[IDX_COMPASS_BIAS])
         val crossTrackErr = abs(deltaX * cos(correctedHeading) - deltaY * sin(correctedHeading))
 
-        // Adaptive compass bias variance inflation on large cross-track drift (e.g. phone rotation)
+        // Adaptive compass bias variance inflation on large cross-track drift
         if (crossTrackErr > 2.0) {
             p[IDX_COMPASS_BIAS][IDX_COMPASS_BIAS] = (p[IDX_COMPASS_BIAS][IDX_COMPASS_BIAS] + 0.05 * crossTrackErr * crossTrackErr).coerceAtMost(2.0)
         }
@@ -243,6 +256,17 @@ class DiagnosticEkf(val config: EkfConfig = EkfConfig()) {
 
         val hY = doubleArrayOf(0.0, 1.0, 0.0, 0.0, 0.0, 0.0)
         updateScalarObservation(deltaY, hY, rVar)
+
+        // Clamp velocity to human hiking speed ceiling (3.0 m/s max)
+        val speedMps = kotlin.math.hypot(x[IDX_VX], x[IDX_VY])
+        if (speedMps > 3.0) {
+            val scale = 3.0 / speedMps
+            x[IDX_VX] *= scale
+            x[IDX_VY] *= scale
+        }
+
+        p[IDX_X][IDX_X] = p[IDX_X][IDX_X].coerceAtMost(100.0)
+        p[IDX_Y][IDX_Y] = p[IDX_Y][IDX_Y].coerceAtMost(100.0)
 
         x[IDX_STRIDE] = x[IDX_STRIDE].coerceIn(config.minStrideMeters, config.maxStrideMeters)
         x[IDX_COMPASS_BIAS] = normalizeAngleRad(x[IDX_COMPASS_BIAS])

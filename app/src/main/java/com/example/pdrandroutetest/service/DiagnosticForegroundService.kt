@@ -17,6 +17,8 @@ import com.example.pdrandroutetest.model.Breadcrumb
 import com.example.pdrandroutetest.model.Location
 import com.example.pdrandroutetest.repository.HikeRepository
 import com.example.pdrandroutetest.sensor.PdrStepDetector
+import com.example.pdrandroutetest.util.GpsValidationResult
+import com.example.pdrandroutetest.util.GpsValidationUtils
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
@@ -144,6 +146,23 @@ class DiagnosticForegroundService : Service() {
         locationCallback = object : LocationCallback() {
             override fun onLocationResult(locationResult: LocationResult) {
                 for (location in locationResult.locations) {
+                    val nowMs = System.currentTimeMillis()
+                    val validation = GpsValidationUtils.validateFix(
+                        lat = location.latitude,
+                        lon = location.longitude,
+                        accuracyMeters = location.accuracy,
+                        timestampMs = nowMs
+                    )
+
+                    if (validation != GpsValidationResult.VALID && validation != GpsValidationResult.WARN_HIGH_SPEED) {
+                        GpsValidationUtils.playBeep()
+                        continue
+                    }
+
+                    if (validation == GpsValidationResult.WARN_HIGH_SPEED) {
+                        GpsValidationUtils.playBeep()
+                    }
+
                     val ekfState = ekfEngine.onGpsFix(
                         lat = location.latitude,
                         lon = location.longitude,

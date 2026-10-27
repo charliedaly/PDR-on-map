@@ -17,6 +17,8 @@ enum class LegState {
     APPROACHING_TARGET,
     LEG_START,
     OFFCOURSE,
+    VEHICLE_SPEED_DETECTED,
+    HIKE_SPEED_RESUMED,
     OK
 }
 
@@ -253,10 +255,55 @@ class Hike(var route: Route?, val config: HikeConfig = HikeConfig()) {
                 val loc = location ?: previousLocation ?: leg.start
                 bearingCorrectionString(loc, ekfState)
             }
+            LegState.VEHICLE_SPEED_DETECTED -> {
+                "Vehicle speed detected. Step tracking paused."
+            }
+            LegState.HIKE_SPEED_RESUMED -> {
+                "Hike speed resumed. Step tracking active."
+            }
             LegState.OK -> {
                 null
             }
         }
+    }
+
+    private var vehicleSpeedStartTimeMs: Long = 0L
+    private var normalSpeedStartTimeMs: Long = 0L
+    var isVehicleSpeedDetected: Boolean = false
+        private set
+
+    fun checkVehicleSpeed(speedMps: Double, currentTimeMs: Long): HikeResult? {
+        if (!isActive) return null
+
+        if (speedMps > 3.5) {
+            normalSpeedStartTimeMs = 0L
+            if (vehicleSpeedStartTimeMs == 0L) {
+                vehicleSpeedStartTimeMs = currentTimeMs
+            } else if (!isVehicleSpeedDetected && (currentTimeMs - vehicleSpeedStartTimeMs >= 10000L)) {
+                isVehicleSpeedDetected = true
+                return HikeResult(
+                    LegState.VEHICLE_SPEED_DETECTED,
+                    "Vehicle speed detected (%.0f km/h). Step tracking paused.".format(speedMps * 3.6)
+                )
+            }
+        } else if (speedMps < 2.5) {
+            vehicleSpeedStartTimeMs = 0L
+            if (isVehicleSpeedDetected) {
+                if (normalSpeedStartTimeMs == 0L) {
+                    normalSpeedStartTimeMs = currentTimeMs
+                } else if (currentTimeMs - normalSpeedStartTimeMs >= 3000L) {
+                    isVehicleSpeedDetected = false
+                    return HikeResult(
+                        LegState.HIKE_SPEED_RESUMED,
+                        "Hike speed resumed. Step tracking active."
+                    )
+                }
+            }
+        } else {
+            vehicleSpeedStartTimeMs = 0L
+            normalSpeedStartTimeMs = 0L
+        }
+        return null
     }
 
     fun update(
@@ -266,6 +313,12 @@ class Hike(var route: Route?, val config: HikeConfig = HikeConfig()) {
         ekfState: EkfState? = null
     ): HikeResult? {
         if (!isActive) return null
+
+        val speedMps = ekfState?.speedMps?.value ?: 0.0
+        val vehicleResult = checkVehicleSpeed(speedMps, timestampMs)
+        if (vehicleResult != null) {
+            return vehicleResult
+        }
 
         val breadcrumb = Breadcrumb(
             id = breadcrumbIdSeq++,
