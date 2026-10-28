@@ -2,6 +2,7 @@ package com.example.irishhike.repository
 
 import android.content.Context
 import com.example.irishhike.config.AppPreferences
+import com.example.irishhike.config.BreadcrumbConfig
 import com.example.irishhike.config.HikeConfig
 import com.example.irishhike.config.MapConfig
 import com.example.irishhike.data.EkfState
@@ -49,6 +50,9 @@ object HikeRepository {
     private val _mapConfig = MutableStateFlow(MapConfig())
     val mapConfig: StateFlow<MapConfig> = _mapConfig.asStateFlow()
 
+    private val _breadcrumbConfig = MutableStateFlow(BreadcrumbConfig())
+    val breadcrumbConfig: StateFlow<BreadcrumbConfig> = _breadcrumbConfig.asStateFlow()
+
     private val _hikeConfig = MutableStateFlow(HikeConfig())
     val hikeConfig: StateFlow<HikeConfig> = _hikeConfig.asStateFlow()
 
@@ -84,7 +88,7 @@ object HikeRepository {
     private val pendingTtsQueue = mutableListOf<TtsQueueItem>()
 
     val telemetryRecorder = TelemetryRecorder()
-    val telemetryPlaybackEngine = TelemetryPlaybackEngine()
+    val trackPlaybackEngine = com.example.irishhike.playback.TrackPlaybackEngine()
 
     private val breadcrumbHistory = ConcurrentLinkedQueue<Breadcrumb>()
 
@@ -95,9 +99,11 @@ object HikeRepository {
 
             val loadedMapConfig = prefs.loadMapConfig()
             val loadedHikeConfig = prefs.loadHikeConfig()
+            val loadedBcConfig = prefs.loadBreadcrumbConfig()
 
             _mapConfig.value = loadedMapConfig
             _hikeConfig.value = loadedHikeConfig
+            _breadcrumbConfig.value = loadedBcConfig
 
             val lastRoute = prefs.loadLastRoute()
             if (lastRoute != null && _activeRoute.value == null) {
@@ -272,6 +278,12 @@ object HikeRepository {
         val newConfig = transform(_hikeConfig.value)
         _hikeConfig.value = newConfig
         appPreferences?.saveHikeConfig(newConfig)
+    }
+
+    fun updateBreadcrumbConfig(transform: (BreadcrumbConfig) -> BreadcrumbConfig) {
+        val newConfig = transform(_breadcrumbConfig.value)
+        _breadcrumbConfig.value = newConfig
+        appPreferences?.saveBreadcrumbConfig(newConfig)
     }
 
     fun setShow1kmGrid(show: Boolean) {

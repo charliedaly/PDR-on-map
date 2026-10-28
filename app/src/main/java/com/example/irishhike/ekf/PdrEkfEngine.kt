@@ -79,6 +79,11 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
     private var stepCount: Int = 0
     private var gpsFixCount: Int = 0
 
+    @Synchronized
+    fun setHeadingRad(headingRad: Double) {
+        currentHeadingRad = headingRad
+    }
+
     init {
         reset()
     }

@@ -6,6 +6,7 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.irishhike.config.BreadcrumbConfig
 import com.example.irishhike.config.HikeConfig
 import com.example.irishhike.config.MapConfig
 import com.example.irishhike.data.EkfState
@@ -13,7 +14,7 @@ import com.example.irishhike.model.Breadcrumb
 import com.example.irishhike.model.Route
 import com.example.irishhike.repository.HikeRepository
 import com.example.irishhike.service.PdrTrackingService
-import com.example.irishhike.telemetry.PlaybackProgress
+import com.example.irishhike.playback.PlaybackProgress
 import com.example.irishhike.telemetry.TelemetryEvent
 import com.example.irishhike.telemetry.TelemetryRecorder
 import com.example.irishhike.util.HikerTrackExporter
@@ -31,6 +32,7 @@ class HikeViewModel : ViewModel() {
     val isTracking: StateFlow<Boolean> = HikeRepository.isTracking
     val gpsPollingIntervalMs: StateFlow<Long> = HikeRepository.gpsPollingIntervalMs
     val mapConfig: StateFlow<MapConfig> = HikeRepository.mapConfig
+    val breadcrumbConfig: StateFlow<BreadcrumbConfig> = HikeRepository.breadcrumbConfig
     val hikeConfig: StateFlow<HikeConfig> = HikeRepository.hikeConfig
     val activeRoute: StateFlow<Route?> = HikeRepository.activeRoute
     val hikeMessage: StateFlow<String?> = HikeRepository.hikeMessage
@@ -53,11 +55,11 @@ class HikeViewModel : ViewModel() {
         HikeRepository.setCurrentLegIndex(newIndex)
     }
 
-    val isPlaybackPlaying: StateFlow<Boolean> = HikeRepository.telemetryPlaybackEngine.isPlaying
-    val isPlaybackPaused: StateFlow<Boolean> = HikeRepository.telemetryPlaybackEngine.isPaused
-    val playbackSpeed: StateFlow<Double> = HikeRepository.telemetryPlaybackEngine.speedMultiplier
-    val playbackProgress: StateFlow<PlaybackProgress> = HikeRepository.telemetryPlaybackEngine.progress
-    val playbackEvents: StateFlow<List<TelemetryEvent>> = HikeRepository.telemetryPlaybackEngine.events
+    val isPlaybackPlaying: StateFlow<Boolean> = HikeRepository.trackPlaybackEngine.isPlaying
+    val isPlaybackPaused: StateFlow<Boolean> = HikeRepository.trackPlaybackEngine.isPaused
+    val playbackSpeed: StateFlow<Double> = HikeRepository.trackPlaybackEngine.speedMultiplier
+    val playbackProgress: StateFlow<PlaybackProgress> = HikeRepository.trackPlaybackEngine.progress
+    val playbackEvents: StateFlow<List<com.example.irishhike.playback.TrackPlaybackEvent>> = HikeRepository.trackPlaybackEngine.events
 
     private val _breadcrumbs = MutableStateFlow<List<Breadcrumb>>(emptyList())
     val breadcrumbs: StateFlow<List<Breadcrumb>> = _breadcrumbs.asStateFlow()
@@ -101,61 +103,99 @@ class HikeViewModel : ViewModel() {
         HikeRepository.updateHikeConfig(transform)
     }
 
+    fun updateBreadcrumbConfig(transform: (BreadcrumbConfig) -> BreadcrumbConfig) {
+        HikeRepository.updateBreadcrumbConfig(transform)
+    }
+
     fun updateMapConfig(transform: (MapConfig) -> MapConfig) {
         HikeRepository.updateMapConfig(transform)
     }
 
-    fun loadTelemetryTrackFromUri(context: Context, uri: Uri) {
+    fun loadTrackFromUri(context: Context, uri: Uri) {
         try {
-            val csvContent = context.contentResolver.openInputStream(uri)?.use { inputStream ->
-                inputStream.bufferedReader().use { it.readText() }
-            } ?: return
-            val events = TelemetryRecorder.fromCsvString(csvContent)
+            val uriStr = uri.toString().lowercase(java.util.Locale.US)
+            val isGpsTrack = uriStr.endsWith(".gpx") || uriStr.contains(".gpx")
+
+            val events: List<com.example.irishhike.playback.TrackPlaybackEvent> = if (isGpsTrack) {
+                context.contentResolver.openInputStream(uri)?.use { stream ->
+                    com.example.irishhike.playback.GpxTrackParser.parseGpxToPlaybackEvents(stream)
+                } ?: emptyList()
+            } else {
+                val csvContent = context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                    inputStream.bufferedReader().use { it.readText() }
+                } ?: ""
+                val telemetryEvents = TelemetryRecorder.fromCsvString(csvContent)
+                telemetryEvents.map { te ->
+                    when (te) {
+                        is TelemetryEvent.GpsFixEvent -> com.example.irishhike.playback.TrackPlaybackEvent.GpsPointEvent(
+                            timestampMs = te.timestampMs,
+                            latitude = te.latitude,
+                            longitude = te.longitude,
+                            accuracyMeters = te.accuracyMeters,
+                            activeIntervalMs = te.activeIntervalMs,
+                            recordedEkfState = te.recordedEkfState
+                        )
+                        is TelemetryEvent.StepDetectedEvent -> com.example.irishhike.playback.TrackPlaybackEvent.PdrStepEvent(
+                            timestampMs = te.timestampMs,
+                            headingRawRad = te.headingRawRad,
+                            recordedEkfState = te.recordedEkfState
+                        )
+                        is TelemetryEvent.PredictionTickEvent -> com.example.irishhike.playback.TrackPlaybackEvent.TimeTickEvent(
+                            timestampMs = te.timestampMs,
+                            dtSec = te.dtSec,
+                            recordedEkfState = te.recordedEkfState
+                        )
+                    }
+                }
+            }
+
             HikeRepository.setActiveRoute(null)
-            HikeRepository.telemetryPlaybackEngine.loadEvents(events)
+            HikeRepository.trackPlaybackEngine.loadEvents(events)
             _breadcrumbs.value = emptyList()
             Toast.makeText(
                 context,
-                "Loaded track with ${events.size} events",
+                "Loaded track with ${events.size} points",
                 Toast.LENGTH_SHORT
             ).show()
         } catch (e: Exception) {
             e.printStackTrace()
-            Toast.makeText(context, "Error loading telemetry track", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "Error loading track file", Toast.LENGTH_LONG).show()
         }
     }
+
+    fun loadTelemetryTrackFromUri(context: Context, uri: Uri) = loadTrackFromUri(context, uri)
 
     fun startPlayback() {
         viewModelScope.launch {
             _breadcrumbs.value = emptyList()
-            HikeRepository.telemetryPlaybackEngine.play(viewModelScope)
+            HikeRepository.trackPlaybackEngine.play(viewModelScope)
         }
     }
 
     fun pausePlayback() {
-        HikeRepository.telemetryPlaybackEngine.pause()
+        HikeRepository.trackPlaybackEngine.pause()
     }
 
     fun stopPlayback() {
-        HikeRepository.telemetryPlaybackEngine.stop()
+        HikeRepository.trackPlaybackEngine.stop()
     }
 
     fun stepForwardPlayback() {
         viewModelScope.launch {
-            HikeRepository.telemetryPlaybackEngine.stepForward()
+            HikeRepository.trackPlaybackEngine.stepForward()
             _breadcrumbs.value = HikeRepository.getBreadcrumbHistory()
         }
     }
 
     fun stepBackPlayback() {
         viewModelScope.launch {
-            HikeRepository.telemetryPlaybackEngine.stepBack()
+            HikeRepository.trackPlaybackEngine.stepBack()
             _breadcrumbs.value = HikeRepository.getBreadcrumbHistory()
         }
     }
 
     fun setPlaybackSpeed(speed: Double) {
-        HikeRepository.telemetryPlaybackEngine.setSpeedMultiplier(speed)
+        HikeRepository.trackPlaybackEngine.setSpeedMultiplier(speed)
     }
 
     fun setShow1kmGrid(show: Boolean) {

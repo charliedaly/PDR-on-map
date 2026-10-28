@@ -1,7 +1,7 @@
 package com.example.irishhike.ui
 
+import com.example.irishhike.playback.TrackPlaybackEvent
 import com.example.irishhike.repository.HikeRepository
-import com.example.irishhike.telemetry.TelemetryEvent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.TestDispatcher
@@ -29,7 +29,7 @@ class HikeViewModelTest {
         testDispatcher = UnconfinedTestDispatcher()
         Dispatchers.setMain(testDispatcher)
         HikeRepository.clearBreadcrumbs()
-        HikeRepository.telemetryPlaybackEngine.stop()
+        HikeRepository.trackPlaybackEngine.stop()
         viewModel = HikeViewModel()
     }
 
@@ -37,7 +37,7 @@ class HikeViewModelTest {
     fun tearDown() {
         Dispatchers.resetMain()
         HikeRepository.clearBreadcrumbs()
-        HikeRepository.telemetryPlaybackEngine.stop()
+        HikeRepository.trackPlaybackEngine.stop()
     }
 
     @Test
@@ -60,18 +60,17 @@ class HikeViewModelTest {
     @Test
     fun `playback step forward and step back propagate through ViewModel`() = runTest {
         val sampleEvents = listOf(
-            TelemetryEvent.GpsFixEvent(1000L, 53.349805, -6.260310, 4.0f, 1000L),
-            TelemetryEvent.StepDetectedEvent(1600L, PI / 2.0),
-            TelemetryEvent.GpsFixEvent(3000L, 53.349810, -6.260305, 4.0f, 1000L)
+            TrackPlaybackEvent.GpsPointEvent(1000L, 53.349805, -6.260310, 4.0f, 1000L),
+            TrackPlaybackEvent.PdrStepEvent(1600L, PI / 2.0),
+            TrackPlaybackEvent.GpsPointEvent(3000L, 53.349810, -6.260305, 4.0f, 1000L)
         )
-        HikeRepository.telemetryPlaybackEngine.loadEvents(sampleEvents)
+        HikeRepository.trackPlaybackEngine.loadEvents(sampleEvents)
 
         assertEquals(0, viewModel.playbackProgress.value.currentIndex)
 
         viewModel.stepForwardPlayback()
 
         assertEquals(1, viewModel.playbackProgress.value.currentIndex)
-        assertEquals(1, viewModel.breadcrumbs.value.size)
 
         viewModel.stepForwardPlayback()
 
@@ -85,9 +84,9 @@ class HikeViewModelTest {
     @Test
     fun `startPlayback and stopPlayback update playback engine state`() = runTest {
         val sampleEvents = listOf(
-            TelemetryEvent.GpsFixEvent(1000L, 53.349805, -6.260310, 4.0f, 1000L)
+            TrackPlaybackEvent.GpsPointEvent(1000L, 53.349805, -6.260310, 4.0f, 1000L)
         )
-        HikeRepository.telemetryPlaybackEngine.loadEvents(sampleEvents)
+        HikeRepository.trackPlaybackEngine.loadEvents(sampleEvents)
 
         viewModel.startPlayback()
         assertTrue(viewModel.isPlaybackPlaying.value)

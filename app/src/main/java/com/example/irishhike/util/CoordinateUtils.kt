@@ -126,6 +126,15 @@ private object IrishGridConverter {
         return irl75ToWgs84Internal(irl75)
     }
 
+    fun getBestOffsetPublic(letter: Char, localEasting: Double, localNorthing: Double): GridOffset {
+        return getBestOffsetInternal(letter, localEasting, localNorthing)
+    }
+
+    fun metricXYToWgs84(unadjustedX: Double, unadjustedY: Double): LatLon {
+        val irl75 = inverseProjectToLatLonInternal(unadjustedX, unadjustedY)
+        return irl75ToWgs84Internal(irl75)
+    }
+
     private fun getBestOffsetInternal(letter: Char, localEasting: Double, localNorthing: Double): GridOffset {
         val eastBlock = (localEasting / 10000).toInt().coerceIn(0, 9)
         val northBlock = (localNorthing / 10000).toInt().coerceIn(0, 9)
@@ -176,9 +185,18 @@ private object IrishGridConverter {
         val y1 = nu1 * cos(lat1) * sin(lon1)
         val z1 = nu1 * (1.0 - eSq1) * sin(lat1)
 
-        val x2 = (x1 - (-482.530)) / (1.0 - 8.15e-6) + Math.toRadians(0.631 / 3600.0) * y1 - Math.toRadians(0.214 / 3600.0) * z1
-        val y2 = (y1 - 130.596) / (1.0 - 8.15e-6) - Math.toRadians(0.631 / 3600.0) * x1 + Math.toRadians(1.042 / 3600.0) * z1
-        val z2 = (z1 - (-564.557)) / (1.0 - 8.15e-6) + Math.toRadians(0.214 / 3600.0) * x1 - Math.toRadians(1.042 / 3600.0) * y1
+        val dx = -482.530
+        val dy = 130.596
+        val dz = -564.557
+        val s = -8.15e-6
+        val rx = Math.toRadians(1.042 / 3600.0)
+        val ry = Math.toRadians(0.214 / 3600.0)
+        val rz = Math.toRadians(-0.631 / 3600.0)
+
+        val scale = 1.0 + s
+        val x2 = scale * (x1 - dx + rz * y1 - ry * z1)
+        val y2 = scale * (y1 - dy - rz * x1 + rx * z1)
+        val z2 = scale * (z1 - dz + ry * x1 - rx * y1)
 
         val eSq2 = (A * A - B * B) / (A * A)
         val p = sqrt(x2 * x2 + y2 * y2)
@@ -200,9 +218,18 @@ private object IrishGridConverter {
         val y1 = nu1 * cos(lat1) * sin(lon1)
         val z1 = nu1 * (1.0 - eSq1) * sin(lat1)
 
-        val x2 = -482.530 + (1.0 + 8.15e-6) * x1 - Math.toRadians(-0.631 / 3600.0) * y1 + Math.toRadians(-0.214 / 3600.0) * z1
-        val y2 = 130.596 + Math.toRadians(-0.631 / 3600.0) * x1 + (1.0 + 8.15e-6) * y1 - Math.toRadians(-1.042 / 3600.0) * z1
-        val z2 = -564.557 - Math.toRadians(-0.214 / 3600.0) * x1 + Math.toRadians(-1.042 / 3600.0) * y1 + (1.0 + 8.15e-6) * z1
+        val dx = -482.530
+        val dy = 130.596
+        val dz = -564.557
+        val s = -8.15e-6
+        val rx = Math.toRadians(1.042 / 3600.0)
+        val ry = Math.toRadians(0.214 / 3600.0)
+        val rz = Math.toRadians(-0.631 / 3600.0)
+
+        val scale = 1.0 - s
+        val x2 = scale * (x1 + dx - rz * y1 + ry * z1)
+        val y2 = scale * (y1 + dy + rz * x1 - rx * z1)
+        val z2 = scale * (z1 + dz - ry * x1 + rx * y1)
 
         val eSq2 = (WGS84_A * WGS84_A - WGS84_B * WGS84_B) / (WGS84_A * WGS84_A)
         val p = sqrt(x2 * x2 + y2 * y2)
@@ -321,8 +348,16 @@ object CoordinateUtils {
 
         val localE = (location.x % 100000.0).let { if (it < 0) it + 100000.0 else it }
         val localN = (location.y % 100000.0).let { if (it < 0) it + 100000.0 else it }
-        val gridRefStr = String.format(Locale.US, "%c%05d%05d", letter, localE.toInt(), localN.toInt())
-        val latLon = IrishGridConverter.IrishGridToWgs84(gridRefStr)
+
+        val letterDefault = letterCorrectionMap[letter] ?: GridOffset(0.0, 0.0)
+        val roughUnadjustedE = (localE - letterDefault.eastingOffset).coerceIn(0.0, 99999.0)
+        val roughUnadjustedN = (localN - letterDefault.northingOffset).coerceIn(0.0, 99999.0)
+
+        val correction = IrishGridConverter.getBestOffsetPublic(letter, roughUnadjustedE, roughUnadjustedN)
+        val unadjustedX = location.x - correction.eastingOffset
+        val unadjustedY = location.y - correction.northingOffset
+
+        val latLon = IrishGridConverter.metricXYToWgs84(unadjustedX, unadjustedY)
         return Pair(latLon.latitude, latLon.longitude)
     }
 

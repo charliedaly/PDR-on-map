@@ -1,40 +1,49 @@
 package com.example.irishhike.ui
 
+import android.widget.Toast
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.AlertDialog
-import android.widget.Toast
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.ScrollableTabRow
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -44,6 +53,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -53,6 +63,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.irishhike.config.BreadcrumbColorMode
+import com.example.irishhike.config.BreadcrumbConfig
 import com.example.irishhike.config.HikeConfig
 import com.example.irishhike.config.MapConfig
 import com.example.irishhike.data.EkfState
@@ -63,9 +75,12 @@ import com.example.irishhike.model.Waypoint
 import com.example.irishhike.util.OsmTileManager
 import com.example.irishhike.util.TileDownloadManifest
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.util.Locale
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.hypot
+import kotlin.math.round
 import kotlin.math.sin
 import kotlin.math.sqrt
 
@@ -76,12 +91,15 @@ fun MapScreen(
     activeEkfState: EkfState,
     currentTargetWaypoint: Waypoint? = null,
     mapConfig: MapConfig = MapConfig(),
+    breadcrumbConfig: BreadcrumbConfig = BreadcrumbConfig(),
     hikeConfig: HikeConfig = HikeConfig(),
     activeLeg: Leg? = null,
     relativeBearingCorrection: Double = 0.0,
     onUpdateMapConfig: ((MapConfig) -> MapConfig) -> Unit = {},
+    onUpdateBreadcrumbConfig: ((BreadcrumbConfig) -> BreadcrumbConfig) -> Unit = {},
     onUpdateHikeConfig: ((HikeConfig) -> HikeConfig) -> Unit = {},
     onIntervalSelected: (Long) -> Unit = {},
+    onLoadTelemetryTrack: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -139,6 +157,37 @@ fun MapScreen(
             breadcrumbs = validBreadcrumbs,
             activeEkfState = activeEkfState
         )
+    }
+
+    var minSpeed = 0.0
+    var maxSpeed = 2.5
+    var minStride = 0.4
+    var maxStride = 1.2
+
+    if (validBreadcrumbs.isNotEmpty()) {
+        var minS = Double.MAX_VALUE
+        var maxS = -Double.MAX_VALUE
+        var minSt = Double.MAX_VALUE
+        var maxSt = -Double.MAX_VALUE
+
+        validBreadcrumbs.forEach { bc ->
+            val s = bc.ekfState?.speedMps?.value ?: 0.0
+            if (s < minS) minS = s
+            if (s > maxS) maxS = s
+
+            val st = bc.ekfState?.strideLengthMeters?.value ?: 0.75
+            if (st < minSt) minSt = st
+            if (st > maxSt) maxSt = st
+        }
+
+        if (maxS > minS) {
+            minSpeed = minS
+            maxSpeed = maxS
+        }
+        if (maxSt > minSt) {
+            minStride = minSt
+            maxStride = maxSt
+        }
     }
 
     Box(
@@ -244,7 +293,7 @@ fun MapScreen(
                 val minVisY: Double
                 val maxVisY: Double
 
-                if (isLegView && legStart != null && legTarget != null) {
+                if (isLegView && legStart != null) {
                     minVisX = minOf(interpStartX, interpTargetX) - 1000.0
                     maxVisX = maxOf(interpStartX, interpTargetX) + 1000.0
                     minVisY = minOf(interpStartY, interpTargetY) - 1000.0
@@ -265,7 +314,7 @@ fun MapScreen(
                 if (mapConfig.showOsmBackground) {
                     try {
                         val startTime = System.currentTimeMillis()
-                        val autoZoom = kotlin.math.round(kotlin.math.log2(93113.0 * currentScale)).toInt().coerceIn(8, 18)
+                        val autoZoom = round(kotlin.math.log2(93113.0 * currentScale)).toInt().coerceIn(8, 18)
                         val baseZoom = autoZoom.coerceAtMost(14)
 
                         val drawSingleTile: (com.example.irishhike.util.MetricTileCorners, Boolean) -> Unit = { tile, fromCacheOnly ->
@@ -331,9 +380,9 @@ fun MapScreen(
                     }
                 }
 
-                // 1) Draw 100m gridlines (unlabeled, rotated)
+                // 1) Draw 100m gridlines (unlabeled)
                 if (show100mGrid) {
-                    val spacing100mPx = 100.0 * currentScale.toDouble()
+                    val spacing100mPx = 100.0 * currentScale
                     if (spacing100mPx >= 3.0) {
                         val start100mX = (kotlin.math.floor(minVisX / 100.0) * 100.0).toInt()
                         val end100mX = (kotlin.math.ceil(maxVisX / 100.0) * 100.0).toInt()
@@ -367,7 +416,7 @@ fun MapScreen(
                     }
                 }
 
-                // 2) Draw 1km gridlines (labeled by 2-digit Irish Grid reference, rotated)
+                // 2) Draw 1km gridlines
                 if (show1kmGrid) {
                     val start1kmX = (kotlin.math.floor(minVisX / 1000.0) * 1000.0).toInt()
                     val end1kmX = (kotlin.math.ceil(maxVisX / 1000.0) * 1000.0).toInt()
@@ -375,37 +424,12 @@ fun MapScreen(
                     for (xMeters in start1kmX..end1kmX step 1000) {
                         val p1 = toCanvasOffset(xMeters.toDouble(), minVisY)
                         val p2 = toCanvasOffset(xMeters.toDouble(), maxVisY)
-
                         drawLine(
-                            color = Color(0xFF94A3B8).copy(alpha = 0.85f),
+                            color = Color(0xFF00E5FF).copy(alpha = 0.70f),
                             start = p1,
                             end = p2,
-                            strokeWidth = 1.75f
+                            strokeWidth = 2.0f
                         )
-
-                        val digits = (kotlin.math.abs(xMeters) / 1000) % 100
-                        val labelStr = String.format(Locale.US, "%02d", digits)
-
-                        val textResult = textMeasurer.measure(
-                            text = labelStr,
-                            style = TextStyle(
-                                color = Color(0xFF9FB3C8),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        )
-
-                        val canvasX = p1.x
-                        if (canvasX in 0f..widthPx) {
-                            drawText(
-                                textLayoutResult = textResult,
-                                topLeft = Offset((canvasX + 4f).coerceIn(4f, widthPx - textResult.size.width - 4f), 8f)
-                            )
-                            drawText(
-                                textLayoutResult = textResult,
-                                topLeft = Offset((canvasX + 4f).coerceIn(4f, widthPx - textResult.size.width - 4f), heightPx - textResult.size.height - 8f)
-                            )
-                        }
                     }
 
                     val start1kmY = (kotlin.math.floor(minVisY / 1000.0) * 1000.0).toInt()
@@ -414,157 +438,56 @@ fun MapScreen(
                     for (yMeters in start1kmY..end1kmY step 1000) {
                         val p1 = toCanvasOffset(minVisX, yMeters.toDouble())
                         val p2 = toCanvasOffset(maxVisX, yMeters.toDouble())
-
                         drawLine(
-                            color = Color(0xFF334E68).copy(alpha = 0.75f),
+                            color = Color(0xFF00E5FF).copy(alpha = 0.70f),
                             start = p1,
                             end = p2,
-                            strokeWidth = 1.5f
+                            strokeWidth = 2.0f
                         )
-
-                        val digits = (kotlin.math.abs(yMeters) / 1000) % 100
-                        val labelStr = String.format(Locale.US, "%02d", digits)
-
-                        val textResult = textMeasurer.measure(
-                            text = labelStr,
-                            style = TextStyle(
-                                color = Color(0xFF9FB3C8),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        )
-
-                        val canvasY = p1.y
-                        if (canvasY in 0f..heightPx) {
-                            drawText(
-                                textLayoutResult = textResult,
-                                topLeft = Offset(8f, (canvasY - textResult.size.height / 2f).coerceIn(4f, heightPx - textResult.size.height - 4f))
-                            )
-                            drawText(
-                                textLayoutResult = textResult,
-                                topLeft = Offset(widthPx - textResult.size.width - 8f, (canvasY - textResult.size.height / 2f).coerceIn(4f, heightPx - textResult.size.height - 4f))
-                            )
-                        }
                     }
                 }
             }
 
-            // Draw current leg arrival & approach circles centered on current leg target (perimeter strokes only, subtle)
-            if (activeLeg != null) {
-                val targetCenter = toCanvasOffset(activeLeg.target.x, activeLeg.target.y)
-                val effectiveScale = if (isLegView) {
-                    (minOf(widthPx, heightPx) / (legLen * 1.35)) * zoomScale
-                } else {
-                    baseScale.toDouble() * zoomScale.toDouble()
-                }
-
-                // Approach circle (100m) - perimeter only
-                val approachRadiusPx = (activeLeg.target.approach * effectiveScale).toFloat()
-                drawCircle(
-                    color = Color(0xFF00E5FF).copy(alpha = 0.5f),
-                    radius = approachRadiusPx,
-                    center = targetCenter,
-                    style = Stroke(width = 1.2f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 8f), 0f))
-                )
-
-                // Arrival circle (15m) - perimeter only
-                val arriveRadiusPx = (activeLeg.target.arrive * effectiveScale).toFloat()
-                drawCircle(
-                    color = Color(0xFF4CAF50),
-                    radius = arriveRadiusPx,
-                    center = targetCenter,
-                    style = Stroke(width = 1.8f)
-                )
-            }
-
-            // Highlight current leg subtly with translucent yellow line
-            if (activeLeg != null) {
-                val p1 = toCanvasOffset(activeLeg.start.x, activeLeg.start.y)
-                val p2 = toCanvasOffset(activeLeg.target.x, activeLeg.target.y)
-                drawLine(
-                    color = Color(0xFFFFEE58).copy(alpha = 0.45f),
-                    start = p1,
-                    end = p2,
-                    strokeWidth = 10f * zoomScale.coerceIn(0.5f, 3f)
-                )
-            }
-
-            // Draw route legs (path lines)
+            // Draw route legs (connected waypoints)
             route?.legs?.forEach { leg ->
-                val p1 = toCanvasOffset(leg.start.x, leg.start.y)
-                val p2 = toCanvasOffset(leg.target.x, leg.target.y)
+                val startOffset = toCanvasOffset(leg.start.x, leg.start.y)
+                val targetOffset = toCanvasOffset(leg.target.x, leg.target.y)
+
+                val isCurrentActiveLeg = (leg == activeLeg)
+                val legColor = if (isCurrentActiveLeg) Color(0xFFFFD700) else Color(0xFF38BDF8)
+                val strokeW = if (isCurrentActiveLeg) 5.0f else 3.0f
+
                 drawLine(
-                    color = Color(0xFF4CAF50),
-                    start = p1,
-                    end = p2,
-                    strokeWidth = 4f * zoomScale.coerceIn(0.5f, 3f)
+                    color = legColor,
+                    start = startOffset,
+                    end = targetOffset,
+                    strokeWidth = strokeW * zoomScale.coerceIn(0.5f, 3f)
                 )
             }
 
-            // Draw larger target direction arrow ON TOP OF the leg line
-            if (activeLeg != null) {
-                val p1 = toCanvasOffset(activeLeg.start.x, activeLeg.start.y)
-                val p2 = toCanvasOffset(activeLeg.target.x, activeLeg.target.y)
-                val dx = p2.x - p1.x
-                val dy = p2.y - p1.y
-                val legLenPx = hypot(dx, dy)
-                if (legLenPx > 15f) {
-                    val uxLeg = dx / legLenPx
-                    val uyLeg = dy / legLenPx
-                    val vxLeg = -uyLeg
-                    val vyLeg = uxLeg
-
-                    val arrowCenter = Offset(p1.x + 0.55f * dx, p1.y + 0.55f * dy)
-                    val arrowSize = 18f * zoomScale.coerceIn(0.8f, 3f)
-
-                    val tipX = arrowCenter.x + uxLeg * arrowSize
-                    val tipY = arrowCenter.y + uyLeg * arrowSize
-                    val leftX = arrowCenter.x - uxLeg * (arrowSize * 0.7f) + vxLeg * (arrowSize * 0.6f)
-                    val leftY = arrowCenter.y - uyLeg * (arrowSize * 0.7f) + vyLeg * (arrowSize * 0.6f)
-                    val rightX = arrowCenter.x - uxLeg * (arrowSize * 0.7f) - vxLeg * (arrowSize * 0.6f)
-                    val rightY = arrowCenter.y - uyLeg * (arrowSize * 0.7f) - vyLeg * (arrowSize * 0.6f)
-
-                    val arrowPath = Path().apply {
-                        moveTo(tipX, tipY)
-                        lineTo(leftX, leftY)
-                        lineTo(rightX, rightY)
-                        close()
-                    }
-
-                    drawPath(
-                        path = arrowPath,
-                        color = Color(0xFFFFD700)
-                    )
-                    drawPath(
-                        path = arrowPath,
-                        color = Color(0xFF000000).copy(alpha = 0.6f),
-                        style = Stroke(width = 1.5f)
-                    )
-                }
-            }
-
-            // Draw route waypoints and intelligent waypoint names
-            val legBearingDeg = if (isLegView && activeLeg != null) activeLeg.start.bearingTo(activeLeg.target) else 0.0
+            // Draw waypoints
             route?.waypoints?.forEach { wp ->
                 val center = toCanvasOffset(wp.x, wp.y)
+                val isTarget = (wp == currentTargetWaypoint)
+                val wpColor = if (isTarget) Color(0xFFFF3333) else Color(0xFF38BDF8)
+                val radiusPx = if (isTarget) 10f else 6f
+
                 drawCircle(
-                    color = Color(0xFF81C784).copy(alpha = 0.35f),
-                    radius = 16f * zoomScale.coerceIn(0.5f, 2.5f),
-                    center = center
-                )
-                drawCircle(
-                    color = Color(0xFF4CAF50),
-                    radius = 6f * zoomScale.coerceIn(0.5f, 2.5f),
+                    color = wpColor,
+                    radius = radiusPx * zoomScale.coerceIn(0.5f, 2.5f),
                     center = center
                 )
 
-                // Intelligent Waypoint Name Placement
-                val wpName = wp.name.ifBlank { "" }
-                if (wpName.isNotBlank()) {
-                    val attachedLegs = route.legs.filter { it.start == wp || it.target == wp }
-                    val labelAngleRad = computeIntelligentLabelAngle(wp, attachedLegs, isLegView, legBearingDeg)
+                if (mapConfig.showWaypointNames || mapConfig.showWaypointHeights) {
+                    val wpName = when {
+                        mapConfig.showWaypointNames && mapConfig.showWaypointHeights -> "${wp.name} (%.0fm)".format(wp.altitude)
+                        mapConfig.showWaypointNames -> wp.name
+                        else -> "%.0fm".format(wp.altitude)
+                    }
 
+                    val labelAngleRad = Math.toRadians(45.0)
                     val labelDistancePx = 22f * zoomScale.coerceIn(0.5f, 2.0f)
+
                     val labelOffsetX = (labelDistancePx * sin(labelAngleRad)).toFloat()
                     val labelOffsetY = (-labelDistancePx * cos(labelAngleRad)).toFloat()
 
@@ -597,7 +520,7 @@ fun MapScreen(
                 }
             }
 
-            // 1-pixel adaptive decimation filter
+            // 1-pixel adaptive decimation filter for breadcrumb rendering
             val renderBreadcrumbs = mutableListOf<Breadcrumb>()
             var lastOffset: Offset? = null
             for (bc in validBreadcrumbs) {
@@ -609,7 +532,7 @@ fun MapScreen(
             }
 
             // Draw historical breadcrumb path trajectory lines
-            if (renderBreadcrumbs.size >= 2) {
+            if (breadcrumbConfig.showBreadcrumbs && renderBreadcrumbs.size >= 2) {
                 val path = Path()
                 val firstPoint = toCanvasOffset(renderBreadcrumbs[0].location.x, renderBreadcrumbs[0].location.y)
                 path.moveTo(firstPoint.x, firstPoint.y)
@@ -626,31 +549,131 @@ fun MapScreen(
                 )
             }
 
-            // Draw historical breadcrumbs (cyan for PDR, bright red for GPS fixes)
-            renderBreadcrumbs.forEach { bc ->
-                val center = toCanvasOffset(bc.location.x, bc.location.y)
-                val dotColor = if (bc.isGpsFix) Color(0xFFFF3333) else Color(0xFF00E5FF)
-                val haloColor = if (bc.isGpsFix) Color(0xFFFF3333).copy(alpha = 0.35f) else Color(0xFF00E5FF).copy(alpha = 0.15f)
-                val dotRadius = if (bc.isGpsFix) 5.5f else 3f
+            // Draw historical breadcrumbs with user's configured styling & diameter
+            if (breadcrumbConfig.showBreadcrumbs) {
+                val totalCount = renderBreadcrumbs.size.toFloat().coerceAtLeast(1f)
 
-                drawCircle(
-                    color = haloColor,
-                    radius = 8f * zoomScale.coerceIn(0.5f, 2.5f),
-                    center = center
-                )
+                var minSpeed = Double.MAX_VALUE
+                var maxSpeed = -Double.MAX_VALUE
+                var minStride = Double.MAX_VALUE
+                var maxStride = -Double.MAX_VALUE
 
-                drawCircle(
-                    color = dotColor,
-                    radius = dotRadius * zoomScale.coerceIn(0.5f, 2.5f),
-                    center = center
-                )
+                validBreadcrumbs.forEach { bc ->
+                    val s = bc.ekfState?.speedMps?.value ?: 0.0
+                    if (s < minSpeed) minSpeed = s
+                    if (s > maxSpeed) maxSpeed = s
+
+                    val st = bc.ekfState?.strideLengthMeters?.value ?: 0.75
+                    if (st < minStride) minStride = st
+                    if (st > maxStride) maxStride = st
+                }
+
+                if (maxSpeed <= minSpeed) { minSpeed = 0.0; maxSpeed = 2.5 }
+                if (maxStride <= minStride) { minStride = 0.4; maxStride = 1.2 }
+
+                renderBreadcrumbs.forEachIndexed { index, bc ->
+                    val center = toCanvasOffset(bc.location.x, bc.location.y)
+
+                    val baseColor = when {
+                        breadcrumbConfig.showGpsPdrIndicator && bc.isGpsFix -> Color(0xFFFF3333)
+                        breadcrumbConfig.showGpsPdrIndicator && !bc.isGpsFix -> Color(0xFF00E5FF)
+                        breadcrumbConfig.colorMode == BreadcrumbColorMode.SPEED -> {
+                            val speedMps = bc.ekfState?.speedMps?.value ?: 0.0
+                            val t = ((speedMps - minSpeed) / (maxSpeed - minSpeed).coerceAtLeast(0.1)).coerceIn(0.0, 1.0).toFloat()
+                            val c1 = Color(breadcrumbConfig.speedStartColor)
+                            val c2 = Color(breadcrumbConfig.speedEndColor)
+                            lerp(c1, c2, t)
+                        }
+                        breadcrumbConfig.colorMode == BreadcrumbColorMode.STRIDE -> {
+                            val stride = bc.ekfState?.strideLengthMeters?.value ?: 0.75
+                            val t = ((stride - minStride) / (maxStride - minStride).coerceAtLeast(0.1)).coerceIn(0.0, 1.0).toFloat()
+                            val c1 = Color(breadcrumbConfig.strideStartColor)
+                            val c2 = Color(breadcrumbConfig.strideEndColor)
+                            lerp(c1, c2, t)
+                        }
+                        else -> Color(0xFF00E5FF)
+                    }
+
+                    val alphaMultiplier = if (breadcrumbConfig.fadeWithAge) {
+                        ((index + 1) / totalCount).coerceIn(0.1f, 1.0f)
+                    } else 1.0f
+
+                    val finalColor = baseColor.copy(alpha = baseColor.alpha * alphaMultiplier)
+
+                    if (breadcrumbConfig.showAccuracyCircles && bc.ekfState != null) {
+                        val accRadiusPx = (sqrt(bc.ekfState.position.variance) * currentScale).toFloat().coerceIn(4f, 80f)
+                        drawCircle(
+                            color = finalColor.copy(alpha = 0.15f * alphaMultiplier),
+                            radius = accRadiusPx,
+                            center = center
+                        )
+                    }
+
+                    val dotRadius = breadcrumbConfig.dotDiameterPx * zoomScale.coerceIn(0.5f, 2.0f)
+                    drawCircle(
+                        color = finalColor,
+                        radius = dotRadius,
+                        center = center
+                    )
+                }
+            }
+
+            // Draw Stationary Rest Stop Circles & Duration Labels
+            if (breadcrumbConfig.showStationaryStops && renderBreadcrumbs.size >= 2) {
+                var stopStartBc: Breadcrumb? = null
+                var stopLastBc: Breadcrumb? = null
+
+                for (i in 0 until renderBreadcrumbs.size) {
+                    val bc = renderBreadcrumbs[i]
+                    val speed = bc.ekfState?.speedMps?.value ?: 0.0
+
+                    if (speed < 0.3) {
+                        if (stopStartBc == null) {
+                            stopStartBc = bc
+                        }
+                        stopLastBc = bc
+                    } else {
+                        if (stopStartBc != null && stopLastBc != null) {
+                            val durationSec = (stopLastBc.timestampMs - stopStartBc.timestampMs) / 1000L
+                            if (durationSec >= 30L) {
+                                val stopCenter = toCanvasOffset(stopStartBc.location.x, stopStartBc.location.y)
+                                val durationMin = durationSec / 60
+                                val durationSecRem = durationSec % 60
+                                val timeText = if (durationMin > 0) "${durationMin}m ${durationSecRem}s" else "${durationSecRem}s"
+
+                                drawCircle(
+                                    color = Color(0xFFFFB300).copy(alpha = 0.25f),
+                                    radius = 16f * zoomScale.coerceIn(0.8f, 2.5f),
+                                    center = stopCenter
+                                )
+                                drawCircle(
+                                    color = Color(0xFFFFB300),
+                                    radius = 16f * zoomScale.coerceIn(0.8f, 2.5f),
+                                    center = stopCenter,
+                                    style = Stroke(width = 2f)
+                                )
+
+                                val textResult = textMeasurer.measure(
+                                    text = "Stopped $timeText",
+                                    style = TextStyle(color = Color(0xFFFFD700), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                )
+                                drawText(
+                                    textLayoutResult = textResult,
+                                    topLeft = Offset(stopCenter.x - textResult.size.width / 2f, stopCenter.y + 18f)
+                                )
+                            }
+                        }
+                        stopStartBc = null
+                        stopLastBc = null
+                    }
+                }
             }
 
             // Draw current active EKF position indicator (only if initialized)
             if (activeEkfState.isInitializedWithGps) {
                 val activePos = activeEkfState.position.value
                 val currentCenter = toCanvasOffset(activePos.x, activePos.y)
-                val currentRadiusPx = if (isLegView) 12f else (sqrt(activeEkfState.position.variance) * baseScale.toDouble() * zoomScale.toDouble()).toFloat().coerceIn(6f, 60f)
+                val currentRadiusPx = if (isLegView) 12f else (sqrt(activeEkfState.position.variance) * currentScale).toFloat().coerceIn(6f, 60f)
 
                 drawCircle(
                     color = Color(0xFFFFD700).copy(alpha = 0.25f),
@@ -738,99 +761,46 @@ fun MapScreen(
             )
         }
 
-        // Upper Right UI Stack (North Indicator + Relative Bearing Indicator - Always Visible)
-        Column(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(8.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-            horizontalAlignment = Alignment.End
-        ) {
-            // 1. North / Compass Button (Always Visible - Toggles Map View <-> Leg View)
-            Box(
+        // Color Legend Overlay Card for Speed / Stride Color Modes
+        if (breadcrumbConfig.showBreadcrumbs && (breadcrumbConfig.colorMode == BreadcrumbColorMode.SPEED || breadcrumbConfig.colorMode == BreadcrumbColorMode.STRIDE)) {
+            val isSpeed = breadcrumbConfig.colorMode == BreadcrumbColorMode.SPEED
+            val minVal = if (isSpeed) minSpeed * 3.6 else minStride
+            val maxVal = if (isSpeed) maxSpeed * 3.6 else maxStride
+            val unitStr = if (isSpeed) "km/h" else "m"
+            val titleStr = if (isSpeed) "Speed Legend" else "Stride Legend"
+
+            Card(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color.Black.copy(alpha = 0.75f))
-                    .clickable { onUpdateMapConfig { it.copy(isLegView = !it.isLegView) } }
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                contentAlignment = Alignment.Center
+                    .align(Alignment.BottomStart)
+                    .padding(8.dp),
+                shape = RoundedCornerShape(6.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.75f))
             ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                Column(
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Canvas(modifier = Modifier.size(20.dp)) {
-                        val center = Offset(size.width / 2f, size.height / 2f)
-                        val radius = size.width / 2f - 2f
-                        val northAngle = if (isLegView && activeLeg != null) {
-                            -activeLeg.start.bearingTo(activeLeg.target)
-                        } else {
-                            0.0
-                        }
-                        val angleRad = Math.toRadians(northAngle)
-                        val tipX = center.x + (radius * 0.8f * sin(angleRad)).toFloat()
-                        val tipY = center.y - (radius * 0.8f * cos(angleRad)).toFloat()
-
-                        drawCircle(color = Color(0xFF1E293B), radius = radius, center = center)
-                        drawLine(
-                            color = Color(0xFFFF5252),
-                            start = center,
-                            end = Offset(tipX, tipY),
-                            strokeWidth = 3f
-                        )
-                        drawCircle(color = Color.White, radius = 2f, center = center)
-                    }
-                    Text(
-                        text = if (isLegView) "Leg View" else "North",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 9.sp
-                    )
-                }
-            }
-
-            // 2. Relative Bearing Indicator (Visible when EKF initialized with GPS)
-            if (activeEkfState.isInitializedWithGps) {
-                Box(
-                    modifier = Modifier
-                        .background(Color.Black.copy(alpha = 0.75f), RoundedCornerShape(8.dp))
-                        .padding(horizontal = 8.dp, vertical = 6.dp)
-                ) {
+                    Text(titleStr, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color.White)
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Canvas(modifier = Modifier.size(24.dp)) {
-                            val center = Offset(size.width / 2f, size.height / 2f)
-                            val radius = size.width / 2f - 2f
-                            drawCircle(color = Color(0xFF1E293B), radius = radius, center = center)
-                            drawCircle(color = Color(0xFF475569), radius = radius, center = center, style = Stroke(1f))
-
-                            val angleRad = Math.toRadians(relativeBearingCorrection)
-                            val tipX = center.x + (radius * 0.75f * sin(angleRad)).toFloat()
-                            val tipY = center.y - (radius * 0.75f * cos(angleRad)).toFloat()
-
-                            drawLine(
-                                color = Color(0xFFFFB300),
-                                start = center,
-                                end = Offset(tipX, tipY),
-                                strokeWidth = 3f
-                            )
-                            drawCircle(color = Color(0xFFFFD700), radius = 2f, center = center)
-                        }
-
-                        val correctionText = when {
-                            relativeBearingCorrection > 0 -> "+%.0f°".format(relativeBearingCorrection)
-                            relativeBearingCorrection < 0 -> "%.0f°".format(relativeBearingCorrection)
-                            else -> "+0°"
-                        }
-                        Text(
-                            text = correctionText,
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFFFFB300)
+                        Text("%.1f $unitStr".format(minVal), style = MaterialTheme.typography.labelSmall, color = Color.White)
+                        Box(
+                            modifier = Modifier
+                                .width(60.dp)
+                                .height(10.dp)
+                                .background(
+                                    brush = Brush.horizontalGradient(
+                                        colors = listOf(
+                                            Color(if (isSpeed) breadcrumbConfig.speedStartColor else breadcrumbConfig.strideStartColor),
+                                            Color(if (isSpeed) breadcrumbConfig.speedEndColor else breadcrumbConfig.strideEndColor)
+                                        )
+                                    ),
+                                    shape = RoundedCornerShape(2.dp)
+                                )
                         )
+                        Text("%.1f $unitStr".format(maxVal), style = MaterialTheme.typography.labelSmall, color = Color.White)
                     }
                 }
             }
@@ -862,279 +832,58 @@ fun MapScreen(
             IconButton(
                 onClick = { showSettingsDialog = true },
                 modifier = Modifier
-                    .size(38.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.85f))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f), CircleShape)
+                    .size(36.dp)
             ) {
-                Text("⚙", style = MaterialTheme.typography.titleMedium, color = Color.White)
+                Text("⚙", fontSize = 18.sp)
             }
         }
 
-        // Comprehensive Map & Hike Settings Dialog
+        // 5-Tab Settings Overhaul Dialog
         if (showSettingsDialog) {
+            var selectedTabIndex by remember { mutableIntStateOf(0) }
+            val tabs = listOf("Map", "Breadcrumbs", "Audio", "Navigation", "Dev")
+
             AlertDialog(
                 onDismissRequest = { showSettingsDialog = false },
                 title = {
-                    Text("Map & Navigation Settings", fontWeight = FontWeight.Bold)
-                },
-                text = {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                    Column {
+                        Text("Settings", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        ScrollableTabRow(
+                            selectedTabIndex = selectedTabIndex,
+                            edgePadding = 0.dp,
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("Telemetry Dashboard", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                                Text("Toggle visibility of live EKF state viewport", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            Switch(
-                                checked = mapConfig.showTelemetryViewport,
-                                onCheckedChange = { onUpdateMapConfig { cfg -> cfg.copy(showTelemetryViewport = it) } }
-                            )
-                        }
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("Offline OSM Map Background", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                                Text("Display OpenStreetMap tiles as map background", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            Switch(
-                                checked = mapConfig.showOsmBackground,
-                                onCheckedChange = { onUpdateMapConfig { cfg -> cfg.copy(showOsmBackground = it) } }
-                            )
-                        }
-
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text("Download Offline Ireland Tiles:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                            Text("Fetch OpenStreetMap tiles for Ireland (zooms 8-14)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-
-                            var isDownloading by remember { mutableStateOf(false) }
-                            var progressText by remember { mutableStateOf("") }
-                            val coroutineScope = rememberCoroutineScope()
-
-                            val isIrelandFullyCached = TileDownloadManifest.isIrelandDownloaded(context)
-
-                            Button(
-                                onClick = {
-                                    isDownloading = true
-                                    coroutineScope.launch {
-                                        val count = OsmTileManager.downloadIrelandTiles(context, listOf(8, 9, 10, 11, 12, 13, 14)) { current, total ->
-                                            progressText = "$current / $total"
-                                        }
-                                        isDownloading = false
-                                        Toast.makeText(context, "Downloaded $count Ireland map tiles for offline use!", Toast.LENGTH_LONG).show()
-                                    }
-                                },
-                                enabled = !isDownloading,
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (isIrelandFullyCached) Color(0xFF16A34A) else MaterialTheme.colorScheme.primary
-                                ),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text(
-                                    text = when {
-                                        isDownloading -> "Downloading ($progressText)..."
-                                        isIrelandFullyCached -> "✓ Ireland Base Map Cached"
-                                        else -> "Download Ireland Map Tiles"
-                                    },
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = Color.White
+                            tabs.forEachIndexed { index, title ->
+                                Tab(
+                                    selected = selectedTabIndex == index,
+                                    onClick = { selectedTabIndex = index },
+                                    text = { Text(title, style = MaterialTheme.typography.labelSmall) }
                                 )
                             }
                         }
-
-                        if (route != null && route.waypoints.isNotEmpty()) {
-                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text("Download Route Area Map Tiles:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                                Text("Fetch high-res tiles for '${route.name}' (zooms 10-18)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-
-                                var isDownloadingRoute by remember { mutableStateOf(false) }
-                                var routeProgressText by remember { mutableStateOf("") }
-                                val coroutineScope = rememberCoroutineScope()
-
-                                val isRouteFullyCached = TileDownloadManifest.isRouteDownloaded(context, route.name)
-
-                                Button(
-                                    onClick = {
-                                        isDownloadingRoute = true
-                                        coroutineScope.launch {
-                                            val count = OsmTileManager.downloadRouteAreaTiles(context, route, listOf(10, 11, 12, 13, 14, 15, 16, 17, 18)) { current, total ->
-                                                routeProgressText = "$current / $total"
-                                            }
-                                            isDownloadingRoute = false
-                                            Toast.makeText(context, "Downloaded $count tiles for route '${route.name}'!", Toast.LENGTH_LONG).show()
-                                        }
-                                    },
-                                    enabled = !isDownloadingRoute,
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = if (isRouteFullyCached) Color(0xFF16A34A) else MaterialTheme.colorScheme.primary
-                                    ),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text(
-                                        text = when {
-                                            isDownloadingRoute -> "Downloading Route ($routeProgressText)..."
-                                            isRouteFullyCached -> "✓ Route Area Tiles Cached"
-                                            else -> "Download Route Area Tiles"
-                                        },
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = Color.White
-                                    )
-                                }
-                            }
-                        }
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("1km Grid Lines (Labeled)", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                                Text("Labels lines using 2-digit Irish Grid reference", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            Switch(
-                                checked = show1kmGrid,
-                                onCheckedChange = { onUpdateMapConfig { cfg -> cfg.copy(show1kmGrid = it) } }
-                            )
-                        }
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("100m Grid Lines (Unlabeled)", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                                Text("Displays fine unlabeled 100m sub-grid", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            Switch(
-                                checked = show100mGrid,
-                                onCheckedChange = { onUpdateMapConfig { cfg -> cfg.copy(show100mGrid = it) } }
-                            )
-                        }
-
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text("GPS Polling Interval:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                            Text("Frequency of GPS updates during active tracking", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                listOf(
-                                    1000L to "1s",
-                                    5000L to "5s",
-                                    10000L to "10s",
-                                    30000L to "30s",
-                                    100000L to "100s"
-                                ).forEach { (ms, label) ->
-                                    FilterChip(
-                                        selected = mapConfig.gpsPollingIntervalMs == ms,
-                                        onClick = {
-                                            onUpdateMapConfig { cfg -> cfg.copy(gpsPollingIntervalMs = ms) }
-                                            onIntervalSelected(ms)
-                                        },
-                                        label = { Text(label, style = MaterialTheme.typography.labelSmall) }
-                                    )
-                                }
-                            }
-                        }
-
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text("Target Arrival Threshold:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                            Text("Distance to trigger TARGET_REACHED (meters)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                listOf(5.0, 10.0, 15.0, 20.0).forEach { dist ->
-                                    FilterChip(
-                                        selected = hikeConfig.arriveThresholdMeters == dist,
-                                        onClick = { onUpdateHikeConfig { cfg -> cfg.copy(arriveThresholdMeters = dist) } },
-                                        label = { Text("%.0fm".format(dist), style = MaterialTheme.typography.labelSmall) }
-                                    )
-                                }
-                            }
-                        }
-
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text("Target Approach Threshold:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                            Text("Distance to trigger APPROACHING_TARGET (meters)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                listOf(20.0, 40.0, 60.0, 100.0).forEach { dist ->
-                                    FilterChip(
-                                        selected = hikeConfig.approachThresholdMeters == dist,
-                                        onClick = { onUpdateHikeConfig { cfg -> cfg.copy(approachThresholdMeters = dist) } },
-                                        label = { Text("%.0fm".format(dist), style = MaterialTheme.typography.labelSmall) }
-                                    )
-                                }
-                            }
-                        }
-
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text("Off-Course Heading Deviation:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                            Text("Degrees deviation to trigger OFFCOURSE alert", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                listOf(5.0, 10.0, 15.0, 20.0).forEach { deg ->
-                                    FilterChip(
-                                        selected = hikeConfig.offCourseHeadingDevDeg == deg,
-                                        onClick = { onUpdateHikeConfig { cfg -> cfg.copy(offCourseHeadingDevDeg = deg) } },
-                                        label = { Text("%.0f°".format(deg), style = MaterialTheme.typography.labelSmall) }
-                                    )
-                                }
-                            }
-                        }
-
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text("Off-Course Min Speed:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                            Text("Minimum speed (m/s) to evaluate off-course heading", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                listOf(0.2, 0.4, 0.6, 0.8).forEach { speed ->
-                                    FilterChip(
-                                        selected = hikeConfig.offCourseMinSpeedMps == speed,
-                                        onClick = { onUpdateHikeConfig { cfg -> cfg.copy(offCourseMinSpeedMps = speed) } },
-                                        label = { Text("%.1f".format(speed), style = MaterialTheme.typography.labelSmall) }
-                                    )
-                                }
-                            }
-                        }
-
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text("Off-Course Drift Cool-off:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                            Text("Cool-off when course drifts further (seconds)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                listOf(1L, 2L, 4L, 6L).forEach { sec ->
-                                    FilterChip(
-                                        selected = hikeConfig.driftCoolOffSec == sec,
-                                        onClick = { onUpdateHikeConfig { cfg -> cfg.copy(driftCoolOffSec = sec) } },
-                                        label = { Text("${sec}s", style = MaterialTheme.typography.labelSmall) }
-                                    )
-                                }
-                            }
-                        }
-
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text("Off-Course Steady Cool-off:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                            Text("Cool-off when holding steady off-course heading (seconds)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                listOf(4L, 6L, 10L, 15L).forEach { sec ->
-                                    FilterChip(
-                                        selected = hikeConfig.steadyCoolOffSec == sec,
-                                        onClick = { onUpdateHikeConfig { cfg -> cfg.copy(steadyCoolOffSec = sec) } },
-                                        label = { Text("${sec}s", style = MaterialTheme.typography.labelSmall) }
-                                    )
-                                }
-                            }
+                    }
+                },
+                text = {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(380.dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        when (selectedTabIndex) {
+                            0 -> MapSettingsTab(mapConfig, onUpdateMapConfig)
+                            1 -> BreadcrumbsSettingsTab(breadcrumbConfig, onUpdateBreadcrumbConfig)
+                            2 -> AudioSettingsTab(hikeConfig, onUpdateHikeConfig)
+                            3 -> NavigationSettingsTab(context, route, onIntervalSelected)
+                            4 -> DevSettingsTab(mapConfig, onUpdateMapConfig, onLoadTelemetryTrack)
                         }
                     }
                 },
                 confirmButton = {
                     TextButton(onClick = { showSettingsDialog = false }) {
-                        Text("Close")
+                        Text("Close", fontWeight = FontWeight.Bold)
                     }
                 }
             )
@@ -1142,40 +891,406 @@ fun MapScreen(
     }
 }
 
-private fun computeIntelligentLabelAngle(
-    wp: Waypoint,
-    attachedLegs: List<Leg>,
-    isLegView: Boolean,
-    legBearing: Double
-): Double {
-    if (attachedLegs.isEmpty()) return Math.toRadians(45.0)
-
-    val angles = attachedLegs.map { leg ->
-        val otherWp = if (leg.start == wp) leg.target else leg.start
-        var bearing = wp.bearingTo(otherWp)
-        if (isLegView) {
-            bearing -= legBearing
+@Composable
+private fun MapSettingsTab(
+    mapConfig: MapConfig,
+    onUpdateMapConfig: ((MapConfig) -> MapConfig) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Waypoint Names", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                Text("Display names over route waypoints", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Switch(
+                checked = mapConfig.showWaypointNames,
+                onCheckedChange = { onUpdateMapConfig { cfg -> cfg.copy(showWaypointNames = it) } }
+            )
         }
-        Math.toRadians(bearing)
-    }.sorted()
 
-    if (angles.size == 1) {
-        return angles[0] + Math.PI
-    }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Waypoint Heights", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                Text("Display altitudes over route waypoints", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Switch(
+                checked = mapConfig.showWaypointHeights,
+                onCheckedChange = { onUpdateMapConfig { cfg -> cfg.copy(showWaypointHeights = it) } }
+            )
+        }
 
-    var maxGap = 0.0
-    var bestBisector = angles[0] + Math.PI
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("1km Gridlines", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                Text("Display 1km major Irish gridlines", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Switch(
+                checked = mapConfig.show1kmGrid,
+                onCheckedChange = { onUpdateMapConfig { cfg -> cfg.copy(show1kmGrid = it) } }
+            )
+        }
 
-    for (i in angles.indices) {
-        val nextIdx = (i + 1) % angles.size
-        var gap = angles[nextIdx] - angles[i]
-        if (gap < 0) gap += 2.0 * Math.PI
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("100m Gridlines", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                Text("Display 100m minor Irish gridlines", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Switch(
+                checked = mapConfig.show100mGrid,
+                onCheckedChange = { onUpdateMapConfig { cfg -> cfg.copy(show100mGrid = it) } }
+            )
+        }
 
-        if (gap > maxGap) {
-            maxGap = gap
-            bestBisector = angles[i] + gap / 2.0
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Offline OSM Street Tiles", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                Text("Display OpenStreetMap background tiles", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Switch(
+                checked = mapConfig.showOsmBackground,
+                onCheckedChange = { onUpdateMapConfig { cfg -> cfg.copy(showOsmBackground = it) } }
+            )
         }
     }
+}
 
-    return bestBisector
+@Composable
+private fun BreadcrumbsSettingsTab(
+    breadcrumbConfig: BreadcrumbConfig,
+    onUpdateBreadcrumbConfig: ((BreadcrumbConfig) -> BreadcrumbConfig) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Show Breadcrumbs", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                Text("Display breadcrumb trail points", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Switch(
+                checked = breadcrumbConfig.showBreadcrumbs,
+                onCheckedChange = { onUpdateBreadcrumbConfig { cfg -> cfg.copy(showBreadcrumbs = it) } }
+            )
+        }
+
+        Column {
+            Text("Dot Diameter: %.1f px".format(breadcrumbConfig.dotDiameterPx), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+            Slider(
+                value = breadcrumbConfig.dotDiameterPx,
+                onValueChange = { newSize -> onUpdateBreadcrumbConfig { cfg -> cfg.copy(dotDiameterPx = newSize) } },
+                valueRange = 1.0f..5.0f,
+                steps = 8
+            )
+        }
+
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Color Coding Mode", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = breadcrumbConfig.colorMode == BreadcrumbColorMode.DEFAULT,
+                    onClick = { onUpdateBreadcrumbConfig { cfg -> cfg.copy(colorMode = BreadcrumbColorMode.DEFAULT) } },
+                    label = { Text("Default") }
+                )
+                FilterChip(
+                    selected = breadcrumbConfig.colorMode == BreadcrumbColorMode.SPEED,
+                    onClick = { onUpdateBreadcrumbConfig { cfg -> cfg.copy(colorMode = BreadcrumbColorMode.SPEED) } },
+                    label = { Text("Speed") }
+                )
+                FilterChip(
+                    selected = breadcrumbConfig.colorMode == BreadcrumbColorMode.STRIDE,
+                    onClick = { onUpdateBreadcrumbConfig { cfg -> cfg.copy(colorMode = BreadcrumbColorMode.STRIDE) } },
+                    label = { Text("Stride") }
+                )
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("GPS vs PDR Indicator", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                Text("Red dot for GPS fix, Cyan dot for PDR", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Switch(
+                checked = breadcrumbConfig.showGpsPdrIndicator,
+                onCheckedChange = { onUpdateBreadcrumbConfig { cfg -> cfg.copy(showGpsPdrIndicator = it) } }
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Age Fading", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                Text("Older breadcrumbs gradually fade out", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Switch(
+                checked = breadcrumbConfig.fadeWithAge,
+                onCheckedChange = { onUpdateBreadcrumbConfig { cfg -> cfg.copy(fadeWithAge = it) } }
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Position Accuracy Circles", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                Text("Light circle around breadcrumbs showing accuracy", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Switch(
+                checked = breadcrumbConfig.showAccuracyCircles,
+                onCheckedChange = { onUpdateBreadcrumbConfig { cfg -> cfg.copy(showAccuracyCircles = it) } }
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Stationary Rest Stops", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                Text("Circle & duration label when stationary > 30s", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Switch(
+                checked = breadcrumbConfig.showStationaryStops,
+                onCheckedChange = { onUpdateBreadcrumbConfig { cfg -> cfg.copy(showStationaryStops = it) } }
+            )
+        }
+    }
+}
+
+@Composable
+private fun AudioSettingsTab(
+    hikeConfig: HikeConfig,
+    onUpdateHikeConfig: ((HikeConfig) -> HikeConfig) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Audio Directions", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                Text("Enable spoken TTS turn-by-turn prompts", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Switch(
+                checked = hikeConfig.audioEnabled,
+                onCheckedChange = { onUpdateHikeConfig { cfg -> cfg.copy(audioEnabled = it) } }
+            )
+        }
+
+        var arriveText by remember(hikeConfig) { mutableStateOf("%.0f".format(hikeConfig.arriveThresholdMeters)) }
+        OutlinedTextField(
+            value = arriveText,
+            onValueChange = {
+                arriveText = it
+                it.toDoubleOrNull()?.let { newMeters ->
+                    onUpdateHikeConfig { cfg -> cfg.copy(arriveThresholdMeters = newMeters) }
+                }
+            },
+            singleLine = true,
+            label = { Text("Target Arrival Radius (meters)") },
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        var approachText by remember(hikeConfig) { mutableStateOf("%.0f".format(hikeConfig.approachThresholdMeters)) }
+        OutlinedTextField(
+            value = approachText,
+            onValueChange = {
+                approachText = it
+                it.toDoubleOrNull()?.let { newMeters ->
+                    onUpdateHikeConfig { cfg -> cfg.copy(approachThresholdMeters = newMeters) }
+                }
+            },
+            singleLine = true,
+            label = { Text("Target Approach Radius (meters)") },
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        var offCourseText by remember(hikeConfig) { mutableStateOf("%.0f".format(hikeConfig.offCourseHeadingDevDeg)) }
+        OutlinedTextField(
+            value = offCourseText,
+            onValueChange = {
+                offCourseText = it
+                it.toDoubleOrNull()?.let { newDeg ->
+                    onUpdateHikeConfig { cfg -> cfg.copy(offCourseHeadingDevDeg = newDeg) }
+                }
+            },
+            singleLine = true,
+            label = { Text("Off-Course Heading Deviation (degrees)") },
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Column {
+            Text("Speech Rate: %.1fx".format(hikeConfig.speechRate), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+            Slider(
+                value = hikeConfig.speechRate,
+                onValueChange = { rate -> onUpdateHikeConfig { cfg -> cfg.copy(speechRate = rate) } },
+                valueRange = 0.5f..2.0f,
+                steps = 15
+            )
+        }
+    }
+}
+
+@Composable
+private fun NavigationSettingsTab(
+    context: android.content.Context,
+    route: Route?,
+    onIntervalSelected: (Long) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Download Offline Ireland Tiles:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+            Text("Fetch OpenStreetMap tiles for Ireland (zooms 8-14)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+            var isDownloading by remember { mutableStateOf(false) }
+            var progressText by remember { mutableStateOf("") }
+            val coroutineScope = rememberCoroutineScope()
+
+            val isIrelandFullyCached = TileDownloadManifest.isIrelandDownloaded(context)
+
+            Button(
+                onClick = {
+                    isDownloading = true
+                    coroutineScope.launch {
+                        val count = OsmTileManager.downloadIrelandTiles(context, listOf(8, 9, 10, 11, 12, 13, 14)) { current, total ->
+                            progressText = "$current / $total"
+                        }
+                        isDownloading = false
+                        Toast.makeText(context, "Downloaded $count Ireland map tiles for offline use!", Toast.LENGTH_LONG).show()
+                    }
+                },
+                enabled = !isDownloading,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (isIrelandFullyCached) Color(0xFF16A34A) else MaterialTheme.colorScheme.primary
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = when {
+                        isDownloading -> "Downloading ($progressText)..."
+                        isIrelandFullyCached -> "✓ Ireland Base Map Cached"
+                        else -> "Download Ireland Map Tiles"
+                    },
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color.White
+                )
+            }
+        }
+
+        if (route != null && route.waypoints.isNotEmpty()) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Download Route Area Map Tiles:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                Text("Fetch high-res tiles for '${route.name}' (zooms 10-18)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                var isDownloadingRoute by remember { mutableStateOf(false) }
+                var routeProgressText by remember { mutableStateOf("") }
+                val coroutineScope = rememberCoroutineScope()
+
+                val isRouteFullyCached = TileDownloadManifest.isRouteDownloaded(context, route.name)
+
+                Button(
+                    onClick = {
+                        isDownloadingRoute = true
+                        coroutineScope.launch {
+                            val count = OsmTileManager.downloadRouteAreaTiles(context, route, listOf(10, 11, 12, 13, 14, 15, 16, 17, 18)) { current, total ->
+                                routeProgressText = "$current / $total"
+                            }
+                            isDownloadingRoute = false
+                            Toast.makeText(context, "Downloaded $count tiles for route '${route.name}'!", Toast.LENGTH_LONG).show()
+                        }
+                    },
+                    enabled = !isDownloadingRoute,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isRouteFullyCached) Color(0xFF16A34A) else MaterialTheme.colorScheme.primary
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = when {
+                            isDownloadingRoute -> "Downloading Route ($routeProgressText)..."
+                            isRouteFullyCached -> "✓ Route Area Tiles Cached"
+                            else -> "Download Route Area Tiles"
+                        },
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Color.White
+                    )
+                }
+            }
+        }
+
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("GPS Polling Interval", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(selected = false, onClick = { onIntervalSelected(1000L) }, label = { Text("1s") })
+                FilterChip(selected = false, onClick = { onIntervalSelected(2000L) }, label = { Text("2s") })
+                FilterChip(selected = false, onClick = { onIntervalSelected(5000L) }, label = { Text("5s") })
+                FilterChip(selected = false, onClick = { onIntervalSelected(10000L) }, label = { Text("10s") })
+            }
+        }
+    }
+}
+
+@Composable
+private fun DevSettingsTab(
+    mapConfig: MapConfig,
+    onUpdateMapConfig: ((MapConfig) -> MapConfig) -> Unit,
+    onLoadTelemetryTrack: (() -> Unit)?
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Telemetry Dashboard Viewport", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                Text("Display live EKF state telemetry dashboard", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Switch(
+                checked = mapConfig.showTelemetryViewport,
+                onCheckedChange = { onUpdateMapConfig { cfg -> cfg.copy(showTelemetryViewport = it) } }
+            )
+        }
+
+        if (onLoadTelemetryTrack != null) {
+            Button(
+                onClick = onLoadTelemetryTrack,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Load Recorded Telemetry Track (.csv)", style = MaterialTheme.typography.labelMedium)
+            }
+        }
+    }
 }

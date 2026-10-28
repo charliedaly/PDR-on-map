@@ -134,6 +134,7 @@ fun MainDiagnosticScreen(
     val activeRoute by viewModel.activeRoute.collectAsState()
     val currentTargetWaypoint by viewModel.currentTargetWaypoint.collectAsState()
     val mapConfig by viewModel.mapConfig.collectAsState()
+    val breadcrumbConfig by viewModel.breadcrumbConfig.collectAsState()
     val hikeConfig by viewModel.hikeConfig.collectAsState()
     val activeLeg by viewModel.activeLeg.collectAsState()
     val currentLegIndex by viewModel.currentLegIndex.collectAsState()
@@ -270,11 +271,15 @@ fun MainDiagnosticScreen(
                     activeEkfState = ekfState,
                     currentTargetWaypoint = currentTargetWaypoint,
                     mapConfig = mapConfig,
+                    breadcrumbConfig = breadcrumbConfig,
                     hikeConfig = hikeConfig,
                     activeLeg = activeLeg,
                     relativeBearingCorrection = relativeBearingCorrection,
                     onUpdateMapConfig = { viewModel.updateMapConfig(it) },
+                    onUpdateBreadcrumbConfig = { viewModel.updateBreadcrumbConfig(it) },
                     onUpdateHikeConfig = { viewModel.updateHikeConfig(it) },
+                    onIntervalSelected = { intervalMs -> viewModel.setGpsPollingInterval(context, intervalMs) },
+                    onLoadTelemetryTrack = { trackPickerLauncher.launch("*/*") },
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)

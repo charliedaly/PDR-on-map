@@ -1,5 +1,7 @@
 package com.example.irishhike.telemetry
 
+import com.example.irishhike.playback.TrackPlaybackEngine
+import com.example.irishhike.playback.TrackPlaybackEvent
 import com.example.irishhike.repository.HikeRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -18,14 +20,14 @@ import kotlin.math.PI
 class TelemetryPlaybackEngineTest {
 
     private lateinit var testDispatcher: TestDispatcher
-    private lateinit var engine: TelemetryPlaybackEngine
+    private lateinit var engine: TrackPlaybackEngine
 
     @Before
     fun setUp() {
         testDispatcher = UnconfinedTestDispatcher()
         Dispatchers.setMain(testDispatcher)
         HikeRepository.clearBreadcrumbs()
-        engine = TelemetryPlaybackEngine()
+        engine = TrackPlaybackEngine()
     }
 
     @After
@@ -34,13 +36,13 @@ class TelemetryPlaybackEngineTest {
         HikeRepository.clearBreadcrumbs()
     }
 
-    private fun createSampleEvents(): List<TelemetryEvent> {
+    private fun createSampleEvents(): List<TrackPlaybackEvent> {
         return listOf(
-            TelemetryEvent.GpsFixEvent(1000L, 53.349805, -6.260310, 4.0f, 1000L),
-            TelemetryEvent.StepDetectedEvent(1600L, PI / 2.0),
-            TelemetryEvent.PredictionTickEvent(2000L, 1.0),
-            TelemetryEvent.StepDetectedEvent(2200L, PI / 2.0),
-            TelemetryEvent.GpsFixEvent(3000L, 53.349810, -6.260305, 4.0f, 1000L)
+            TrackPlaybackEvent.GpsPointEvent(1000L, 53.349805, -6.260310, 4.0f, 1000L),
+            TrackPlaybackEvent.PdrStepEvent(1600L, PI / 2.0),
+            TrackPlaybackEvent.TimeTickEvent(2000L, 1.0),
+            TrackPlaybackEvent.PdrStepEvent(2200L, PI / 2.0),
+            TrackPlaybackEvent.GpsPointEvent(3000L, 53.349810, -6.260305, 4.0f, 1000L)
         )
     }
 
@@ -86,17 +88,14 @@ class TelemetryPlaybackEngineTest {
         val events = createSampleEvents()
         engine.loadEvents(events)
 
-        // Stepping back at 0 does nothing
         engine.stepBack()
         assertEquals(0, engine.progress.value.currentIndex)
 
-        // Step forward 5 times to reach end
         repeat(5) {
             engine.stepForward()
         }
         assertEquals(5, engine.progress.value.currentIndex)
 
-        // Stepping forward at end does nothing
         engine.stepForward()
         assertEquals(5, engine.progress.value.currentIndex)
     }
