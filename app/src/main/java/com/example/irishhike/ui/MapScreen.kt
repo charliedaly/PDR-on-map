@@ -550,10 +550,6 @@ fun MapScreen(
                         }
                     }
 
-                    val labelDistancePx = 26f * zoomScale.coerceIn(0.5f, 2.0f)
-                    val labelOffsetX = normalX * labelDistancePx
-                    val labelOffsetY = normalY * labelDistancePx
-
                     val textResult = textMeasurer.measure(
                         text = wpName,
                         style = TextStyle(
@@ -563,8 +559,33 @@ fun MapScreen(
                         )
                     )
 
-                    val labelX = center.x + labelOffsetX - (textResult.size.width / 2f)
-                    val labelY = center.y + labelOffsetY - (textResult.size.height / 2f)
+                    val radiusScaled = radiusPx * zoomScale.coerceIn(0.5f, 2.5f)
+                    val clearance = radiusScaled + 8f
+
+                    val labelX: Float
+                    val labelY: Float
+
+                    if (abs(normalX) >= abs(normalY)) {
+                        if (normalX < 0f) {
+                            // Points left -> place to the left of waypoint
+                            labelX = center.x - clearance - textResult.size.width
+                            labelY = center.y - (textResult.size.height / 2f)
+                        } else {
+                            // Points right -> place to the right of waypoint
+                            labelX = center.x + clearance
+                            labelY = center.y - (textResult.size.height / 2f)
+                        }
+                    } else {
+                        if (normalY < 0f) {
+                            // Points up -> place above waypoint
+                            labelY = center.y - clearance - textResult.size.height
+                            labelX = center.x - (textResult.size.width / 2f)
+                        } else {
+                            // Points down -> place below waypoint
+                            labelY = center.y + clearance
+                            labelX = center.x - (textResult.size.width / 2f)
+                        }
+                    }
 
                     val bgPadding = 3f
                     drawRect(
