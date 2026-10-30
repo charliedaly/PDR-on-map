@@ -109,4 +109,12 @@ class AppPreferences(context: Context) {
         val uri = uriStr?.let { android.net.Uri.parse(it) }
         return Triple(name, csv, uri)
     }
+
+    fun saveSettingsTab(index: Int) {
+        prefs.edit().putInt("settings_selected_tab", index).apply()
+    }
+
+    fun loadSettingsTab(): Int {
+        return prefs.getInt("settings_selected_tab", 0)
+    }
 }

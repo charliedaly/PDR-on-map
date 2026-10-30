@@ -867,7 +867,7 @@ fun MapScreen(
 
         // 5-Tab Settings Overhaul Dialog
         if (showSettingsDialog) {
-            var selectedTabIndex by remember { mutableIntStateOf(0) }
+            var selectedTabIndex by remember { mutableIntStateOf(com.example.irishhike.repository.HikeRepository.loadSettingsTab()) }
             val tabs = listOf("Map", "Breadcrumbs", "Audio", "Navigation", "Dev")
 
             AlertDialog(
@@ -884,7 +884,10 @@ fun MapScreen(
                             tabs.forEachIndexed { index, title ->
                                 Tab(
                                     selected = selectedTabIndex == index,
-                                    onClick = { selectedTabIndex = index },
+                                    onClick = {
+                                        selectedTabIndex = index
+                                        com.example.irishhike.repository.HikeRepository.saveSettingsTab(index)
+                                    },
                                     text = { Text(title, style = MaterialTheme.typography.labelSmall) }
                                 )
                             }

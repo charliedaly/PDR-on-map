@@ -286,6 +286,14 @@ object HikeRepository {
         appPreferences?.saveBreadcrumbConfig(newConfig)
     }
 
+    fun saveSettingsTab(index: Int) {
+        appPreferences?.saveSettingsTab(index)
+    }
+
+    fun loadSettingsTab(): Int {
+        return appPreferences?.loadSettingsTab() ?: 0
+    }
+
     fun setShow1kmGrid(show: Boolean) {
         updateMapConfig { it.copy(show1kmGrid = show) }
     }
