@@ -236,7 +236,7 @@ class TrackPlaybackEngine {
                     id = breadcrumbIdSeq++,
                     location = Location(ekfState.position.value.x, ekfState.position.value.y),
                     timestampMs = ekfState.timestampMs,
-                    isGpsFix = true,
+                    isGpsFix = event.isGpsFix,
                     ekfState = ekfState
                 )
                 HikeRepository.emitBreadcrumb(gpsBreadcrumb)

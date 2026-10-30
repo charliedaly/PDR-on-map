@@ -1,7 +1,7 @@
 package com.example.irishhike.config
 
 enum class BreadcrumbColorMode {
-    DEFAULT,
+    GPS_PDR,
     SPEED,
     STRIDE
 }
@@ -9,12 +9,11 @@ enum class BreadcrumbColorMode {
 data class BreadcrumbConfig(
     val showBreadcrumbs: Boolean = true,
     val dotDiameterPx: Float = 3.0f,
-    val colorMode: BreadcrumbColorMode = BreadcrumbColorMode.DEFAULT,
+    val colorMode: BreadcrumbColorMode = BreadcrumbColorMode.GPS_PDR,
     val speedStartColor: Long = 0xFF00FF00, // Green
     val speedEndColor: Long = 0xFFFF0000,   // Red
     val strideStartColor: Long = 0xFF00E5FF, // Cyan
     val strideEndColor: Long = 0xFFFFD700,   // Gold
-    val showGpsPdrIndicator: Boolean = true, // Red for GPS, Cyan for PDR
     val fadeWithAge: Boolean = false,
     val showAccuracyCircles: Boolean = true,
     val showStationaryStops: Boolean = true

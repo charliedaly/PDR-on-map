@@ -72,6 +72,7 @@ import com.example.irishhike.model.Breadcrumb
 import com.example.irishhike.model.Leg
 import com.example.irishhike.model.Route
 import com.example.irishhike.model.Waypoint
+import com.example.irishhike.util.CoordinateUtils
 import com.example.irishhike.util.OsmTileManager
 import com.example.irishhike.util.TileDownloadManifest
 import kotlinx.coroutines.delay
@@ -170,21 +171,21 @@ fun MapScreen(
         var minSt = Double.MAX_VALUE
         var maxSt = -Double.MAX_VALUE
 
-        validBreadcrumbs.forEach { bc ->
-            val s = bc.ekfState?.speedMps?.value ?: 0.0
+        validBreadcrumbs.forEachIndexed { index, bc ->
+            val s = getBreadcrumbSpeed(index, validBreadcrumbs)
             if (s < minS) minS = s
             if (s > maxS) maxS = s
 
-            val st = bc.ekfState?.strideLengthMeters?.value ?: 0.75
+            val st = getBreadcrumbStride(index, validBreadcrumbs)
             if (st < minSt) minSt = st
             if (st > maxSt) maxSt = st
         }
 
-        if (maxS > minS) {
+        if (minS != Double.MAX_VALUE && maxS != -Double.MAX_VALUE) {
             minSpeed = minS
             maxSpeed = maxS
         }
-        if (maxSt > minSt) {
+        if (minSt != Double.MAX_VALUE && maxSt != -Double.MAX_VALUE) {
             minStride = minSt
             maxStride = maxSt
         }
@@ -511,11 +512,47 @@ fun MapScreen(
                         else -> "%.0fm".format(wp.altitude)
                     }
 
-                    val labelAngleRad = Math.toRadians(45.0)
-                    val labelDistancePx = 22f * zoomScale.coerceIn(0.5f, 2.0f)
+                    // Compute smart label placement: opposite the acute angle (outer bisector of connected legs)
+                    val connectedLegs = route?.legs?.filter { it.start == wp || it.target == wp } ?: emptyList()
+                    var normalX = 0f
+                    var normalY = -1f // default upward offset
 
-                    val labelOffsetX = (labelDistancePx * sin(labelAngleRad)).toFloat()
-                    val labelOffsetY = (-labelDistancePx * cos(labelAngleRad)).toFloat()
+                    if (connectedLegs.isNotEmpty()) {
+                        var sumDx = 0.0
+                        var sumDy = 0.0
+                        connectedLegs.forEach { leg ->
+                            val other = if (leg.start == wp) leg.target else leg.start
+                            val dx = other.x - wp.x
+                            val dy = other.y - wp.y
+                            val len = hypot(dx, dy)
+                            if (len > 0.1) {
+                                sumDx += dx / len
+                                sumDy += dy / len
+                            }
+                        }
+                        val sumLen = hypot(sumDx, sumDy)
+                        if (sumLen > 0.01) {
+                            // Point in the exact opposite direction of the sum of unit vectors (outer bisector / opposite acute angle)
+                            normalX = (-sumDx / sumLen).toFloat()
+                            normalY = (-sumDy / sumLen).toFloat()
+                        } else {
+                            val firstLeg = connectedLegs.first()
+                            val other = if (firstLeg.start == wp) firstLeg.target else firstLeg.start
+                            val dx = other.x - wp.x
+                            val dy = other.y - wp.y
+                            val len = hypot(dx, dy)
+                            if (len > 0.1) {
+                                val dirX = (dx / len).toFloat()
+                                val dirY = (dy / len).toFloat()
+                                normalX = -dirY
+                                normalY = dirX
+                            }
+                        }
+                    }
+
+                    val labelDistancePx = 26f * zoomScale.coerceIn(0.5f, 2.0f)
+                    val labelOffsetX = normalX * labelDistancePx
+                    val labelOffsetY = normalY * labelDistancePx
 
                     val textResult = textMeasurer.measure(
                         text = wpName,
@@ -531,7 +568,7 @@ fun MapScreen(
 
                     val bgPadding = 3f
                     drawRect(
-                        color = Color.Black.copy(alpha = 0.70f),
+                        color = Color.Black.copy(alpha = 0.20f),
                         topLeft = Offset(labelX - bgPadding, labelY - bgPadding),
                         size = androidx.compose.ui.geometry.Size(
                             textResult.size.width + bgPadding * 2f,
@@ -551,28 +588,10 @@ fun MapScreen(
             var lastOffset: Offset? = null
             for (bc in validBreadcrumbs) {
                 val offset = toCanvasOffset(bc.location.x, bc.location.y)
-                if (bc.isGpsFix || lastOffset == null || (offset.x - lastOffset.x).let { it * it } + (offset.y - lastOffset.y).let { it * it } >= 1.0f) {
+                if (lastOffset == null || (offset.x - lastOffset.x).let { it * it } + (offset.y - lastOffset.y).let { it * it } >= 1.0f) {
                     renderBreadcrumbs.add(bc)
                     lastOffset = offset
                 }
-            }
-
-            // Draw historical breadcrumb path trajectory lines
-            if (breadcrumbConfig.showBreadcrumbs && renderBreadcrumbs.size >= 2) {
-                val path = Path()
-                val firstPoint = toCanvasOffset(renderBreadcrumbs[0].location.x, renderBreadcrumbs[0].location.y)
-                path.moveTo(firstPoint.x, firstPoint.y)
-
-                for (i in 1 until renderBreadcrumbs.size) {
-                    val point = toCanvasOffset(renderBreadcrumbs[i].location.x, renderBreadcrumbs[i].location.y)
-                    path.lineTo(point.x, point.y)
-                }
-
-                drawPath(
-                    path = path,
-                    color = Color(0xFF00E5FF),
-                    style = Stroke(width = 3f * zoomScale.coerceIn(0.5f, 3f))
-                )
             }
 
             // Draw historical breadcrumbs with user's configured styling & diameter
@@ -584,54 +603,81 @@ fun MapScreen(
                 var minStride = Double.MAX_VALUE
                 var maxStride = -Double.MAX_VALUE
 
-                validBreadcrumbs.forEach { bc ->
-                    val s = bc.ekfState?.speedMps?.value ?: 0.0
+                validBreadcrumbs.forEachIndexed { index, _ ->
+                    val s = getBreadcrumbSpeed(index, validBreadcrumbs)
                     if (s < minSpeed) minSpeed = s
                     if (s > maxSpeed) maxSpeed = s
 
-                    val st = bc.ekfState?.strideLengthMeters?.value ?: 0.75
+                    val st = getBreadcrumbStride(index, validBreadcrumbs)
                     if (st < minStride) minStride = st
                     if (st > maxStride) maxStride = st
                 }
 
-                if (maxSpeed <= minSpeed) { minSpeed = 0.0; maxSpeed = 2.5 }
-                if (maxStride <= minStride) { minStride = 0.4; maxStride = 1.2 }
+                if (minSpeed == Double.MAX_VALUE || maxSpeed == -Double.MAX_VALUE) { minSpeed = 0.0; maxSpeed = 2.5 }
+                if (minStride == Double.MAX_VALUE || maxStride == -Double.MAX_VALUE) { minStride = 0.4; maxStride = 1.2 }
 
                 renderBreadcrumbs.forEachIndexed { index, bc ->
                     val center = toCanvasOffset(bc.location.x, bc.location.y)
 
-                    val baseColor = when {
-                        breadcrumbConfig.showGpsPdrIndicator && bc.isGpsFix -> Color(0xFFFF3333)
-                        breadcrumbConfig.showGpsPdrIndicator && !bc.isGpsFix -> Color(0xFF00E5FF)
-                        breadcrumbConfig.colorMode == BreadcrumbColorMode.SPEED -> {
-                            val speedMps = bc.ekfState?.speedMps?.value ?: 0.0
-                            val t = ((speedMps - minSpeed) / (maxSpeed - minSpeed).coerceAtLeast(0.1)).coerceIn(0.0, 1.0).toFloat()
-                            val c1 = Color(breadcrumbConfig.speedStartColor)
-                            val c2 = Color(breadcrumbConfig.speedEndColor)
-                            lerp(c1, c2, t)
+                    val baseColor = when (breadcrumbConfig.colorMode) {
+                        BreadcrumbColorMode.GPS_PDR -> {
+                            if (bc.isGpsFix) Color(0xFFFF3333) else Color(0xFF2196F3)
                         }
-                        breadcrumbConfig.colorMode == BreadcrumbColorMode.STRIDE -> {
-                            val stride = bc.ekfState?.strideLengthMeters?.value ?: 0.75
-                            val t = ((stride - minStride) / (maxStride - minStride).coerceAtLeast(0.1)).coerceIn(0.0, 1.0).toFloat()
-                            val c1 = Color(breadcrumbConfig.strideStartColor)
-                            val c2 = Color(breadcrumbConfig.strideEndColor)
-                            lerp(c1, c2, t)
+                        BreadcrumbColorMode.SPEED -> {
+                            val speedMps = getBreadcrumbSpeed(index, renderBreadcrumbs)
+                            val range = (maxSpeed - minSpeed).toFloat().coerceAtLeast(0.001f)
+                            val t = ((speedMps - minSpeed) / range).coerceIn(0.0, 1.0).toFloat()
+                            lerp(Color(breadcrumbConfig.speedStartColor), Color(breadcrumbConfig.speedEndColor), t)
                         }
-                        else -> Color(0xFF00E5FF)
+                        BreadcrumbColorMode.STRIDE -> {
+                            val stride = getBreadcrumbStride(index, renderBreadcrumbs)
+                            val range = (maxStride - minStride).toFloat().coerceAtLeast(0.001f)
+                            val t = ((stride - minStride) / range).coerceIn(0.0, 1.0).toFloat()
+                            lerp(Color(breadcrumbConfig.strideStartColor), Color(breadcrumbConfig.strideEndColor), t)
+                        }
                     }
 
                     val alphaMultiplier = if (breadcrumbConfig.fadeWithAge) {
-                        ((index + 1) / totalCount).coerceIn(0.1f, 1.0f)
-                    } else 1.0f
+                        val progress = if (totalCount > 1f) index / (totalCount - 1f) else 1f
+                        0.2f + 0.8f * progress
+                    } else {
+                        1.0f
+                    }
 
                     val finalColor = baseColor.copy(alpha = baseColor.alpha * alphaMultiplier)
+
+                    // Draw line segment connecting to previous breadcrumb with width 1.0 and gradient transparency
+                    if (index > 0) {
+                        val prevBc = renderBreadcrumbs[index - 1]
+                        val prevCenter = toCanvasOffset(prevBc.location.x, prevBc.location.y)
+
+                        val prevAlphaMultiplier = if (breadcrumbConfig.fadeWithAge) {
+                            val progress = if (totalCount > 1f) (index - 1) / (totalCount - 1f) else 1f
+                            0.2f + 0.8f * progress
+                        } else {
+                            1.0f
+                        }
+                        val prevColor = baseColor.copy(alpha = baseColor.alpha * prevAlphaMultiplier)
+
+                        drawLine(
+                            brush = Brush.linearGradient(
+                                colors = listOf(prevColor, finalColor),
+                                start = prevCenter,
+                                end = center
+                            ),
+                            start = prevCenter,
+                            end = center,
+                            strokeWidth = 1.0f * zoomScale.coerceIn(0.5f, 2f)
+                        )
+                    }
 
                     if (breadcrumbConfig.showAccuracyCircles && bc.ekfState != null) {
                         val accRadiusPx = (sqrt(bc.ekfState.position.variance) * currentScale).toFloat().coerceIn(4f, 80f)
                         drawCircle(
-                            color = finalColor.copy(alpha = 0.15f * alphaMultiplier),
+                            color = finalColor.copy(alpha = 0.6f * alphaMultiplier),
                             radius = accRadiusPx,
-                            center = center
+                            center = center,
+                            style = Stroke(width = 1.5f * zoomScale.coerceIn(0.5f, 2f))
                         )
                     }
 
@@ -794,6 +840,7 @@ fun MapScreen(
             val maxVal = if (isSpeed) maxSpeed * 3.6 else maxStride
             val unitStr = if (isSpeed) "km/h" else "m"
             val titleStr = if (isSpeed) "Speed Legend" else "Stride Legend"
+            val isSameVal = abs(maxVal - minVal) < 0.001
 
             Card(
                 modifier = Modifier
@@ -807,26 +854,30 @@ fun MapScreen(
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Text(titleStr, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color.White)
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Text("%.1f $unitStr".format(minVal), style = MaterialTheme.typography.labelSmall, color = Color.White)
-                        Box(
-                            modifier = Modifier
-                                .width(60.dp)
-                                .height(10.dp)
-                                .background(
-                                    brush = Brush.horizontalGradient(
-                                        colors = listOf(
-                                            Color(if (isSpeed) breadcrumbConfig.speedStartColor else breadcrumbConfig.strideStartColor),
-                                            Color(if (isSpeed) breadcrumbConfig.speedEndColor else breadcrumbConfig.strideEndColor)
-                                        )
-                                    ),
-                                    shape = RoundedCornerShape(2.dp)
-                                )
-                        )
-                        Text("%.1f $unitStr".format(maxVal), style = MaterialTheme.typography.labelSmall, color = Color.White)
+                    if (isSameVal) {
+                        Text("Value: %.2f $unitStr".format(minVal), style = MaterialTheme.typography.labelSmall, color = Color.White)
+                    } else {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text("%.1f $unitStr".format(minVal), style = MaterialTheme.typography.labelSmall, color = Color.White)
+                            Box(
+                                modifier = Modifier
+                                    .width(60.dp)
+                                    .height(10.dp)
+                                    .background(
+                                        brush = Brush.horizontalGradient(
+                                            colors = listOf(
+                                                Color(if (isSpeed) breadcrumbConfig.speedStartColor else breadcrumbConfig.strideStartColor),
+                                                Color(if (isSpeed) breadcrumbConfig.speedEndColor else breadcrumbConfig.strideEndColor)
+                                            )
+                                        ),
+                                        shape = RoundedCornerShape(2.dp)
+                                    )
+                            )
+                            Text("%.1f $unitStr".format(maxVal), style = MaterialTheme.typography.labelSmall, color = Color.White)
+                        }
                     }
                 }
             }
@@ -905,7 +956,7 @@ fun MapScreen(
                             0 -> MapSettingsTab(mapConfig, onUpdateMapConfig)
                             1 -> BreadcrumbsSettingsTab(breadcrumbConfig, onUpdateBreadcrumbConfig)
                             2 -> AudioSettingsTab(hikeConfig, onUpdateHikeConfig)
-                            3 -> NavigationSettingsTab(context, route, onIntervalSelected)
+                            3 -> NavigationSettingsTab(context, route, mapConfig.gpsPollingIntervalMs, onIntervalSelected)
                             4 -> DevSettingsTab(mapConfig, onUpdateMapConfig, onLoadTelemetryTrack)
                         }
                     }
@@ -1038,9 +1089,9 @@ private fun BreadcrumbsSettingsTab(
             Text("Color Coding Mode", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(
-                    selected = breadcrumbConfig.colorMode == BreadcrumbColorMode.DEFAULT,
-                    onClick = { onUpdateBreadcrumbConfig { cfg -> cfg.copy(colorMode = BreadcrumbColorMode.DEFAULT) } },
-                    label = { Text("Default") }
+                    selected = breadcrumbConfig.colorMode == BreadcrumbColorMode.GPS_PDR,
+                    onClick = { onUpdateBreadcrumbConfig { cfg -> cfg.copy(colorMode = BreadcrumbColorMode.GPS_PDR) } },
+                    label = { Text("GPS/PDR") }
                 )
                 FilterChip(
                     selected = breadcrumbConfig.colorMode == BreadcrumbColorMode.SPEED,
@@ -1053,21 +1104,6 @@ private fun BreadcrumbsSettingsTab(
                     label = { Text("Stride") }
                 )
             }
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text("GPS vs PDR Indicator", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                Text("Red dot for GPS fix, Cyan dot for PDR", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Switch(
-                checked = breadcrumbConfig.showGpsPdrIndicator,
-                onCheckedChange = { onUpdateBreadcrumbConfig { cfg -> cfg.copy(showGpsPdrIndicator = it) } }
-            )
         }
 
         Row(
@@ -1196,6 +1232,7 @@ private fun AudioSettingsTab(
 private fun NavigationSettingsTab(
     context: android.content.Context,
     route: Route?,
+    currentIntervalMs: Long,
     onIntervalSelected: (Long) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1282,10 +1319,10 @@ private fun NavigationSettingsTab(
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text("GPS Polling Interval", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(selected = false, onClick = { onIntervalSelected(1000L) }, label = { Text("1s") })
-                FilterChip(selected = false, onClick = { onIntervalSelected(2000L) }, label = { Text("2s") })
-                FilterChip(selected = false, onClick = { onIntervalSelected(5000L) }, label = { Text("5s") })
-                FilterChip(selected = false, onClick = { onIntervalSelected(10000L) }, label = { Text("10s") })
+                FilterChip(selected = currentIntervalMs == 1000L, onClick = { onIntervalSelected(1000L) }, label = { Text("1s") })
+                FilterChip(selected = currentIntervalMs == 2000L, onClick = { onIntervalSelected(2000L) }, label = { Text("2s") })
+                FilterChip(selected = currentIntervalMs == 5000L, onClick = { onIntervalSelected(5000L) }, label = { Text("5s") })
+                FilterChip(selected = currentIntervalMs == 10000L, onClick = { onIntervalSelected(10000L) }, label = { Text("10s") })
             }
         }
     }
@@ -1322,4 +1359,29 @@ private fun DevSettingsTab(
             }
         }
     }
+}
+
+private fun getBreadcrumbSpeed(index: Int, list: List<Breadcrumb>): Double {
+    val bc = list[index]
+    val ekfSpeed = bc.ekfState?.speedMps?.value ?: 0.0
+    if (ekfSpeed > 0.05) return ekfSpeed
+
+    if (index > 0) {
+        val prev = list[index - 1]
+        val dist = CoordinateUtils.getDistance(prev.location, bc.location)
+        val dt = (bc.timestampMs - prev.timestampMs) / 1000.0
+        if (dt > 0.1) return (dist / dt)
+    }
+    if (index < list.size - 1) {
+        val next = list[index + 1]
+        val dist = CoordinateUtils.getDistance(bc.location, next.location)
+        val dt = (next.timestampMs - bc.timestampMs) / 1000.0
+        if (dt > 0.1) return (dist / dt)
+    }
+    return ekfSpeed
+}
+
+private fun getBreadcrumbStride(index: Int, list: List<Breadcrumb>): Double {
+    val bc = list[index]
+    return bc.ekfState?.strideLengthMeters?.value ?: 0.75
 }

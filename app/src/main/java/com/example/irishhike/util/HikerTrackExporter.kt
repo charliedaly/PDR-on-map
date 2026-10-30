@@ -59,6 +59,7 @@ object HikerTrackExporter {
             sb.append("        <extensions>\n")
             sb.append("          <accuracy>%.2f</accuracy>\n".format(Locale.US, accuracy))
             sb.append("          <stride>%.2f</stride>\n".format(Locale.US, stride))
+            sb.append("          <is_gps_fix>${bc.isGpsFix}</is_gps_fix>\n")
             sb.append("        </extensions>\n")
             sb.append("      </trkpt>\n")
         }

@@ -237,6 +237,7 @@ object HikeRepository {
 
     fun setGpsPollingInterval(intervalMs: Long) {
         _gpsPollingIntervalMs.value = intervalMs
+        updateMapConfig { it.copy(gpsPollingIntervalMs = intervalMs) }
     }
 
     fun setActiveRoute(route: Route?) {

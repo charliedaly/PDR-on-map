@@ -11,7 +11,8 @@ sealed class TrackPlaybackEvent {
         val longitude: Double,
         val accuracyMeters: Float,
         val activeIntervalMs: Long = 1000L,
-        val recordedEkfState: EkfState? = null
+        val recordedEkfState: EkfState? = null,
+        val isGpsFix: Boolean = true
     ) : TrackPlaybackEvent()
 
     data class PdrStepEvent(

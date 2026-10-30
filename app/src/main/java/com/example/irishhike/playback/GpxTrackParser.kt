@@ -35,6 +35,7 @@ object GpxTrackParser {
 
                     var timeMs = System.currentTimeMillis()
                     var accuracy = 5.0f
+                    var isGpsFix = true
 
                     val timeNodes = node.getElementsByTagName("time")
                     if (timeNodes.length > 0) {
@@ -49,6 +50,16 @@ object GpxTrackParser {
                         accuracy = accuracyNodes.item(0).textContent.trim().toFloatOrNull() ?: 5.0f
                     }
 
+                    val fixNodes = node.getElementsByTagName("is_gps_fix")
+                    if (fixNodes.length > 0) {
+                        isGpsFix = fixNodes.item(0).textContent.trim().toBooleanStrictOrNull() ?: true
+                    } else {
+                        val altFixNodes = node.getElementsByTagName("isGpsFix")
+                        if (altFixNodes.length > 0) {
+                            isGpsFix = altFixNodes.item(0).textContent.trim().toBooleanStrictOrNull() ?: true
+                        }
+                    }
+
                     if (lastTimeMs > 0 && timeMs > lastTimeMs) {
                         val dtSec = (timeMs - lastTimeMs) / 1000.0
                         events.add(TrackPlaybackEvent.TimeTickEvent(timeMs, dtSec))
@@ -61,7 +72,8 @@ object GpxTrackParser {
                             latitude = lat,
                             longitude = lon,
                             accuracyMeters = accuracy,
-                            activeIntervalMs = 1000L
+                            activeIntervalMs = 1000L,
+                            isGpsFix = isGpsFix
                         )
                     )
                 }

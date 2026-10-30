@@ -42,7 +42,6 @@ class AppPreferences(context: Context) {
             .putLong("bc_speed_end_color", config.speedEndColor)
             .putLong("bc_stride_start_color", config.strideStartColor)
             .putLong("bc_stride_end_color", config.strideEndColor)
-            .putBoolean("bc_show_gps_pdr", config.showGpsPdrIndicator)
             .putBoolean("bc_fade_age", config.fadeWithAge)
             .putBoolean("bc_show_accuracy", config.showAccuracyCircles)
             .putBoolean("bc_show_stationary", config.showStationaryStops)
@@ -50,8 +49,13 @@ class AppPreferences(context: Context) {
     }
 
     fun loadBreadcrumbConfig(): BreadcrumbConfig {
-        val colorModeName = prefs.getString("bc_color_mode", BreadcrumbColorMode.DEFAULT.name) ?: BreadcrumbColorMode.DEFAULT.name
-        val colorMode = try { BreadcrumbColorMode.valueOf(colorModeName) } catch (_: Exception) { BreadcrumbColorMode.DEFAULT }
+        val colorModeName = prefs.getString("bc_color_mode", BreadcrumbColorMode.GPS_PDR.name) ?: BreadcrumbColorMode.GPS_PDR.name
+        val colorMode = try {
+            val mode = BreadcrumbColorMode.valueOf(colorModeName)
+            if (mode.name == "DEFAULT") BreadcrumbColorMode.GPS_PDR else mode
+        } catch (_: Exception) {
+            BreadcrumbColorMode.GPS_PDR
+        }
 
         return BreadcrumbConfig(
             showBreadcrumbs = prefs.getBoolean("bc_show", true),
@@ -61,7 +65,6 @@ class AppPreferences(context: Context) {
             speedEndColor = prefs.getLong("bc_speed_end_color", 0xFFFF0000),
             strideStartColor = prefs.getLong("bc_stride_start_color", 0xFF00E5FF),
             strideEndColor = prefs.getLong("bc_stride_end_color", 0xFFFFD700),
-            showGpsPdrIndicator = prefs.getBoolean("bc_show_gps_pdr", true),
             fadeWithAge = prefs.getBoolean("bc_fade_age", false),
             showAccuracyCircles = prefs.getBoolean("bc_show_accuracy", true),
             showStationaryStops = prefs.getBoolean("bc_show_stationary", true)
