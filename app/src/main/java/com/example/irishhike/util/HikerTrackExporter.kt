@@ -70,13 +70,20 @@ object HikerTrackExporter {
         return try {
             file.writeText(sb.toString())
             Log.i(TAG, "Successfully exported breadcrumbs to: ${file.absolutePath}")
-            Toast.makeText(context, "Saved breadcrumbs to:\n${file.absolutePath}", Toast.LENGTH_LONG).show()
+            val displayPath = getRelativePathForDisplay(file)
+            Toast.makeText(context, "Saved breadcrumbs to:\n$displayPath", Toast.LENGTH_LONG).show()
             file
         } catch (e: Exception) {
             Log.e(TAG, "Failed to save breadcrumbs: ${e.message}", e)
             Toast.makeText(context, "Failed to save breadcrumbs: ${e.message}", Toast.LENGTH_LONG).show()
             null
         }
+    }
+
+    private fun getRelativePathForDisplay(file: File): String {
+        val absPath = file.absolutePath
+        val idx = absPath.indexOf("Download")
+        return if (idx != -1) absPath.substring(idx) else absPath
     }
 
     fun resolveTargetDirectory(context: Context, routeUri: Uri?): File {
@@ -93,16 +100,18 @@ object HikerTrackExporter {
             }
 
             val decoded = Uri.decode(uriString)
-            val rawPath = when {
+            val pathPart = when {
+                decoded.contains("primary:") -> decoded.substringAfter("primary:")
                 decoded.contains("raw:") -> decoded.substringAfter("raw:")
-                decoded.startsWith("/storage/") -> decoded
+                decoded.contains("/storage/") -> decoded.substringAfter("/storage/")
                 else -> null
             }
-            if (rawPath != null) {
-                val file = File(rawPath)
-                val parent = file.parentFile
-                if (parent != null) {
-                    Log.d(TAG, "Resolved parent dir from content raw path: ${parent.absolutePath}")
+            if (pathPart != null) {
+                val fullPath = if (pathPart.startsWith("/")) pathPart else "/storage/emulated/0/$pathPart"
+                val file = File(fullPath)
+                file.parentFile?.let { parent ->
+                    if (!parent.exists()) parent.mkdirs()
+                    Log.d(TAG, "Resolved parent dir from pathPart: ${parent.absolutePath}")
                     return parent
                 }
             }
@@ -129,6 +138,7 @@ object HikerTrackExporter {
         }
 
         val fallback = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "freehike")
+        if (!fallback.exists()) fallback.mkdirs()
         Log.d(TAG, "Fallback to freehike dir: ${fallback.absolutePath}")
         return fallback
     }

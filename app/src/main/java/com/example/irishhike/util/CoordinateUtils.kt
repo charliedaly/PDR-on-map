@@ -136,11 +136,8 @@ private object IrishGridConverter {
     }
 
     private fun getBestOffsetInternal(letter: Char, localEasting: Double, localNorthing: Double): GridOffset {
-        val eastBlock = (localEasting / 10000).toInt().coerceIn(0, 9)
-        val northBlock = (localNorthing / 10000).toInt().coerceIn(0, 9)
-        val cellKey = "$letter-$eastBlock-$northBlock"
-
-        return dynamic10kmOffsetMap[cellKey] ?: letterCorrectionMap[letter] ?: GridOffset(0.0, 0.0)
+        // Offset tables disabled for pure mathematical baseline transformation
+        return GridOffset(0.0, 0.0)
     }
 
     private fun getGridLetterEastingOffsetInternal(letter: Char): Double {
@@ -176,145 +173,243 @@ private object IrishGridConverter {
         return FullCoordinates(baseE + localE, baseN + localN)
     }
 
+    // -------------------------------------------------------------------------
+    // EPSG:1641 / EPSG:1753 Standard 7-Parameter Helmert Transformation
+    // TM65 (Ireland 1965 / IRL75) <-> WGS84 / ETRS89
+    // Position Vector (Bursa-Wolf) convention
+    // -------------------------------------------------------------------------
+    private const val HELMERT_DX = 482.530           // Translation X (meters)
+    private const val HELMERT_DY = -130.596          // Translation Y (meters)
+    private const val HELMERT_DZ = 564.557           // Translation Z (meters)
+    private const val HELMERT_S  = 8.15e-6           // Scale difference (+8.15 ppm)
+
+    // Rotations in arcseconds converted to radians:
+    // rx = -1.042", ry = -0.214", rz = -0.631"
+    private val HELMERT_RX = Math.toRadians(-1.042 / 3600.0)
+    private val HELMERT_RY = Math.toRadians(-0.214 / 3600.0)
+    private val HELMERT_RZ = Math.toRadians(-0.631 / 3600.0)
+
+    /**
+     * Converts WGS84 Latitude/Longitude to Ireland 1965 (IRL75) Latitude/Longitude
+     * using the inverse 7-parameter Position Vector Helmert transformation.
+     */
     private fun wgs84ToIrl75Internal(latLon: LatLon): LatLon {
         val lat1 = Math.toRadians(latLon.latitude)
         val lon1 = Math.toRadians(latLon.longitude)
+
+        // 1. Geodetic (WGS84) to Geocentric Cartesian (X, Y, Z)
         val eSq1 = (WGS84_A * WGS84_A - WGS84_B * WGS84_B) / (WGS84_A * WGS84_A)
         val nu1 = WGS84_A / sqrt(1.0 - eSq1 * sin(lat1) * sin(lat1))
         val x1 = nu1 * cos(lat1) * cos(lon1)
         val y1 = nu1 * cos(lat1) * sin(lon1)
         val z1 = nu1 * (1.0 - eSq1) * sin(lat1)
 
-        val dx = -482.530
-        val dy = 130.596
-        val dz = -564.557
-        val s = -8.15e-6
-        val rx = Math.toRadians(1.042 / 3600.0)
-        val ry = Math.toRadians(0.214 / 3600.0)
-        val rz = Math.toRadians(-0.631 / 3600.0)
+        // 2. Inverse Position Vector Helmert: X_irl = (1 - s) * R^T * (X_wgs - T)
+        val x0 = x1 - HELMERT_DX
+        val y0 = y1 - HELMERT_DY
+        val z0 = z1 - HELMERT_DZ
+        val scale = 1.0 - HELMERT_S
 
-        val scale = 1.0 + s
-        val x2 = scale * (x1 - dx + rz * y1 - ry * z1)
-        val y2 = scale * (y1 - dy - rz * x1 + rx * z1)
-        val z2 = scale * (z1 - dz + ry * x1 - rx * y1)
+        // Multiply by R^T (transposed rotation matrix)
+        val x2 = scale * (x0 + HELMERT_RZ * y0 - HELMERT_RY * z0)
+        val y2 = scale * (-HELMERT_RZ * x0 + y0 + HELMERT_RX * z0)
+        val z2 = scale * (HELMERT_RY * x0 - HELMERT_RX * y0 + z0)
 
+        // 3. Geocentric Cartesian to Geodetic on Airy 1830 Modified Ellipsoid
         val eSq2 = (A * A - B * B) / (A * A)
         val p = sqrt(x2 * x2 + y2 * y2)
         var lat2 = atan2(z2, p * (1.0 - eSq2))
-        var lon2 = atan2(y2, x2)
+        val lon2 = atan2(y2, x2)
+
         for (i in 0..4) {
             val nu2 = A / sqrt(1.0 - eSq2 * sin(lat2) * sin(lat2))
             lat2 = atan2(z2 + eSq2 * nu2 * sin(lat2), p)
         }
+
         return LatLon(Math.toDegrees(lat2), Math.toDegrees(lon2))
     }
 
+    /**
+     * Converts Ireland 1965 (IRL75) Latitude/Longitude to WGS84 Latitude/Longitude
+     * using the forward 7-parameter Position Vector Helmert transformation.
+     */
     private fun irl75ToWgs84Internal(latLon: LatLon): LatLon {
         val lat1 = Math.toRadians(latLon.latitude)
         val lon1 = Math.toRadians(latLon.longitude)
+
+        // 1. Geodetic (Airy 1830 Modified) to Geocentric Cartesian (X, Y, Z)
         val eSq1 = (A * A - B * B) / (A * A)
         val nu1 = A / sqrt(1.0 - eSq1 * sin(lat1) * sin(lat1))
         val x1 = nu1 * cos(lat1) * cos(lon1)
         val y1 = nu1 * cos(lat1) * sin(lon1)
         val z1 = nu1 * (1.0 - eSq1) * sin(lat1)
 
-        val dx = -482.530
-        val dy = 130.596
-        val dz = -564.557
-        val s = -8.15e-6
-        val rx = Math.toRadians(1.042 / 3600.0)
-        val ry = Math.toRadians(0.214 / 3600.0)
-        val rz = Math.toRadians(-0.631 / 3600.0)
+        // 2. Forward Position Vector Helmert: X_wgs = T + (1 + s) * R * X_irl
+        val scale = 1.0 + HELMERT_S
 
-        val scale = 1.0 - s
-        val x2 = scale * (x1 + dx - rz * y1 + ry * z1)
-        val y2 = scale * (y1 + dy + rz * x1 - rx * z1)
-        val z2 = scale * (z1 + dz - ry * x1 + rx * y1)
+        // Multiply by R (standard rotation matrix) and add translation
+        val x2 = HELMERT_DX + scale * (x1 - HELMERT_RZ * y1 + HELMERT_RY * z1)
+        val y2 = HELMERT_DY + scale * (HELMERT_RZ * x1 + y1 - HELMERT_RX * z1)
+        val z2 = HELMERT_DZ + scale * (-HELMERT_RY * x1 + HELMERT_RX * y1 + z1)
 
+        // 3. Geocentric Cartesian to Geodetic on WGS84 Ellipsoid
         val eSq2 = (WGS84_A * WGS84_A - WGS84_B * WGS84_B) / (WGS84_A * WGS84_A)
         val p = sqrt(x2 * x2 + y2 * y2)
         var lat2 = atan2(z2, p * (1.0 - eSq2))
-        var lon2 = atan2(y2, x2)
+        val lon2 = atan2(y2, x2)
+
         for (i in 0..4) {
             val nu2 = WGS84_A / sqrt(1.0 - eSq2 * sin(lat2) * sin(lat2))
             lat2 = atan2(z2 + eSq2 * nu2 * sin(lat2), p)
         }
+
         return LatLon(Math.toDegrees(lat2), Math.toDegrees(lon2))
     }
 
-    private fun computeMeridionalArc(lat: Double, lat0: Double, b: Double, n: Double): Double {
+    /**
+     * Computes the meridional arc distance from the projection origin latitude (phi0)
+     * to the given latitude (phi), scaled by central meridian scale factor F0.
+     */
+    private fun computeMeridionalArc(latRad: Double, phi0Rad: Double, b: Double, n: Double): Double {
         val n2 = n * n
-        val n3 = n * n * n
-        val ma = (1.0 + n + (5.0 / 4.0) * n2 + (5.0 / 4.0) * n3) * (lat - lat0)
-        val mb = (3.0 * n + 3.0 * n2 + (21.0 / 8.0) * n3) * sin(lat - lat0) * cos(lat + lat0)
-        val mc = ((15.0 / 8.0) * n2 + (15.0 / 8.0) * n3) * sin(2.0 * (lat - lat0)) * cos(2.0 * (lat + lat0))
-        val md = (35.0 / 24.0) * n3 * sin(3.0 * (lat - lat0)) * cos(3.0 * (lat + lat0))
-        return b * (ma - mb + mc - md)
+        val n3 = n2 * n
+        val dLat = latRad - phi0Rad
+        val sumLat = latRad + phi0Rad
+
+        val ma = (1.0 + n + (5.0 / 4.0) * n2 + (5.0 / 4.0) * n3) * dLat
+        val mb = (3.0 * n + 3.0 * n2 + (21.0 / 8.0) * n3) * sin(dLat) * cos(sumLat)
+        val mc = ((15.0 / 8.0) * n2 + (15.0 / 8.0) * n3) * sin(2.0 * dLat) * cos(2.0 * sumLat)
+        val md = (35.0 / 24.0) * n3 * sin(3.0 * dLat) * cos(3.0 * sumLat)
+
+        return b * F0 * (ma - mb + mc - md)
     }
 
+    /**
+     * Projects Ireland 1965 (IRL75 / TM65) Latitude/Longitude onto the
+     * Irish National Grid (Transverse Mercator on Airy 1830 Modified Ellipsoid).
+     *
+     * Returns an IrishGridReference with 100km grid square letter and
+     * local Easting/Northing in meters (0.0 to 99999.9m).
+     */
     private fun projectToGridInternal(latLon: LatLon): IrishGridReference {
-        val latRad = Math.toRadians(latLon.latitude)
-        val lonRad = Math.toRadians(latLon.longitude)
+        val phi = Math.toRadians(latLon.latitude)
+        val lam = Math.toRadians(latLon.longitude)
         val phi0 = Math.toRadians(LAT0)
-        val lambda0 = Math.toRadians(LON0)
+        val lam0 = Math.toRadians(LON0)
 
         val e2 = (A * A - B * B) / (A * A)
         val n = (A - B) / (A + B)
-        val sinLat = sin(latRad)
-        val cosLat = cos(latRad)
-        val tanLat = tan(latRad)
+        val sinPhi = sin(phi)
+        val cosPhi = cos(phi)
+        val tanPhi = tan(phi)
+        val cosPhi3 = cosPhi * cosPhi * cosPhi
+        val cosPhi5 = cosPhi3 * cosPhi * cosPhi
+        val tanPhi2 = tanPhi * tanPhi
+        val tanPhi4 = tanPhi2 * tanPhi2
 
-        val nu = A * F0 / sqrt(1.0 - e2 * sinLat * sinLat)
-        val rho = A * F0 * (1.0 - e2) / (1.0 - e2 * sinLat * sinLat).pow(1.5)
-        val m = computeMeridionalArc(latRad, phi0, B, n)
-        val dLambda = lonRad - lambda0
+        // nu: radius of curvature in prime vertical, scaled by F0
+        val nu = A * F0 / sqrt(1.0 - e2 * sinPhi * sinPhi)
+        // rho: radius of curvature in meridian, scaled by F0
+        val rho = A * F0 * (1.0 - e2) / (1.0 - e2 * sinPhi * sinPhi).pow(1.5)
+        val eta2 = (nu / rho) - 1.0
 
-        val term1 = nu * cosLat * dLambda
-        val term2 = nu * cosLat.pow(3) * (nu / rho - tanLat * tanLat) * dLambda.pow(3) / 6.0
-        val term3 = nu * cosLat.pow(5) * (5.0 - 18.0 * tanLat * tanLat + tanLat.pow(4)) * dLambda.pow(5) / 120.0
-        val eastingTotal = E0 + F0 * (term1 + term2 + term3)
+        val p = lam - lam0 // delta longitude in radians
+        val p2 = p * p
+        val p3 = p2 * p
+        val p4 = p3 * p
+        val p5 = p4 * p
+        val p6 = p5 * p
 
-        val nTerm1 = m
-        val nTerm2 = nu * sinLat * cosLat * dLambda.pow(2) / 2.0
-        val nTerm3 = nu * sinLat * cosLat.pow(3) * (5.0 - tanLat * tanLat + 9.0 * (nu / rho - 1.0)) * dLambda.pow(4) / 24.0
-        val northingTotal = N0 + F0 * (nTerm1 + nTerm2 + nTerm3)
+        // --- Easting Calculation ---
+        val term1 = nu * cosPhi * p
+        val term2 = (nu / 6.0) * cosPhi3 * (nu / rho - tanPhi2) * p3
+        val term3 = (nu / 120.0) * cosPhi5 * (
+                5.0 - 18.0 * tanPhi2 + tanPhi4 + 14.0 * eta2 - 58.0 * tanPhi2 * eta2
+                ) * p5
 
+        val eastingTotal = E0 + term1 + term2 + term3
+
+        // --- Northing Calculation ---
+        val m = computeMeridionalArc(phi, phi0, B, n)
+        val nTerm2 = (nu / 2.0) * sinPhi * cosPhi * p2
+        val nTerm3 = (nu / 24.0) * sinPhi * cosPhi3 * (
+                5.0 - tanPhi2 + 9.0 * eta2 + 4.0 * eta2 * eta2
+                ) * p4
+        val nTerm4 = (nu / 720.0) * sinPhi * cosPhi5 * (
+                61.0 - 58.0 * tanPhi2 + tanPhi4
+                ) * p6
+
+        val northingTotal = N0 + m + nTerm2 + nTerm3 + nTerm4
+
+        // --- Map into 100km Irish Grid Letter & Local Coordinates ---
         val col = (eastingTotal / 100000.0).toInt().coerceIn(0, 4)
         val row = (4 - (northingTotal / 100000.0).toInt()).coerceIn(0, 4)
 
-        return IrishGridReference(gridLetters[row][col], eastingTotal % 100000.0, northingTotal % 100000.0)
+        val localEasting = (eastingTotal % 100000.0).let { if (it < 0) it + 100000.0 else it }
+        val localNorthing = (northingTotal % 100000.0).let { if (it < 0) it + 100000.0 else it }
+
+        return IrishGridReference(
+            letter = gridLetters[row][col],
+            easting = localEasting,
+            northing = localNorthing
+        )
     }
 
+    /**
+     * Converts Irish National Grid full metric coordinates (unadjustedX, unadjustedY)
+     * back into Ireland 1965 (IRL75) LatLon.
+     */
     private fun inverseProjectToLatLonInternal(x: Double, y: Double): LatLon {
         val phi0 = Math.toRadians(LAT0)
-        val lambda0 = Math.toRadians(LON0)
+        val lam0 = Math.toRadians(LON0)
         val e2 = (A * A - B * B) / (A * A)
         val n = (A - B) / (A + B)
 
+        // Iterate to find the foot-point latitude (phiPrime)
         var phiPrime = phi0 + (y - N0) / (A * F0)
-        var m: Double
-        do {
-            m = computeMeridionalArc(phiPrime, phi0, B, n)
-            phiPrime = (y - N0 - (m * F0)) / (A * F0) + phiPrime
-        } while (abs(y - N0 - (m * F0)) >= 0.00001)
+        while (true) {
+            val m = computeMeridionalArc(phiPrime, phi0, B, n)
+            val dPhi = (y - N0 - m) / (A * F0)
+            phiPrime += dPhi
+            if (abs(dPhi) < 1e-11) break
+        }
 
         val sinPhi = sin(phiPrime)
         val cosPhi = cos(phiPrime)
         val tanPhi = tan(phiPrime)
+        val tanPhi2 = tanPhi * tanPhi
+        val tanPhi4 = tanPhi2 * tanPhi2
+
         val nuPrime = A * F0 / sqrt(1.0 - e2 * sinPhi * sinPhi)
         val rhoPrime = A * F0 * (1.0 - e2) / (1.0 - e2 * sinPhi * sinPhi).pow(1.5)
-        val etaSqPrime = nuPrime / rhoPrime - 1.0
+        val etaSqPrime = (nuPrime / rhoPrime) - 1.0
 
         val xRel = x - E0
+        val xRel2 = xRel * xRel
+        val xRel3 = xRel2 * xRel
+        val xRel4 = xRel3 * xRel
+        val xRel5 = xRel4 * xRel
+        val xRel6 = xRel5 * xRel
+
         val secPhi = 1.0 / cosPhi
-        val vii = tanPhi / (2.0 * rhoPrime * nuPrime * F0 * F0)
-        val viii = tanPhi / (24.0 * rhoPrime * nuPrime.pow(3) * F0.pow(4)) * (5.0 + 3.0 * tanPhi * tanPhi + etaSqPrime)
 
-        val lat = phiPrime - vii * xRel.pow(2) + viii * xRel.pow(4)
-        val xXi = secPhi / (nuPrime * F0)
-        val xXii = secPhi / (6.0 * nuPrime.pow(3) * F0.pow(3)) * (nuPrime / rhoPrime + 2.0 * tanPhi * tanPhi)
+        // Latitude terms
+        val vii = tanPhi / (2.0 * rhoPrime * nuPrime)
+        val viii = (tanPhi / (24.0 * rhoPrime * nuPrime.pow(3))) * (
+                5.0 + 3.0 * tanPhi2 + etaSqPrime - 9.0 * tanPhi2 * etaSqPrime
+                )
+        val ix = (tanPhi / (720.0 * rhoPrime * nuPrime.pow(5))) * (
+                61.0 + 90.0 * tanPhi2 + 45.0 * tanPhi4
+                )
+        val lat = phiPrime - vii * xRel2 + viii * xRel4 - ix * xRel6
 
-        val lon = lambda0 + xXi * xRel - xXii * xRel.pow(3)
+        // Longitude terms
+        val xXi = secPhi / nuPrime
+        val xXii = (secPhi / (6.0 * nuPrime.pow(3))) * (nuPrime / rhoPrime + 2.0 * tanPhi2)
+        val xXiiA = (secPhi / (120.0 * nuPrime.pow(5))) * (
+                5.0 + 28.0 * tanPhi2 + 24.0 * tanPhi4
+                )
+        val lon = lam0 + xXi * xRel - xXii * xRel3 + xXiiA * xRel5
 
         return LatLon(Math.toDegrees(lat), Math.toDegrees(lon))
     }

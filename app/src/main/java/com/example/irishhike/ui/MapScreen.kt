@@ -416,7 +416,7 @@ fun MapScreen(
                     }
                 }
 
-                // 2) Draw 1km gridlines
+                // 2) Draw 1km gridlines with 2-digit grid labels
                 if (show1kmGrid) {
                     val start1kmX = (kotlin.math.floor(minVisX / 1000.0) * 1000.0).toInt()
                     val end1kmX = (kotlin.math.ceil(maxVisX / 1000.0) * 1000.0).toInt()
@@ -429,6 +429,19 @@ fun MapScreen(
                             start = p1,
                             end = p2,
                             strokeWidth = 2.0f
+                        )
+
+                        // 2-digit Easting label (drawn to the left of the vertical grid line)
+                        val kmDigitX = String.format(Locale.US, "%02d", (abs(xMeters) / 1000) % 100)
+                        val textResult = textMeasurer.measure(
+                            text = kmDigitX,
+                            style = TextStyle(color = Color(0xFF00E5FF), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        )
+                        val labelY = (p1.y + 12f).coerceIn(12f, heightPx - textResult.size.height - 12f)
+                        val labelX = p1.x - textResult.size.width - 4f
+                        drawText(
+                            textLayoutResult = textResult,
+                            topLeft = Offset(labelX, labelY)
                         )
                     }
 
@@ -443,6 +456,19 @@ fun MapScreen(
                             start = p1,
                             end = p2,
                             strokeWidth = 2.0f
+                        )
+
+                        // 2-digit Northing label (drawn above the horizontal grid line)
+                        val kmDigitY = String.format(Locale.US, "%02d", (abs(yMeters) / 1000) % 100)
+                        val textResult = textMeasurer.measure(
+                            text = kmDigitY,
+                            style = TextStyle(color = Color(0xFF00E5FF), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        )
+                        val labelX = (p1.x + 12f).coerceIn(12f, widthPx - textResult.size.width - 12f)
+                        val labelY = p1.y - textResult.size.height - 2f
+                        drawText(
+                            textLayoutResult = textResult,
+                            topLeft = Offset(labelX, labelY)
                         )
                     }
                 }
@@ -761,8 +787,8 @@ fun MapScreen(
             )
         }
 
-        // Color Legend Overlay Card for Speed / Stride Color Modes
-        if (breadcrumbConfig.showBreadcrumbs && (breadcrumbConfig.colorMode == BreadcrumbColorMode.SPEED || breadcrumbConfig.colorMode == BreadcrumbColorMode.STRIDE)) {
+        // Color Legend Overlay Card for Speed / Stride Color Modes (only shown when breadcrumbs exist on screen)
+        if (breadcrumbConfig.showBreadcrumbs && validBreadcrumbs.isNotEmpty() && (breadcrumbConfig.colorMode == BreadcrumbColorMode.SPEED || breadcrumbConfig.colorMode == BreadcrumbColorMode.STRIDE)) {
             val isSpeed = breadcrumbConfig.colorMode == BreadcrumbColorMode.SPEED
             val minVal = if (isSpeed) minSpeed * 3.6 else minStride
             val maxVal = if (isSpeed) maxSpeed * 3.6 else maxStride
@@ -774,7 +800,7 @@ fun MapScreen(
                     .align(Alignment.BottomStart)
                     .padding(8.dp),
                 shape = RoundedCornerShape(6.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.75f))
+                colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.35f))
             ) {
                 Column(
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),

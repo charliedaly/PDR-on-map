@@ -24,8 +24,7 @@ class Waypoint(
             arrive: Double = 15.0,
             approach: Double = 100.0
         ): Waypoint {
-            val (lat, lon) = CoordinateUtils.metricToLatLon(Location(0.0, 0.0))
-            val loc = CoordinateUtils.latLonToMetric(lat, lon)
+            val loc = CoordinateUtils.parseGridRefToLocation(gridRefStr, altitude)
             return Waypoint(
                 x = loc.x,
                 y = loc.y,
