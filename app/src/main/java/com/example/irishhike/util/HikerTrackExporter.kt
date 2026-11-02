@@ -4,7 +4,6 @@ import android.content.Context
 import android.net.Uri
 import android.os.Environment
 import android.util.Log
-import android.widget.Toast
 import com.example.irishhike.model.Breadcrumb
 import java.io.File
 import java.text.SimpleDateFormat
@@ -17,18 +16,65 @@ object HikerTrackExporter {
 
     private const val TAG = "HikerTrackExporter"
 
+    /**
+     * Resolves the target directory:
+     *   Download / hillwalking / <route_name> /
+     *
+     * Tries public Download first; falls back to app external Download if permission is restricted.
+     */
+    fun resolveRouteDirectory(context: Context, routeName: String? = null, routeUri: Uri? = null): File {
+        val cleanRouteName = when {
+            !routeName.isNullOrBlank() -> routeName.trim()
+            routeUri != null -> RouteParser.extractRouteNameFromUri(context, routeUri)
+            else -> "default"
+        }.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+
+        // 1. Primary: Public Downloads / hillwalking / <route_name>
+        val publicDownloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        val primaryDir = File(File(publicDownloads, "hillwalking"), cleanRouteName)
+
+        val targetDir = try {
+            if (!primaryDir.exists()) {
+                val created = primaryDir.mkdirs()
+                if (created || primaryDir.exists()) primaryDir else null
+            } else {
+                primaryDir
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Cannot create public hillwalking dir (${e.message}), using app external storage")
+            null
+        }
+
+        // 2. Guaranteed fallback: app external files directory (visible on PC via USB)
+        // Path: /storage/emulated/0/Android/data/com.example.irishhike/files/Download/hillwalking/<route_name>
+        if (targetDir != null && targetDir.canWrite()) {
+            Log.i(TAG, "Resolved target route directory: ${targetDir.absolutePath}")
+            return targetDir
+        }
+
+        val appExternalDownloads = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+            ?: context.filesDir
+        val fallbackDir = File(File(appExternalDownloads, "hillwalking"), cleanRouteName)
+        if (!fallbackDir.exists()) {
+            fallbackDir.mkdirs()
+        }
+        Log.i(TAG, "Resolved fallback target route directory: ${fallbackDir.absolutePath}")
+        return fallbackDir
+    }
+
+    /**
+     * Exports breadcrumbs to a .gpx file inside Download/hillwalking/<route_name>/
+     * Designed to be called safely from a background coroutine.
+     */
     fun exportBreadcrumbsToGpx(
         context: Context,
         breadcrumbs: List<Breadcrumb>,
+        routeName: String? = null,
         routeUri: Uri? = null
     ): File? {
         if (breadcrumbs.isEmpty()) return null
 
-        val targetDir = resolveTargetDirectory(context, routeUri)
-        if (!targetDir.exists()) {
-            targetDir.mkdirs()
-        }
-
+        val targetDir = resolveRouteDirectory(context, routeName, routeUri)
         val timeFormatter = SimpleDateFormat("yyyyMMdd-HHmm", Locale.US)
         val timestampStr = timeFormatter.format(Date())
         val filename = "bc-$timestampStr.gpx"
@@ -71,76 +117,10 @@ object HikerTrackExporter {
         return try {
             file.writeText(sb.toString())
             Log.i(TAG, "Successfully exported breadcrumbs to: ${file.absolutePath}")
-            val displayPath = getRelativePathForDisplay(file)
-            Toast.makeText(context, "Saved breadcrumbs to:\n$displayPath", Toast.LENGTH_LONG).show()
             file
         } catch (e: Exception) {
             Log.e(TAG, "Failed to save breadcrumbs: ${e.message}", e)
-            Toast.makeText(context, "Failed to save breadcrumbs: ${e.message}", Toast.LENGTH_LONG).show()
             null
         }
-    }
-
-    private fun getRelativePathForDisplay(file: File): String {
-        val absPath = file.absolutePath
-        val idx = absPath.indexOf("Download")
-        return if (idx != -1) absPath.substring(idx) else absPath
-    }
-
-    fun resolveTargetDirectory(context: Context, routeUri: Uri?): File {
-        if (routeUri != null) {
-            val uriString = routeUri.toString()
-            Log.d(TAG, "Resolving target directory for routeUri: $uriString")
-
-            if (routeUri.scheme == "file") {
-                val file = File(routeUri.path ?: "")
-                file.parentFile?.let {
-                    Log.d(TAG, "Resolved parent dir from file scheme: ${it.absolutePath}")
-                    return it
-                }
-            }
-
-            val decoded = Uri.decode(uriString)
-            val pathPart = when {
-                decoded.contains("primary:") -> decoded.substringAfter("primary:")
-                decoded.contains("raw:") -> decoded.substringAfter("raw:")
-                decoded.contains("/storage/") -> decoded.substringAfter("/storage/")
-                else -> null
-            }
-            if (pathPart != null) {
-                val fullPath = if (pathPart.startsWith("/")) pathPart else "/storage/emulated/0/$pathPart"
-                val file = File(fullPath)
-                file.parentFile?.let { parent ->
-                    if (!parent.exists()) parent.mkdirs()
-                    Log.d(TAG, "Resolved parent dir from pathPart: ${parent.absolutePath}")
-                    return parent
-                }
-            }
-
-            try {
-                context.contentResolver.query(routeUri, arrayOf(android.provider.MediaStore.MediaColumns.DATA), null, null, null)?.use { cursor ->
-                    if (cursor.moveToFirst()) {
-                        val colIdx = cursor.getColumnIndex(android.provider.MediaStore.MediaColumns.DATA)
-                        if (colIdx != -1) {
-                            val dataPath = cursor.getString(colIdx)
-                            if (!dataPath.isNullOrBlank()) {
-                                val file = File(dataPath)
-                                file.parentFile?.let {
-                                    Log.d(TAG, "Resolved parent dir via MediaColumns.DATA: ${it.absolutePath}")
-                                    return it
-                                }
-                            }
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Could not query MediaColumns.DATA: ${e.message}")
-            }
-        }
-
-        val fallback = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "freehike")
-        if (!fallback.exists()) fallback.mkdirs()
-        Log.d(TAG, "Fallback to freehike dir: ${fallback.absolutePath}")
-        return fallback
     }
 }

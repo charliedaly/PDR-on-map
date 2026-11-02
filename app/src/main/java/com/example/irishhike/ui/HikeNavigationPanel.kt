@@ -125,9 +125,13 @@ fun HikeNavigationPanel(
 
             // Line 3: Hiker: (000 000) 000° 10000m 0.0m/s
             val hikerLoc = activeEkfState.position.value
-            val easting6 = ((hikerLoc.x.toInt() % 100000) / 100).coerceIn(0, 999)
-            val northing6 = ((hikerLoc.y.toInt() % 100000) / 100).coerceIn(0, 999)
-            val gridRefStr = String.format(Locale.US, "%03d %03d", easting6, northing6)
+            val gridRefStr = if (activeEkfState.isInitializedWithGps) {
+                val easting6 = ((hikerLoc.x.toInt() % 100000) / 100).coerceIn(0, 999)
+                val northing6 = ((hikerLoc.y.toInt() % 100000) / 100).coerceIn(0, 999)
+                String.format(Locale.of("en", "IE"), "%03d %03d", easting6, northing6)
+            } else {
+                "Acquiring GPS..."
+            }
 
             val hikerBearingDeg = Math.toDegrees(activeEkfState.bearingRad.value)
             val normalizedBearing = (hikerBearingDeg % 360.0 + 360.0) % 360.0

@@ -19,12 +19,14 @@ import com.example.irishhike.telemetry.TelemetryEvent
 import com.example.irishhike.telemetry.TelemetryRecorder
 import com.example.irishhike.util.HikerTrackExporter
 import com.example.irishhike.util.RouteParser
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class HikeViewModel : ViewModel() {
 
@@ -87,10 +89,31 @@ class HikeViewModel : ViewModel() {
     }
 
     fun exportBreadcrumbs(context: Context) {
-        val history = HikeRepository.getBreadcrumbHistory()
-        val currentRoute = activeRoute.value
-        android.util.Log.d("HikeViewModel", "Exporting breadcrumbs. Active route: ${currentRoute?.name}, sourceUri: ${currentRoute?.sourceUri}")
-        HikerTrackExporter.exportBreadcrumbsToGpx(context, history, currentRoute?.sourceUri)
+        viewModelScope.launch(Dispatchers.IO) {
+            val history = HikeRepository.getBreadcrumbHistory()
+            val currentRoute = activeRoute.value
+            android.util.Log.d("HikeViewModel", "Exporting ${history.size} breadcrumbs on background thread...")
+
+            val exportedFile = HikerTrackExporter.exportBreadcrumbsToGpx(
+                context,
+                history,
+                currentRoute?.name,
+                currentRoute?.sourceUri
+            )
+
+            withContext(Dispatchers.Main) {
+                if (exportedFile != null) {
+                    val folderName = exportedFile.parentFile?.name ?: "hillwalking"
+                    Toast.makeText(
+                        context,
+                        "Saved ${history.size} breadcrumbs to:\nhillwalking/$folderName/${exportedFile.name}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                } else {
+                    Toast.makeText(context, "Failed to save breadcrumbs file", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
     }
 
     fun loadSampleRoute() {
@@ -237,16 +260,29 @@ class HikeViewModel : ViewModel() {
         }
         context.startService(intent)
 
-        val targetDir = HikerTrackExporter.resolveTargetDirectory(context, activeRoute.value?.sourceUri)
-        val file = HikeRepository.telemetryRecorder.saveToTimestampedFile(targetDir)
-        if (file != null) {
-            val count = HikeRepository.telemetryRecorder.getEvents().size
-            android.util.Log.i("HikeViewModel", "Saved $count telemetry events to ${file.absolutePath}")
-            Toast.makeText(
+        viewModelScope.launch(Dispatchers.IO) {
+            val currentRoute = activeRoute.value
+            val targetDir = HikerTrackExporter.resolveRouteDirectory(
                 context,
-                "Saved $count telemetry events to:\n${file.name}",
-                Toast.LENGTH_LONG
-            ).show()
+                currentRoute?.name,
+                currentRoute?.sourceUri
+            )
+            val file = HikeRepository.telemetryRecorder.saveToTimestampedFile(targetDir)
+            val count = HikeRepository.telemetryRecorder.getEvents().size
+
+            withContext(Dispatchers.Main) {
+                if (file != null && file.exists()) {
+                    android.util.Log.i("HikeViewModel", "Saved $count telemetry events to ${file.absolutePath}")
+                    val routeFolderName = targetDir.name
+                    Toast.makeText(
+                        context,
+                        "Saved $count telemetry events to:\nhillwalking/$routeFolderName/${file.name}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                } else {
+                    android.util.Log.e("HikeViewModel", "Failed to save telemetry file!")
+                }
+            }
         }
     }
 

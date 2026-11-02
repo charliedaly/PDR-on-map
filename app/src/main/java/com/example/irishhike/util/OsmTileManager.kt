@@ -87,7 +87,7 @@ object OsmTileManager {
     fun hasTileOnDiskOrCache(context: Context, zoom: Int, tileX: Int, tileY: Int): Boolean {
         val cacheKey = "$zoom/$tileX/$tileY"
         if (memoryCache.get(cacheKey) != null) return true
-        val tileFile = File(context.filesDir, "tiles/$zoom/$tileX/$tileY.png")
+        val tileFile = File(context.filesDir, "tiles_topo/$zoom/$tileX/$tileY.png")
         return tileFile.exists() && tileFile.length() > 0L
     }
 
@@ -105,7 +105,7 @@ object OsmTileManager {
                 var pY = tileY
 
                 while (pZoom >= 8) {
-                    val pFile = File(context.filesDir, "tiles/$pZoom/$pX/$pY.png")
+                    val pFile = File(context.filesDir, "tiles_topo/$pZoom/$pX/$pY.png")
                     if (pFile.exists() && pFile.length() > 0) {
                         val parentBitmap = BitmapFactory.decodeFile(pFile.absolutePath)
                         if (parentBitmap != null) {
@@ -211,7 +211,10 @@ object OsmTileManager {
             val tileFile = File(tileDir, "$y.png")
             if (!tileFile.exists() || tileFile.length() == 0L) {
                 try {
-                    val tileUrl = "https://tile.openstreetmap.org/$z/$x/$y.png"
+                    //val tileUrl = "https://tile.openstreetmap.org/$z/$x/$y.png"
+                    val subdomains = arrayOf("a", "b", "c")
+                    val server = subdomains[(x + y) % 3]
+                    val tileUrl = "https://$server.tile.opentopomap.org/$z/$x/$y.png"
                     val conn = URL(tileUrl).openConnection() as HttpURLConnection
                     conn.setRequestProperty("User-Agent", "HikingTool/1.0 (Android PDR Diagnostic App)")
                     conn.connectTimeout = 8000
@@ -250,7 +253,7 @@ object OsmTileManager {
     suspend fun downloadRouteAreaTiles(
         context: Context,
         route: Route,
-        zoomLevels: List<Int> = listOf(10, 11, 12, 13, 14, 15, 16, 17, 18),
+        zoomLevels: List<Int> = listOf(10, 11, 12, 13, 14, 15, 16, 17),
         onProgress: (Int, Int) -> Unit = { _, _ -> }
     ): Int = withContext(Dispatchers.IO) {
         if (route.waypoints.isEmpty()) return@withContext 0
@@ -304,13 +307,15 @@ object OsmTileManager {
 
         for (tile in totalTilesList) {
             val (z, x, y) = tile
-            val tileDir = File(context.filesDir, "tiles/$z/$x")
+            val tileDir = File(context.filesDir, "tiles_topo/$z/$x")
             if (!tileDir.exists()) tileDir.mkdirs()
 
             val tileFile = File(tileDir, "$y.png")
             if (!tileFile.exists() || tileFile.length() == 0L) {
                 try {
-                    val tileUrl = "https://tile.openstreetmap.org/$z/$x/$y.png"
+                    val subdomains = arrayOf("a", "b", "c")
+                    val server = subdomains[(x + y) % 3]
+                    val tileUrl = "https://$server.tile.opentopomap.org/$z/$x/$y.png"
                     val conn = URL(tileUrl).openConnection() as HttpURLConnection
                     conn.setRequestProperty("User-Agent", "HikingTool/1.0 (Android PDR Diagnostic App)")
                     conn.connectTimeout = 8000
@@ -323,6 +328,8 @@ object OsmTileManager {
                             }
                         }
                         if (tileFile.length() > 0) successCount++
+
+                        delay(60L) // Polite 60ms pause between tile requests
                     }
                 } catch (e: Exception) {
                     Log.e("OsmTileManager", "Failed route tile $z/$x/$y: ${e.message}")

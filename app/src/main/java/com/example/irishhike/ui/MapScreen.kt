@@ -14,17 +14,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.layout.width
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -48,6 +47,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
@@ -79,11 +80,23 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.ceil
 import kotlin.math.cos
+import kotlin.math.floor
 import kotlin.math.hypot
+import kotlin.math.log10
+import kotlin.math.pow
 import kotlin.math.round
 import kotlin.math.sin
 import kotlin.math.sqrt
+
+data class StationaryStop(
+    val x: Double,
+    val y: Double,
+    val durationSec: Long,
+    val startTimestampMs: Long,
+    val endTimestampMs: Long
+)
 
 @Composable
 fun MapScreen(
@@ -105,8 +118,8 @@ fun MapScreen(
 ) {
     val context = LocalContext.current
     val isLegView = mapConfig.isLegView
-    val show1kmGrid = mapConfig.show1kmGrid
-    val show100mGrid = mapConfig.show100mGrid
+    val show1kmGrid = mapConfig.show1kmGrid      // Major adaptive grid toggle
+    val show100mGrid = mapConfig.show100mGrid    // Minor adaptive grid toggle
 
     val viewportTracker = remember { ViewportTracker() }
 
@@ -160,34 +173,125 @@ fun MapScreen(
         )
     }
 
-    var minSpeed = 0.0
-    var maxSpeed = 2.5
-    var minStride = 0.4
-    var maxStride = 1.2
-
-    if (validBreadcrumbs.isNotEmpty()) {
+    // --- OPTIMIZATION: Speed & Stride statistics cached outside frame draw loop ---
+    val speedAndStrideStats = remember(validBreadcrumbs.size, breadcrumbConfig.colorMode) {
         var minS = Double.MAX_VALUE
         var maxS = -Double.MAX_VALUE
         var minSt = Double.MAX_VALUE
         var maxSt = -Double.MAX_VALUE
 
-        validBreadcrumbs.forEachIndexed { index, bc ->
-            val s = getBreadcrumbSpeed(index, validBreadcrumbs)
-            if (s < minS) minS = s
-            if (s > maxS) maxS = s
+        if (validBreadcrumbs.isNotEmpty()) {
+            for (i in validBreadcrumbs.indices) {
+                val s = getBreadcrumbSpeed(i, validBreadcrumbs)
+                if (s < minS) minS = s
+                if (s > maxS) maxS = s
 
-            val st = getBreadcrumbStride(index, validBreadcrumbs)
-            if (st < minSt) minSt = st
-            if (st > maxSt) maxSt = st
+                val st = getBreadcrumbStride(i, validBreadcrumbs)
+                if (st < minSt) minSt = st
+                if (st > maxSt) maxSt = st
+            }
         }
+        val effMinS = if (minS == Double.MAX_VALUE || maxS <= minS) 0.0 else minS
+        val effMaxS = if (maxS == -Double.MAX_VALUE || maxS <= minS) 2.5 else maxS
+        val effMinSt = if (minSt == Double.MAX_VALUE || maxSt <= minSt) 0.4 else minSt
+        val effMaxSt = if (maxSt == -Double.MAX_VALUE || maxSt <= minSt) 1.2 else maxSt
+        floatArrayOf(effMinS.toFloat(), effMaxS.toFloat(), effMinSt.toFloat(), effMaxSt.toFloat())
+    }
 
-        if (minS != Double.MAX_VALUE && maxS != -Double.MAX_VALUE) {
-            minSpeed = minS
-            maxSpeed = maxS
-        }
-        if (minSt != Double.MAX_VALUE && maxSt != -Double.MAX_VALUE) {
-            minStride = minSt
-            maxStride = maxSt
+    val minSpeed = speedAndStrideStats[0].toDouble()
+    val maxSpeed = speedAndStrideStats[1].toDouble()
+    val minStride = speedAndStrideStats[2].toDouble()
+    val maxStride = speedAndStrideStats[3].toDouble()
+
+    // --- FEATURE: Detect and Merge Stationary Rest Stops within 1 Minute ---
+    val mergedStationaryStops = remember(validBreadcrumbs.size, breadcrumbConfig.showStationaryStops) {
+        if (!breadcrumbConfig.showStationaryStops || validBreadcrumbs.size < 2) {
+            emptyList<StationaryStop>()
+        } else {
+            val rawStops = mutableListOf<StationaryStop>()
+            var stopStartBc: Breadcrumb? = null
+            var stopLastBc: Breadcrumb? = null
+            var sumX = 0.0
+            var sumY = 0.0
+            var stopPointCount = 0
+
+            // 1. Identify raw stops where speed is under 0.3 m/s for at least 30 seconds
+            for (bc in validBreadcrumbs) {
+                val speed = bc.ekfState?.speedMps?.value ?: 0.0
+                if (speed < 0.3) {
+                    if (stopStartBc == null) {
+                        stopStartBc = bc
+                        sumX = 0.0
+                        sumY = 0.0
+                        stopPointCount = 0
+                    }
+                    stopLastBc = bc
+                    sumX += bc.location.x
+                    sumY += bc.location.y
+                    stopPointCount++
+                } else {
+                    if (stopStartBc != null && stopLastBc != null) {
+                        val durationSec = (stopLastBc.timestampMs - stopStartBc.timestampMs) / 1000L
+                        if (durationSec >= 30L && stopPointCount > 0) {
+                            rawStops.add(
+                                StationaryStop(
+                                    x = sumX / stopPointCount,
+                                    y = sumY / stopPointCount,
+                                    durationSec = durationSec,
+                                    startTimestampMs = stopStartBc.timestampMs,
+                                    endTimestampMs = stopLastBc.timestampMs
+                                )
+                            )
+                        }
+                    }
+                    stopStartBc = null
+                    stopLastBc = null
+                }
+            }
+
+            if (stopStartBc != null && stopLastBc != null) {
+                val durationSec = (stopLastBc.timestampMs - stopStartBc.timestampMs) / 1000L
+                if (durationSec >= 30L && stopPointCount > 0) {
+                    rawStops.add(
+                        StationaryStop(
+                            x = sumX / stopPointCount,
+                            y = sumY / stopPointCount,
+                            durationSec = durationSec,
+                            startTimestampMs = stopStartBc.timestampMs,
+                            endTimestampMs = stopLastBc.timestampMs
+                        )
+                    )
+                }
+            }
+
+            // 2. Merge stops within 1 minute (60,000 ms) of each other
+            val merged = mutableListOf<StationaryStop>()
+            for (stop in rawStops) {
+                if (merged.isEmpty()) {
+                    merged.add(stop)
+                } else {
+                    val prev = merged.last()
+                    val gapMs = stop.startTimestampMs - prev.endTimestampMs
+                    if (gapMs in 0..60000L) {
+                        val totalSec = prev.durationSec + stop.durationSec
+                        val w1 = prev.durationSec.toDouble() / totalSec
+                        val w2 = stop.durationSec.toDouble() / totalSec
+                        val combinedX = prev.x * w1 + stop.x * w2
+                        val combinedY = prev.y * w1 + stop.y * w2
+
+                        merged[merged.lastIndex] = StationaryStop(
+                            x = combinedX,
+                            y = combinedY,
+                            durationSec = totalSec,
+                            startTimestampMs = prev.startTimestampMs,
+                            endTimestampMs = stop.endTimestampMs
+                        )
+                    } else {
+                        merged.add(stop)
+                    }
+                }
+            }
+            merged
         }
     }
 
@@ -289,32 +393,20 @@ fun MapScreen(
             }
 
             if (currentScale > 0.0) {
-                val minVisX: Double
-                val maxVisX: Double
-                val minVisY: Double
-                val maxVisY: Double
+                // Exact visible world boundaries derived directly from screen pixels and zoom
+                val leftMeters = centerX + (0f - originCx - panOffset.x) / currentScale
+                val rightMeters = centerX + (widthPx - originCx - panOffset.x) / currentScale
+                val topMeters = centerY - (0f - originCy - panOffset.y) / currentScale
+                val bottomMeters = centerY - (heightPx - originCy - panOffset.y) / currentScale
 
-                if (isLegView && legStart != null) {
-                    minVisX = minOf(interpStartX, interpTargetX) - 1000.0
-                    maxVisX = maxOf(interpStartX, interpTargetX) + 1000.0
-                    minVisY = minOf(interpStartY, interpTargetY) - 1000.0
-                    maxVisY = maxOf(interpStartY, interpTargetY) + 1000.0
-                } else {
-                    val leftMeters = centerX + (0f - originCx - panOffset.x) / currentScale
-                    val rightMeters = centerX + (widthPx - originCx - panOffset.x) / currentScale
-                    val topMeters = centerY - (0f - originCy - panOffset.y) / currentScale
-                    val bottomMeters = centerY - (heightPx - originCy - panOffset.y) / currentScale
+                val minVisX = minOf(leftMeters, rightMeters)
+                val maxVisX = maxOf(leftMeters, rightMeters)
+                val minVisY = minOf(topMeters, bottomMeters)
+                val maxVisY = maxOf(topMeters, bottomMeters)
 
-                    minVisX = minOf(leftMeters, rightMeters) - 500.0
-                    maxVisX = maxOf(leftMeters, rightMeters) + 500.0
-                    minVisY = minOf(topMeters, bottomMeters) - 500.0
-                    maxVisY = maxOf(topMeters, bottomMeters) + 500.0
-                }
-
-                // --- Draw Offline OSM Map Background Tiles (Two-Pass Layered Renderer) ---
+                // --- Draw Offline OSM Map Background Tiles ---
                 if (mapConfig.showOsmBackground) {
                     try {
-                        val startTime = System.currentTimeMillis()
                         val autoZoom = round(kotlin.math.log2(93113.0 * currentScale)).toInt().coerceIn(8, 18)
                         val baseZoom = autoZoom.coerceAtMost(14)
 
@@ -357,74 +449,90 @@ fun MapScreen(
                             }
                         }
 
-                        // Pass 1: Draw continuous base map layer (Ireland base map, zooms 8..14)
                         val baseTiles = OsmTileManager.getTilesForArea(
-                            minX = minVisX, maxX = maxVisX, minY = minVisY, maxY = maxVisY, zoom = baseZoom
+                            minX = minVisX - 500.0, maxX = maxVisX + 500.0, minY = minVisY - 500.0, maxY = maxVisY + 500.0, zoom = baseZoom
                         )
                         for (tile in baseTiles) {
                             drawSingleTile(tile, false)
                         }
 
-                        // Pass 2: Draw high-resolution route area tile overlay (zooms 15..18)
                         if (autoZoom > 14) {
                             val highResTiles = OsmTileManager.getTilesForArea(
-                                minX = minVisX, maxX = maxVisX, minY = minVisY, maxY = maxVisY, zoom = autoZoom
+                                minX = minVisX - 200.0, maxX = maxVisX + 200.0, minY = minVisY - 200.0, maxY = maxVisY + 200.0, zoom = autoZoom
                             )
                             for (tile in highResTiles) {
                                 drawSingleTile(tile, true)
                             }
                         }
-
-                        android.util.Log.d("PDR_DIAG", "CANVAS_DRAW_DONE -> time: ${System.currentTimeMillis() - startTime} ms")
-                    } catch (e: Exception) {
-                        android.util.Log.e("MapScreen", "Error rendering OSM background tiles: ${e.message}", e)
-                    }
+                    } catch (_: Exception) {}
                 }
 
-                // 1) Draw 100m gridlines (unlabeled)
+                // =========================================================================
+                // ADAPTIVE DECADE GRID SCALING (POWERS OF 10)
+                // Constraint 1: Maximum 5 major gridlines in each direction
+                // Constraint 2: Minimum 2 minor gridlines in each direction
+                // =========================================================================
+                val curSpanX = (maxVisX - minVisX).coerceAtLeast(1.0)
+                val curSpanY = (maxVisY - minVisY).coerceAtLeast(1.0)
+                val maxSpan = maxOf(curSpanX, curSpanY)
+                val minSpan = minOf(curSpanX, curSpanY)
+
+                val minMajorStepRequired = maxSpan / 5.0
+                val maxMajorStepAllowed = (minSpan / 2.0) * 10.0
+
+                var powerK = ceil(log10(minMajorStepRequired.coerceAtLeast(1.0))).toInt()
+                if (10.0.pow(powerK.toDouble()) > maxMajorStepAllowed && powerK > 0) {
+                    powerK--
+                }
+
+                val clampedPowerK = powerK.coerceIn(0, 5)
+                val majorStep = 10.0.pow(clampedPowerK.toDouble()).toInt().coerceAtLeast(1)
+                val minorStep = (majorStep / 10).coerceAtLeast(1)
+
+                // 1) Draw Minor Gridlines (Unlabeled, 10x smaller subdivision)
                 if (show100mGrid) {
-                    val spacing100mPx = 100.0 * currentScale
-                    if (spacing100mPx >= 3.0) {
-                        val start100mX = (kotlin.math.floor(minVisX / 100.0) * 100.0).toInt()
-                        val end100mX = (kotlin.math.ceil(maxVisX / 100.0) * 100.0).toInt()
+                    val minorSpacingPx = minorStep * currentScale
+                    if (minorSpacingPx >= 3.0) {
+                        val startMinorX = (floor(minVisX / minorStep) * minorStep).toInt()
+                        val endMinorX = (ceil(maxVisX / minorStep) * minorStep).toInt()
 
-                        for (xMeters in start100mX..end100mX step 100) {
-                            if (show1kmGrid && xMeters % 1000 == 0) continue
-                            val p1 = toCanvasOffset(xMeters.toDouble(), minVisY)
-                            val p2 = toCanvasOffset(xMeters.toDouble(), maxVisY)
+                        for (xM in startMinorX..endMinorX step minorStep) {
+                            if (xM % majorStep == 0) continue // Skip where major line will be drawn
+                            val p1 = toCanvasOffset(xM.toDouble(), minVisY)
+                            val p2 = toCanvasOffset(xM.toDouble(), maxVisY)
                             drawLine(
-                                color = Color(0xFF38BDF8).copy(alpha = 0.4f),
+                                color = Color(0xFF38BDF8).copy(alpha = 0.28f),
                                 start = p1,
                                 end = p2,
-                                strokeWidth = 1.25f
+                                strokeWidth = 1.0f
                             )
                         }
 
-                        val start100mY = (kotlin.math.floor(minVisY / 100.0) * 100.0).toInt()
-                        val end100mY = (kotlin.math.ceil(maxVisY / 100.0) * 100.0).toInt()
+                        val startMinorY = (floor(minVisY / minorStep) * minorStep).toInt()
+                        val endMinorY = (ceil(maxVisY / minorStep) * minorStep).toInt()
 
-                        for (yMeters in start100mY..end100mY step 100) {
-                            if (show1kmGrid && yMeters % 1000 == 0) continue
-                            val p1 = toCanvasOffset(minVisX, yMeters.toDouble())
-                            val p2 = toCanvasOffset(maxVisX, yMeters.toDouble())
+                        for (yM in startMinorY..endMinorY step minorStep) {
+                            if (yM % majorStep == 0) continue
+                            val p1 = toCanvasOffset(minVisX, yM.toDouble())
+                            val p2 = toCanvasOffset(maxVisX, yM.toDouble())
                             drawLine(
-                                color = Color(0xFF38BDF8).copy(alpha = 0.4f),
+                                color = Color(0xFF38BDF8).copy(alpha = 0.28f),
                                 start = p1,
                                 end = p2,
-                                strokeWidth = 1.25f
+                                strokeWidth = 1.0f
                             )
                         }
                     }
                 }
 
-                // 2) Draw 1km gridlines with 2-digit grid labels
+                // 2) Draw Major Gridlines (Labeled, max 5 in each direction)
                 if (show1kmGrid) {
-                    val start1kmX = (kotlin.math.floor(minVisX / 1000.0) * 1000.0).toInt()
-                    val end1kmX = (kotlin.math.ceil(maxVisX / 1000.0) * 1000.0).toInt()
+                    val startMajorX = (floor(minVisX / majorStep) * majorStep).toInt()
+                    val endMajorX = (ceil(maxVisX / majorStep) * majorStep).toInt()
 
-                    for (xMeters in start1kmX..end1kmX step 1000) {
-                        val p1 = toCanvasOffset(xMeters.toDouble(), minVisY)
-                        val p2 = toCanvasOffset(xMeters.toDouble(), maxVisY)
+                    for (xM in startMajorX..endMajorX step majorStep) {
+                        val p1 = toCanvasOffset(xM.toDouble(), minVisY)
+                        val p2 = toCanvasOffset(xM.toDouble(), maxVisY)
                         drawLine(
                             color = Color(0xFF00E5FF).copy(alpha = 0.70f),
                             start = p1,
@@ -432,26 +540,37 @@ fun MapScreen(
                             strokeWidth = 2.0f
                         )
 
-                        // 2-digit Easting label (drawn to the left of the vertical grid line)
-                        val kmDigitX = String.format(Locale.US, "%02d", (abs(xMeters) / 1000) % 100)
+                        // Easting label with on-screen boundary check (stops piling in lower-left corner)
+                        val labelStr = formatGridLabel(xM, clampedPowerK)
                         val textResult = textMeasurer.measure(
-                            text = kmDigitX,
+                            text = labelStr,
                             style = TextStyle(color = Color(0xFF00E5FF), fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         )
-                        val labelY = (p1.y + 12f).coerceIn(12f, heightPx - textResult.size.height - 12f)
-                        val labelX = p1.x - textResult.size.width - 4f
-                        drawText(
-                            textLayoutResult = textResult,
-                            topLeft = Offset(labelX, labelY)
-                        )
+                        val textWidth = textResult.size.width.toFloat()
+                        val textHeight = textResult.size.height.toFloat()
+
+                        if (p1.x >= textWidth + 8f && p1.x <= widthPx - 8f) {
+                            val labelX = p1.x - textWidth - 4f
+                            val labelY = heightPx - textHeight - 12f
+
+                            drawRect(
+                                color = Color.Black.copy(alpha = 0.60f),
+                                topLeft = Offset(labelX - 3f, labelY - 2f),
+                                size = Size(textWidth + 6f, textHeight + 4f)
+                            )
+                            drawText(
+                                textLayoutResult = textResult,
+                                topLeft = Offset(labelX, labelY)
+                            )
+                        }
                     }
 
-                    val start1kmY = (kotlin.math.floor(minVisY / 1000.0) * 1000.0).toInt()
-                    val end1kmY = (kotlin.math.ceil(maxVisY / 1000.0) * 1000.0).toInt()
+                    val startMajorY = (floor(minVisY / majorStep) * majorStep).toInt()
+                    val endMajorY = (ceil(maxVisY / majorStep) * majorStep).toInt()
 
-                    for (yMeters in start1kmY..end1kmY step 1000) {
-                        val p1 = toCanvasOffset(minVisX, yMeters.toDouble())
-                        val p2 = toCanvasOffset(maxVisX, yMeters.toDouble())
+                    for (yM in startMajorY..endMajorY step majorStep) {
+                        val p1 = toCanvasOffset(minVisX, yM.toDouble())
+                        val p2 = toCanvasOffset(maxVisX, yM.toDouble())
                         drawLine(
                             color = Color(0xFF00E5FF).copy(alpha = 0.70f),
                             start = p1,
@@ -459,18 +578,29 @@ fun MapScreen(
                             strokeWidth = 2.0f
                         )
 
-                        // 2-digit Northing label (drawn above the horizontal grid line)
-                        val kmDigitY = String.format(Locale.US, "%02d", (abs(yMeters) / 1000) % 100)
+                        // Northing label with on-screen boundary check (stops piling in lower-left corner)
+                        val labelStr = formatGridLabel(yM, clampedPowerK)
                         val textResult = textMeasurer.measure(
-                            text = kmDigitY,
+                            text = labelStr,
                             style = TextStyle(color = Color(0xFF00E5FF), fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         )
-                        val labelX = (p1.x + 12f).coerceIn(12f, widthPx - textResult.size.width - 12f)
-                        val labelY = p1.y - textResult.size.height - 2f
-                        drawText(
-                            textLayoutResult = textResult,
-                            topLeft = Offset(labelX, labelY)
-                        )
+                        val textWidth = textResult.size.width.toFloat()
+                        val textHeight = textResult.size.height.toFloat()
+
+                        if (p1.y >= textHeight + 8f && p1.y <= heightPx - textHeight - 24f) {
+                            val labelX = 12f
+                            val labelY = p1.y - textHeight - 2f
+
+                            drawRect(
+                                color = Color.Black.copy(alpha = 0.60f),
+                                topLeft = Offset(labelX - 3f, labelY - 2f),
+                                size = Size(textWidth + 6f, textHeight + 4f)
+                            )
+                            drawText(
+                                textLayoutResult = textResult,
+                                topLeft = Offset(labelX, labelY)
+                            )
+                        }
                     }
                 }
             }
@@ -492,7 +622,7 @@ fun MapScreen(
                 )
             }
 
-            // Draw waypoints
+            // Draw waypoints with outer bisector smart label placement
             route?.waypoints?.forEach { wp ->
                 val center = toCanvasOffset(wp.x, wp.y)
                 val isTarget = (wp == currentTargetWaypoint)
@@ -512,10 +642,9 @@ fun MapScreen(
                         else -> "%.0fm".format(wp.altitude)
                     }
 
-                    // Compute smart label placement: opposite the acute angle (outer bisector of connected legs)
-                    val connectedLegs = route?.legs?.filter { it.start == wp || it.target == wp } ?: emptyList()
+                    val connectedLegs = route.legs.filter { it.start == wp || it.target == wp }
                     var normalX = 0f
-                    var normalY = -1f // default upward offset
+                    var normalY = -1f
 
                     if (connectedLegs.isNotEmpty()) {
                         var sumDx = 0.0
@@ -532,7 +661,6 @@ fun MapScreen(
                         }
                         val sumLen = hypot(sumDx, sumDy)
                         if (sumLen > 0.01) {
-                            // Point in the exact opposite direction of the sum of unit vectors (outer bisector / opposite acute angle)
                             normalX = (-sumDx / sumLen).toFloat()
                             normalY = (-sumDy / sumLen).toFloat()
                         } else {
@@ -542,10 +670,8 @@ fun MapScreen(
                             val dy = other.y - wp.y
                             val len = hypot(dx, dy)
                             if (len > 0.1) {
-                                val dirX = (dx / len).toFloat()
-                                val dirY = (dy / len).toFloat()
-                                normalX = -dirY
-                                normalY = dirX
+                                normalX = -(dy / len).toFloat()
+                                normalY = (dx / len).toFloat()
                             }
                         }
                     }
@@ -567,21 +693,17 @@ fun MapScreen(
 
                     if (abs(normalX) >= abs(normalY)) {
                         if (normalX < 0f) {
-                            // Points left -> place to the left of waypoint
                             labelX = center.x - clearance - textResult.size.width
                             labelY = center.y - (textResult.size.height / 2f)
                         } else {
-                            // Points right -> place to the right of waypoint
                             labelX = center.x + clearance
                             labelY = center.y - (textResult.size.height / 2f)
                         }
                     } else {
                         if (normalY < 0f) {
-                            // Points up -> place above waypoint
                             labelY = center.y - clearance - textResult.size.height
                             labelX = center.x - (textResult.size.width / 2f)
                         } else {
-                            // Points down -> place below waypoint
                             labelY = center.y + clearance
                             labelX = center.x - (textResult.size.width / 2f)
                         }
@@ -591,7 +713,7 @@ fun MapScreen(
                     drawRect(
                         color = Color.Black.copy(alpha = 0.20f),
                         topLeft = Offset(labelX - bgPadding, labelY - bgPadding),
-                        size = androidx.compose.ui.geometry.Size(
+                        size = Size(
                             textResult.size.width + bgPadding * 2f,
                             textResult.size.height + bgPadding * 2f
                         )
@@ -615,154 +737,143 @@ fun MapScreen(
                 }
             }
 
-            // Draw historical breadcrumbs with user's configured styling & diameter
-            if (breadcrumbConfig.showBreadcrumbs) {
-                val totalCount = renderBreadcrumbs.size.toFloat().coerceAtLeast(1f)
+            // --- DRAW BREADCRUMBS ---
+            if (breadcrumbConfig.showBreadcrumbs && renderBreadcrumbs.isNotEmpty()) {
+                val totalCount = renderBreadcrumbs.size.toFloat()
+                val speedRange = (maxSpeed - minSpeed).toFloat().coerceAtLeast(0.001f)
+                val strideRange = (maxStride - minStride).toFloat().coerceAtLeast(0.001f)
+                val speedColor1 = Color(breadcrumbConfig.speedStartColor)
+                val speedColor2 = Color(breadcrumbConfig.speedEndColor)
+                val strideColor1 = Color(breadcrumbConfig.strideStartColor)
+                val strideColor2 = Color(breadcrumbConfig.strideEndColor)
 
-                var minSpeed = Double.MAX_VALUE
-                var maxSpeed = -Double.MAX_VALUE
-                var minStride = Double.MAX_VALUE
-                var maxStride = -Double.MAX_VALUE
-
-                validBreadcrumbs.forEachIndexed { index, _ ->
-                    val s = getBreadcrumbSpeed(index, validBreadcrumbs)
-                    if (s < minSpeed) minSpeed = s
-                    if (s > maxSpeed) maxSpeed = s
-
-                    val st = getBreadcrumbStride(index, validBreadcrumbs)
-                    if (st < minStride) minStride = st
-                    if (st > maxStride) maxStride = st
+                val offsets = Array(renderBreadcrumbs.size) { i ->
+                    toCanvasOffset(renderBreadcrumbs[i].location.x, renderBreadcrumbs[i].location.y)
                 }
 
-                if (minSpeed == Double.MAX_VALUE || maxSpeed == -Double.MAX_VALUE) { minSpeed = 0.0; maxSpeed = 2.5 }
-                if (minStride == Double.MAX_VALUE || maxStride == -Double.MAX_VALUE) { minStride = 0.4; maxStride = 1.2 }
+                // 1. Line segments connecting points
+                val lineStroke = 1.2f * zoomScale.coerceIn(0.5f, 2f)
+                for (i in 1 until renderBreadcrumbs.size) {
+                    val p1 = offsets[i - 1]
+                    val p2 = offsets[i]
 
-                renderBreadcrumbs.forEachIndexed { index, bc ->
-                    val center = toCanvasOffset(bc.location.x, bc.location.y)
+                    val alpha = if (breadcrumbConfig.fadeWithAge) {
+                        0.25f + 0.75f * (i / totalCount)
+                    } else 1.0f
+
+                    val lineColor = if (breadcrumbConfig.colorMode == BreadcrumbColorMode.GPS_PDR) {
+                        if (renderBreadcrumbs[i].isGpsFix) Color(0xFFFF5252).copy(alpha = 0.5f * alpha)
+                        else Color(0xFF00E5FF).copy(alpha = 0.7f * alpha)
+                    } else {
+                        Color(0xFF00E5FF).copy(alpha = 0.6f * alpha)
+                    }
+
+                    drawLine(
+                        color = lineColor,
+                        start = p1,
+                        end = p2,
+                        strokeWidth = lineStroke
+                    )
+                }
+
+                // 2. Dots and accuracy circles
+                val baseDotRadius = breadcrumbConfig.dotDiameterPx * zoomScale.coerceIn(0.5f, 2.0f)
+
+                renderBreadcrumbs.forEachIndexed { i, bc ->
+                    val center = offsets[i]
 
                     val baseColor = when (breadcrumbConfig.colorMode) {
                         BreadcrumbColorMode.GPS_PDR -> {
                             if (bc.isGpsFix) Color(0xFFFF3333) else Color(0xFF2196F3)
                         }
                         BreadcrumbColorMode.SPEED -> {
-                            val speedMps = getBreadcrumbSpeed(index, renderBreadcrumbs)
-                            val range = (maxSpeed - minSpeed).toFloat().coerceAtLeast(0.001f)
-                            val t = ((speedMps - minSpeed) / range).coerceIn(0.0, 1.0).toFloat()
-                            lerp(Color(breadcrumbConfig.speedStartColor), Color(breadcrumbConfig.speedEndColor), t)
+                            val speedMps = getBreadcrumbSpeed(i, renderBreadcrumbs)
+                            val t = ((speedMps - minSpeed) / speedRange).coerceIn(0.0, 1.0).toFloat()
+                            lerp(speedColor1, speedColor2, t)
                         }
                         BreadcrumbColorMode.STRIDE -> {
-                            val stride = getBreadcrumbStride(index, renderBreadcrumbs)
-                            val range = (maxStride - minStride).toFloat().coerceAtLeast(0.001f)
-                            val t = ((stride - minStride) / range).coerceIn(0.0, 1.0).toFloat()
-                            lerp(Color(breadcrumbConfig.strideStartColor), Color(breadcrumbConfig.strideEndColor), t)
+                            val stride = getBreadcrumbStride(i, renderBreadcrumbs)
+                            val t = ((stride - minStride) / strideRange).coerceIn(0.0, 1.0).toFloat()
+                            lerp(strideColor1, strideColor2, t)
                         }
                     }
 
                     val alphaMultiplier = if (breadcrumbConfig.fadeWithAge) {
-                        val progress = if (totalCount > 1f) index / (totalCount - 1f) else 1f
-                        0.2f + 0.8f * progress
-                    } else {
-                        1.0f
-                    }
+                        0.2f + 0.8f * (i / totalCount)
+                    } else 1.0f
 
                     val finalColor = baseColor.copy(alpha = baseColor.alpha * alphaMultiplier)
-
-                    // Draw line segment connecting to previous breadcrumb with width 1.0 and gradient transparency
-                    if (index > 0) {
-                        val prevBc = renderBreadcrumbs[index - 1]
-                        val prevCenter = toCanvasOffset(prevBc.location.x, prevBc.location.y)
-
-                        val prevAlphaMultiplier = if (breadcrumbConfig.fadeWithAge) {
-                            val progress = if (totalCount > 1f) (index - 1) / (totalCount - 1f) else 1f
-                            0.2f + 0.8f * progress
-                        } else {
-                            1.0f
-                        }
-                        val prevColor = baseColor.copy(alpha = baseColor.alpha * prevAlphaMultiplier)
-
-                        drawLine(
-                            brush = Brush.linearGradient(
-                                colors = listOf(prevColor, finalColor),
-                                start = prevCenter,
-                                end = center
-                            ),
-                            start = prevCenter,
-                            end = center,
-                            strokeWidth = 1.0f * zoomScale.coerceIn(0.5f, 2f)
-                        )
-                    }
 
                     if (breadcrumbConfig.showAccuracyCircles && bc.ekfState != null) {
                         val accRadiusPx = (sqrt(bc.ekfState.position.variance) * currentScale).toFloat().coerceIn(4f, 80f)
                         drawCircle(
-                            color = finalColor.copy(alpha = 0.6f * alphaMultiplier),
+                            color = finalColor.copy(alpha = 0.35f * alphaMultiplier),
                             radius = accRadiusPx,
                             center = center,
-                            style = Stroke(width = 1.5f * zoomScale.coerceIn(0.5f, 2f))
+                            style = Stroke(width = 1.0f)
                         )
                     }
 
-                    val dotRadius = breadcrumbConfig.dotDiameterPx * zoomScale.coerceIn(0.5f, 2.0f)
                     drawCircle(
                         color = finalColor,
-                        radius = dotRadius,
+                        radius = baseDotRadius,
                         center = center
                     )
                 }
             }
 
-            // Draw Stationary Rest Stop Circles & Duration Labels
-            if (breadcrumbConfig.showStationaryStops && renderBreadcrumbs.size >= 2) {
-                var stopStartBc: Breadcrumb? = null
-                var stopLastBc: Breadcrumb? = null
+            // --- FEATURE: Draw Combined Stationary Rest Stops within 1 Minute ---
+            if (breadcrumbConfig.showStationaryStops && mergedStationaryStops.isNotEmpty()) {
+                for (stop in mergedStationaryStops) {
+                    val stopCenter = toCanvasOffset(stop.x, stop.y)
 
-                for (i in 0 until renderBreadcrumbs.size) {
-                    val bc = renderBreadcrumbs[i]
-                    val speed = bc.ekfState?.speedMps?.value ?: 0.0
+                    val durationMin = stop.durationSec / 60
+                    val durationSecRem = stop.durationSec % 60
+                    val stopRadiusPx = (16f + (stop.durationSec / 60f).coerceAtMost(20f) * 1.0f) * zoomScale.coerceIn(0.8f, 2.5f)
 
-                    if (speed < 0.3) {
-                        if (stopStartBc == null) {
-                            stopStartBc = bc
-                        }
-                        stopLastBc = bc
-                    } else {
-                        if (stopStartBc != null && stopLastBc != null) {
-                            val durationSec = (stopLastBc.timestampMs - stopStartBc.timestampMs) / 1000L
-                            if (durationSec >= 30L) {
-                                val stopCenter = toCanvasOffset(stopStartBc.location.x, stopStartBc.location.y)
-                                val durationMin = durationSec / 60
-                                val durationSecRem = durationSec % 60
-                                val timeText = if (durationMin > 0) "${durationMin}m ${durationSecRem}s" else "${durationSecRem}s"
+                    drawCircle(
+                        color = Color(0xFFFFB300).copy(alpha = 0.22f),
+                        radius = stopRadiusPx,
+                        center = stopCenter
+                    )
+                    drawCircle(
+                        color = Color(0xFFFFB300),
+                        radius = stopRadiusPx,
+                        center = stopCenter,
+                        style = Stroke(width = 2.0f * zoomScale.coerceIn(0.8f, 2.0f))
+                    )
 
-                                drawCircle(
-                                    color = Color(0xFFFFB300).copy(alpha = 0.25f),
-                                    radius = 16f * zoomScale.coerceIn(0.8f, 2.5f),
-                                    center = stopCenter
-                                )
-                                drawCircle(
-                                    color = Color(0xFFFFB300),
-                                    radius = 16f * zoomScale.coerceIn(0.8f, 2.5f),
-                                    center = stopCenter,
-                                    style = Stroke(width = 2f)
-                                )
+                    val timeText = if (durationMin > 0) "${durationMin}m ${durationSecRem}s" else "${durationSecRem}s"
+                    val labelText = "Stopped $timeText"
+                    val textResult = textMeasurer.measure(
+                        text = labelText,
+                        style = TextStyle(
+                            color = Color(0xFFFFD700),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    )
 
-                                val textResult = textMeasurer.measure(
-                                    text = "Stopped $timeText",
-                                    style = TextStyle(color = Color(0xFFFFD700), fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                                )
-                                drawText(
-                                    textLayoutResult = textResult,
-                                    topLeft = Offset(stopCenter.x - textResult.size.width / 2f, stopCenter.y + 18f)
-                                )
-                            }
-                        }
-                        stopStartBc = null
-                        stopLastBc = null
-                    }
+                    val labelX = stopCenter.x - textResult.size.width / 2f
+                    val labelY = stopCenter.y + stopRadiusPx + 4f
+
+                    drawRect(
+                        color = Color.Black.copy(alpha = 0.65f),
+                        topLeft = Offset(labelX - 4f, labelY - 2f),
+                        size = Size(
+                            textResult.size.width + 8f,
+                            textResult.size.height + 4f
+                        )
+                    )
+
+                    drawText(
+                        textLayoutResult = textResult,
+                        topLeft = Offset(labelX, labelY)
+                    )
                 }
             }
 
-            // Draw current active EKF position indicator (only if initialized)
+            // Draw current active EKF position indicator
             if (activeEkfState.isInitializedWithGps) {
                 val activePos = activeEkfState.position.value
                 val currentCenter = toCanvasOffset(activePos.x, activePos.y)
@@ -820,7 +931,7 @@ fun MapScreen(
                 )
             }
 
-            // Draw direct line from current hiker position to current leg target waypoint
+            // Draw direct line from current hiker position to target waypoint
             val activeTarget = currentTargetWaypoint ?: activeLeg?.target ?: route?.legs?.firstOrNull()?.target
             if (activeEkfState.isInitializedWithGps && activeTarget != null) {
                 val activePos = activeEkfState.position.value
@@ -854,7 +965,7 @@ fun MapScreen(
             )
         }
 
-        // Color Legend Overlay Card for Speed / Stride Color Modes (only shown when breadcrumbs exist on screen)
+        // Color Legend Overlay Card
         if (breadcrumbConfig.showBreadcrumbs && validBreadcrumbs.isNotEmpty() && (breadcrumbConfig.colorMode == BreadcrumbColorMode.SPEED || breadcrumbConfig.colorMode == BreadcrumbColorMode.STRIDE)) {
             val isSpeed = breadcrumbConfig.colorMode == BreadcrumbColorMode.SPEED
             val minVal = if (isSpeed) minSpeed * 3.6 else minStride
@@ -904,7 +1015,7 @@ fun MapScreen(
             }
         }
 
-        // Lower Right Corner Controls (Fit All button and Gear Icon Settings button)
+        // Lower Right Corner Controls
         Row(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
@@ -937,7 +1048,7 @@ fun MapScreen(
             }
         }
 
-        // 5-Tab Settings Overhaul Dialog
+        // Settings Dialog
         if (showSettingsDialog) {
             var selectedTabIndex by remember { mutableIntStateOf(com.example.irishhike.repository.HikeRepository.loadSettingsTab()) }
             val tabs = listOf("Map", "Breadcrumbs", "Audio", "Navigation", "Dev")
@@ -992,6 +1103,26 @@ fun MapScreen(
     }
 }
 
+/**
+ * Formats coordinates for adaptive decade gridlines.
+ * Power 0 (1m) -> 5-digit local meters (00000 to 99999)
+ * Power 1 (10m) -> 4-digit (0000 to 9999)
+ * Power 2 (100m) -> 3-digit (000 to 999)
+ * Power 3 (1km) -> 2-digit kilometer number (00 to 99)
+ * Power 4 (10km) -> 10km decade marker
+ */
+private fun formatGridLabel(coordMeters: Int, power: Int): String {
+    val localMeters = (coordMeters % 100000).let { if (it < 0) it + 100000 else it }
+    return when (power) {
+        0 -> String.format(Locale.US, "%05d", localMeters)
+        1 -> String.format(Locale.US, "%04d", localMeters / 10)
+        2 -> String.format(Locale.US, "%03d", localMeters / 100)
+        3 -> String.format(Locale.US, "%02d", (localMeters / 1000) % 100)
+        4 -> String.format(Locale.US, "%d0", (localMeters / 10000) % 10)
+        else -> String.format(Locale.US, "%d", coordMeters / 1000)
+    }
+}
+
 @Composable
 private fun MapSettingsTab(
     mapConfig: MapConfig,
@@ -1034,8 +1165,8 @@ private fun MapSettingsTab(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text("1km Gridlines", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                Text("Display 1km major Irish gridlines", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Major Gridlines", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                Text("Adaptive decade lines with labels (max 5 per axis)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Switch(
                 checked = mapConfig.show1kmGrid,
@@ -1049,8 +1180,8 @@ private fun MapSettingsTab(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text("100m Gridlines", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                Text("Display 100m minor Irish gridlines", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Minor Gridlines", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                Text("10x smaller subdivision lines without labels", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Switch(
                 checked = mapConfig.show100mGrid,
@@ -1164,7 +1295,7 @@ private fun BreadcrumbsSettingsTab(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text("Stationary Rest Stops", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                Text("Circle & duration label when stationary > 30s", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Combined circle and duration when stationary for 30s or more", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Switch(
                 checked = breadcrumbConfig.showStationaryStops,

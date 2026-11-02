@@ -4,21 +4,21 @@ import com.example.irishhike.data.EkfState
 import com.example.irishhike.data.Estimate
 import com.example.irishhike.data.Vector2D
 import com.example.irishhike.util.CoordinateUtils
-import com.example.irishhike.util.GpsValidationResult
-import com.example.irishhike.util.GpsValidationUtils
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
+import kotlin.math.exp
+import kotlin.math.hypot
 import kotlin.math.sin
 import kotlin.math.sqrt
 
 data class EkfConfig(
-    val qDiag: DoubleArray = doubleArrayOf(0.01, 0.01, 0.01, 0.01, 0.0001, 0.005),
+    val qDiag: DoubleArray = doubleArrayOf(0.01, 0.01, 0.01, 0.01, 0.0001, 0.002),
     val initialPosVariance: Double = 100.0,
     val initialVelVariance: Double = 0.1,
     val initialStrideVariance: Double = 0.02,
-    val initialBiasVariance: Double = 0.5,
+    val initialBiasVariance: Double = 0.2,
     val minStrideMeters: Double = 0.4,
     val maxStrideMeters: Double = 1.3
 ) {
@@ -81,7 +81,7 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
 
     @Synchronized
     fun setHeadingRad(headingRad: Double) {
-        currentHeadingRad = headingRad
+        currentHeadingRad = normalizeAngleRad(headingRad)
     }
 
     init {
@@ -121,10 +121,26 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
             return getEkfState()
         }
 
+        val clampedDt = dtSec.coerceIn(0.01, 2.0)
+        val now = System.currentTimeMillis()
+        val timeSinceLastStepSec = if (lastStepTimestampMs > 0L) {
+            (now - lastStepTimestampMs) / 1000.0
+        } else {
+            2.0
+        }
+
+        // Velocity decay if stationary / no steps
+        if (timeSinceLastStepSec > 1.2) {
+            val decay = exp(-3.0 * clampedDt)
+            x[IDX_VX] *= decay
+            x[IDX_VY] *= decay
+        }
+
+        // Covariance propagation P = F * P * F^T + Q
         val f = Array(6) { DoubleArray(6) }
         for (i in 0..5) f[i][i] = 1.0
-        f[IDX_X][IDX_VX] = dtSec
-        f[IDX_Y][IDX_VY] = dtSec
+        f[IDX_X][IDX_VX] = clampedDt
+        f[IDX_Y][IDX_VY] = clampedDt
 
         val fp = Array(6) { DoubleArray(6) }
         for (i in 0..5) {
@@ -145,11 +161,15 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
                 }
                 p[i][j] = sum
             }
-            p[i][i] += config.qDiag[i] * dtSec
+            p[i][i] += config.qDiag[i] * clampedDt
         }
 
-        p[IDX_X][IDX_X] = p[IDX_X][IDX_X].coerceAtMost(100.0)
-        p[IDX_Y][IDX_Y] = p[IDX_Y][IDX_Y].coerceAtMost(100.0)
+        // DO NOT add velocity to position here! Position is already integrated in onStepDetected().
+
+        // Ensure diagonal variances stay strictly positive and bounded
+        for (i in 0..5) {
+            if (p[i][i] < 1e-6 || p[i][i].isNaN()) p[i][i] = 1e-4
+        }
 
         return getEkfState()
     }
@@ -158,16 +178,16 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
     fun onStepDetected(headingRawRad: Double, timestampMs: Long) {
         if (!isInitializedWithGps) return
 
-        val currentSpeedMps = kotlin.math.hypot(x[IDX_VX], x[IDX_VY])
-        // Suppress PDR step integration when vehicle speed > 3.0 m/s is detected
-        if (currentSpeedMps > 3.0) return
+        val currentSpeedMps = hypot(x[IDX_VX], x[IDX_VY])
+        // Suppress step integration if vehicle speed (> 3.5 m/s) is detected
+        if (currentSpeedMps > 3.5) return
 
         stepCount++
-        currentHeadingRad = headingRawRad
+        currentHeadingRad = normalizeAngleRad(headingRawRad)
         val bTheta = x[IDX_COMPASS_BIAS]
-        val correctedHeading = normalizeAngleRad(headingRawRad - bTheta)
+        val correctedHeading = normalizeAngleRad(currentHeadingRad - bTheta)
 
-        val dtStepSec = if (lastStepTimestampMs > 0) {
+        val dtStepSec = if (lastStepTimestampMs > 0L) {
             (timestampMs - lastStepTimestampMs) / 1000.0
         } else {
             0.6
@@ -176,7 +196,7 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
 
         val strideL = x[IDX_STRIDE]
 
-        // Update velocity
+        // Instantaneous pedestrian velocity for this step
         x[IDX_VX] = (strideL * sin(correctedHeading)) / dtStepSec
         x[IDX_VY] = (strideL * cos(correctedHeading)) / dtStepSec
 
@@ -192,12 +212,6 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
         fStep[IDX_Y][IDX_STRIDE] = cos(correctedHeading)
         fStep[IDX_X][IDX_COMPASS_BIAS] = -strideL * cos(correctedHeading)
         fStep[IDX_Y][IDX_COMPASS_BIAS] = strideL * sin(correctedHeading)
-
-        // Decouple velocity from compass bias in F_step to prevent variance explosion
-        fStep[IDX_VX][IDX_STRIDE] = 0.0
-        fStep[IDX_VY][IDX_STRIDE] = 0.0
-        fStep[IDX_VX][IDX_COMPASS_BIAS] = 0.0
-        fStep[IDX_VY][IDX_COMPASS_BIAS] = 0.0
 
         // Propagate P = F_step * P * F_step^T
         val fp = Array(6) { DoubleArray(6) }
@@ -224,8 +238,8 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
         p[IDX_STRIDE][IDX_STRIDE] += config.qDiag[IDX_STRIDE]
         p[IDX_COMPASS_BIAS][IDX_COMPASS_BIAS] += config.qDiag[IDX_COMPASS_BIAS]
 
-        p[IDX_X][IDX_X] = p[IDX_X][IDX_X].coerceAtMost(100.0)
-        p[IDX_Y][IDX_Y] = p[IDX_Y][IDX_Y].coerceAtMost(100.0)
+        p[IDX_X][IDX_X] = p[IDX_X][IDX_X].coerceIn(0.1, 150.0)
+        p[IDX_Y][IDX_Y] = p[IDX_Y][IDX_Y].coerceIn(0.1, 150.0)
     }
 
     @Synchronized
@@ -237,41 +251,50 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
         if (!isInitializedWithGps) {
             x[IDX_X] = gpsLocation.x
             x[IDX_Y] = gpsLocation.y
-            p[IDX_X][IDX_X] = (accuracyMeters * accuracyMeters).toDouble().coerceIn(1.0, 100.0)
-            p[IDX_Y][IDX_Y] = (accuracyMeters * accuracyMeters).toDouble().coerceIn(1.0, 100.0)
+            val initialVar = (accuracyMeters * accuracyMeters).toDouble().coerceIn(4.0, 100.0)
+            p[IDX_X][IDX_X] = initialVar
+            p[IDX_Y][IDX_Y] = initialVar
             isInitializedWithGps = true
             return getEkfState(activeIntervalMs)
         }
 
         val deltaX = gpsLocation.x - x[IDX_X]
         val deltaY = gpsLocation.y - x[IDX_Y]
-        val rVar = (accuracyMeters * accuracyMeters).toDouble().coerceAtLeast(1.0)
+        val rVar = (accuracyMeters * accuracyMeters).toDouble().coerceAtLeast(4.0)
 
         val correctedHeading = normalizeAngleRad(currentHeadingRad - x[IDX_COMPASS_BIAS])
         val crossTrackErr = abs(deltaX * cos(correctedHeading) - deltaY * sin(correctedHeading))
+        val currentSpeed = hypot(x[IDX_VX], x[IDX_VY])
 
-        // Adaptive compass bias variance inflation on large cross-track drift
-        if (crossTrackErr > 2.0) {
-            p[IDX_COMPASS_BIAS][IDX_COMPASS_BIAS] = (p[IDX_COMPASS_BIAS][IDX_COMPASS_BIAS] + 0.05 * crossTrackErr * crossTrackErr).coerceAtMost(2.0)
+        // --- COMPASS BIAS INFLATION GUARD ---
+        // ONLY inflate compass bias uncertainty if:
+        // 1. GPS fix is clean and accurate (accuracy <= 8.0m)
+        // 2. The hiker is actively moving (speed >= 0.4 m/s)
+        // When the phone is in a pocket, degraded GPS fixes (accuracy > 15m) would
+        // otherwise cause crossTrackErr to blow compass bias uncertainty out of control.
+        if (accuracyMeters <= 8.0f && currentSpeed >= 0.4 && crossTrackErr > 2.5) {
+            val clampedErr = crossTrackErr.coerceAtMost(6.0)
+            val inflation = 0.02 * clampedErr * clampedErr
+            p[IDX_COMPASS_BIAS][IDX_COMPASS_BIAS] = (p[IDX_COMPASS_BIAS][IDX_COMPASS_BIAS] + inflation).coerceAtMost(0.4)
         }
 
-        // Direct position observation updates
+        // Direct position observation updates (X and Y independently)
         val hX = doubleArrayOf(1.0, 0.0, 0.0, 0.0, 0.0, 0.0)
         updateScalarObservation(deltaX, hX, rVar)
 
         val hY = doubleArrayOf(0.0, 1.0, 0.0, 0.0, 0.0, 0.0)
         updateScalarObservation(deltaY, hY, rVar)
 
-        // Clamp velocity to human hiking speed ceiling (3.0 m/s max)
-        val speedMps = kotlin.math.hypot(x[IDX_VX], x[IDX_VY])
+        // Clamp velocity to human walking ceiling
+        val speedMps = hypot(x[IDX_VX], x[IDX_VY])
         if (speedMps > 3.0) {
             val scale = 3.0 / speedMps
             x[IDX_VX] *= scale
             x[IDX_VY] *= scale
         }
 
-        p[IDX_X][IDX_X] = p[IDX_X][IDX_X].coerceAtMost(100.0)
-        p[IDX_Y][IDX_Y] = p[IDX_Y][IDX_Y].coerceAtMost(100.0)
+        p[IDX_X][IDX_X] = p[IDX_X][IDX_X].coerceIn(0.1, 150.0)
+        p[IDX_Y][IDX_Y] = p[IDX_Y][IDX_Y].coerceIn(0.1, 150.0)
 
         x[IDX_STRIDE] = x[IDX_STRIDE].coerceIn(config.minStrideMeters, config.maxStrideMeters)
         x[IDX_COMPASS_BIAS] = normalizeAngleRad(x[IDX_COMPASS_BIAS])
@@ -291,30 +314,49 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
             s += h[i] * sum
         }
 
-        if (s <= 1e-9) return
+        if (s <= 1e-6 || s.isNaN()) return
 
-        val k = DoubleArray(6) { phT[it] / s }
+        // Kalman gain K
+        val k = DoubleArray(6) { (phT[it] / s).coerceIn(-5.0, 5.0) }
 
+        // Clamp state correction to prevent wild jumps
         for (i in 0..5) {
-            x[i] += k[i] * residual
+            val delta = k[i] * residual
+            // Never allow a single observation to teleport position by > 50m
+            val clampedDelta = if (i == IDX_X || i == IDX_Y) delta.coerceIn(-50.0, 50.0) else delta
+            x[i] += clampedDelta
         }
 
-        val newP = Array(6) { DoubleArray(6) }
+        // Joseph form covariance update: P = (I - KH) * P * (I - KH)^T + K * R * K^T
+        // Guaranteed mathematically to stay symmetric and positive semi-definite!
+        val iMinusKh = Array(6) { DoubleArray(6) }
+        for (i in 0..5) {
+            for (j in 0..5) {
+                iMinusKh[i][j] = (if (i == j) 1.0 else 0.0) - k[i] * h[j]
+            }
+        }
+
+        val temp = Array(6) { DoubleArray(6) }
         for (i in 0..5) {
             for (j in 0..5) {
                 var sum = 0.0
                 for (m in 0..5) {
-                    val eyeMinusKh = (if (i == m) 1.0 else 0.0) - k[i] * h[m]
-                    sum += eyeMinusKh * p[m][j]
+                    sum += iMinusKh[i][m] * p[m][j]
                 }
-                newP[i][j] = sum
+                temp[i][j] = sum
             }
         }
 
         for (i in 0..5) {
             for (j in 0..5) {
-                p[i][j] = newP[i][j]
+                var sum = 0.0
+                for (m in 0..5) {
+                    sum += temp[i][m] * iMinusKh[j][m]
+                }
+                p[i][j] = sum + k[i] * k[j] * rVar
             }
+            // Force positive diagonal variance
+            p[i][i] = p[i][i].coerceAtLeast(1e-4)
         }
     }
 
@@ -327,12 +369,14 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
         val velYVar = p[IDX_VY][IDX_VY].coerceAtLeast(1e-4)
         val velVarCombined = sqrt(velXVar * velXVar + velYVar * velYVar)
 
+        val biasVar = p[IDX_COMPASS_BIAS][IDX_COMPASS_BIAS].coerceAtLeast(1e-4)
+
         return EkfState(
             timestampMs = System.currentTimeMillis(),
             position = Estimate(Vector2D(x[IDX_X], x[IDX_Y]), posVarCombined),
             velocity = Estimate(Vector2D(x[IDX_VX], x[IDX_VY]), velVarCombined),
-            bearingRad = Estimate(normalizeAngleRad(currentHeadingRad - x[IDX_COMPASS_BIAS]), p[IDX_COMPASS_BIAS][IDX_COMPASS_BIAS]),
-            compassBiasRad = Estimate(x[IDX_COMPASS_BIAS], p[IDX_COMPASS_BIAS][IDX_COMPASS_BIAS]),
+            bearingRad = Estimate(normalizeAngleRad(currentHeadingRad - x[IDX_COMPASS_BIAS]), biasVar),
+            compassBiasRad = Estimate(x[IDX_COMPASS_BIAS], biasVar),
             strideLengthMeters = Estimate(x[IDX_STRIDE], p[IDX_STRIDE][IDX_STRIDE]),
             stepCount = stepCount,
             gpsFixCount = gpsFixCount,

@@ -7,13 +7,15 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.SystemClock
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.sqrt
 
 data class StepDetectorConfig(
-    val stepThreshold: Double = 11.2,
-    val minStepIntervalMs: Long = 300L,
-    val alpha: Double = 0.15
+    val stepThresholdDelta: Double = 1.35,  // Dynamic peak threshold above gravity baseline
+    val minStepIntervalMs: Long = 320L,     // Max human step rate ~3.1 steps/sec
+    val maxStepIntervalMs: Long = 2000L,
+    val alpha: Double = 0.18
 )
 
 class PdrStepDetector(
@@ -30,12 +32,16 @@ class PdrStepDetector(
     private var isListening = false
 
     // Step detection parameters
-    private var accelFiltered = 9.81
+    private var gravityEstimate = 9.80665
+    private var accelFiltered = 9.80665
     private var lastPeakTimestampMs = 0L
+    private var isArmedForStep = false
 
-    // Heading calculation
+    // Heading calculation & matrices
     private val rotationMatrix = FloatArray(9)
+    private val remappedMatrix = FloatArray(9)
     private val orientationAngles = FloatArray(3)
+
     @Volatile
     private var currentHeadingRad: Double = 0.0
 
@@ -43,13 +49,14 @@ class PdrStepDetector(
         if (isListening) return
         isListening = true
 
+        // Use maxReportLatencyUs = 0 to forbid sensor batching when screen is turned off
         accelSensor?.let {
-            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
+            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME, 0)
         }
         rotationVectorSensor?.let {
-            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
+            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME, 0)
         } ?: gyroSensor?.let {
-            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
+            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME, 0)
         }
     }
 
@@ -60,8 +67,8 @@ class PdrStepDetector(
     }
 
     override fun onSensorChanged(event: SensorEvent) {
-        val eventTimestampMs = if (event.timestamp > 0) {
-            // Convert elapsed realtime nanos to current wall-clock epoch milliseconds
+        val eventTimestampMs = if (event.timestamp > 0L) {
+            // Convert hardware sensor monotonic nanos to current wall-clock epoch ms
             System.currentTimeMillis() - (SystemClock.elapsedRealtimeNanos() - event.timestamp) / 1_000_000L
         } else {
             System.currentTimeMillis()
@@ -70,31 +77,64 @@ class PdrStepDetector(
         when (event.sensor.type) {
             Sensor.TYPE_ROTATION_VECTOR -> {
                 SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
-                SensorManager.getOrientation(rotationMatrix, orientationAngles)
-                // Azimuth angle in radians clockwise from North
+
+                // Remap coordinate system if phone is held upright or in pocket
+                // Check if device is tilted vertically (> 45 degrees inclination)
+                val isUpright = abs(rotationMatrix[7]) > 0.707f
+                val targetMatrix = if (isUpright) {
+                    SensorManager.remapCoordinateSystem(
+                        rotationMatrix,
+                        SensorManager.AXIS_X,
+                        SensorManager.AXIS_Z,
+                        remappedMatrix
+                    )
+                    remappedMatrix
+                } else {
+                    rotationMatrix
+                }
+
+                SensorManager.getOrientation(targetMatrix, orientationAngles)
                 var azimuth = orientationAngles[0].toDouble()
-                if (azimuth < 0) azimuth += 2 * PI
+                if (azimuth < 0.0) {
+                    azimuth += 2.0 * PI
+                }
                 currentHeadingRad = azimuth
             }
+
             Sensor.TYPE_ACCELEROMETER -> {
                 val ax = event.values[0]
                 val ay = event.values[1]
                 val az = event.values[2]
-                val mag = sqrt((ax * ax + ay * ay + az * az).toDouble())
+                val rawMag = sqrt((ax * ax + ay * ay + az * az).toDouble())
 
-                // Apply low pass filter
-                accelFiltered = accelFiltered + config.alpha * (mag - accelFiltered)
+                // Slow baseline tracker (tracks true gravity 1g)
+                gravityEstimate = gravityEstimate + 0.02 * (rawMag - gravityEstimate)
 
-                if (accelFiltered > config.stepThreshold && (eventTimestampMs - lastPeakTimestampMs) > config.minStepIntervalMs) {
+                // Low-pass filtered acceleration
+                accelFiltered = accelFiltered + config.alpha * (rawMag - accelFiltered)
+                val dynamicDelta = accelFiltered - gravityEstimate
+
+                // Peak & Valley detection:
+                // When dynamic acceleration dips below -0.4, arm for the next strike peak
+                if (dynamicDelta < -0.4) {
+                    isArmedForStep = true
+                }
+
+                // Trigger step when rising above threshold and armed
+                val timeSinceLastPeak = eventTimestampMs - lastPeakTimestampMs
+                if (isArmedForStep && dynamicDelta > config.stepThresholdDelta && timeSinceLastPeak > config.minStepIntervalMs) {
                     lastPeakTimestampMs = eventTimestampMs
+                    isArmedForStep = false
                     onStepListener(currentHeadingRad, eventTimestampMs)
                 }
             }
+
             Sensor.TYPE_GYROSCOPE -> {
+                // Fallback gyro integration if rotation vector is unavailable
                 if (rotationVectorSensor == null) {
-                    val gx = event.values[0].toDouble()
-                    val gy = event.values[1].toDouble()
-                    currentHeadingRad += (atan2(gy, gx) * 0.02)
+                    val gz = event.values[2].toDouble() // yaw rate around Z
+                    currentHeadingRad = (currentHeadingRad + gz * 0.02) % (2.0 * PI)
+                    if (currentHeadingRad < 0.0) currentHeadingRad += 2.0 * PI
                 }
             }
         }
