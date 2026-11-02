@@ -306,6 +306,8 @@ class Hike(var route: Route?, val config: HikeConfig = HikeConfig()) {
         return null
     }
 
+    // gemini 3.8 suggests wrapping update in synchronized cos of possible lost update.
+    @Synchronized
     fun update(
         location: Location,
         timestampMs: Long = System.currentTimeMillis(),

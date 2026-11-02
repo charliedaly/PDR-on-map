@@ -103,7 +103,9 @@ class PdrTrackingService : Service() {
             startForeground(NOTIFICATION_ID, notification)
         }
 
-        wakeLock?.acquire(10 * 60 * 1000L /* 10 minutes timeout */)
+        // wakeLock?.acquire(10 * 60 * 1000L /* 10 minutes timeout */) gemini 3.8 says to get rid of it, cos will stop.
+        wakeLock?.acquire()
+
         stepDetector.start()
         startLocationUpdates(activeGpsIntervalMs)
         start1HzPredictionTicker()
