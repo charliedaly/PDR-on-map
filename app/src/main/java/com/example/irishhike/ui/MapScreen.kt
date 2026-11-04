@@ -46,6 +46,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -60,6 +61,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
@@ -89,6 +91,7 @@ import kotlin.math.pow
 import kotlin.math.round
 import kotlin.math.sin
 import kotlin.math.sqrt
+import kotlin.math.roundToInt
 
 data class StationaryStop(
     val x: Double,
@@ -407,7 +410,7 @@ fun MapScreen(
                 // --- Draw Offline OSM Map Background Tiles ---
                 if (mapConfig.showOsmBackground) {
                     try {
-                        val autoZoom = round(kotlin.math.log2(93113.0 * currentScale)).toInt().coerceIn(8, 18)
+                        val autoZoom = round(kotlin.math.log2(93113.0 * currentScale)).toInt().coerceIn(8, 17)
                         val baseZoom = autoZoom.coerceAtMost(14)
 
                         val drawSingleTile: (com.example.irishhike.util.MetricTileCorners, Boolean) -> Unit = { tile, fromCacheOnly ->
@@ -946,6 +949,223 @@ fun MapScreen(
                     pathEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 8f), 0f)
                 )
             }
+
+            // ========================================================
+            // Zoom Indicator Gauge (Lower Right, above Fit All button)
+            // ========================================================
+            if (currentScale > 0.0) {
+                val minGaugeZoom = 10.0f
+                val maxTileZoom = 17.0f
+                val maxOverzoom = 20.0f
+
+                // Continuous zoom level derived from canvas scale
+                val continuousZoom = (kotlin.math.log2(93113.0 * currentScale)).toFloat()
+
+                val gaugeHeightPx = 110f
+                val gaugeBottomY = heightPx - 58.dp.toPx() // Clears the Fit All / Gear buttons
+                val gaugeTopY = gaugeBottomY - gaugeHeightPx
+                //val gaugeX = widthPx - 28.dp.toPx()
+                val gaugeX = widthPx - 10.dp.toPx()
+
+                fun zoomToGaugeY(z: Float): Float {
+                    val clamped = z.coerceIn(minGaugeZoom, maxOverzoom)
+                    val fraction = (clamped - minGaugeZoom) / (maxOverzoom - minGaugeZoom)
+                    return gaugeBottomY - fraction * gaugeHeightPx
+                }
+
+                val y10 = zoomToGaugeY(10f)
+                val y17 = zoomToGaugeY(17f)
+                val y20 = zoomToGaugeY(20f)
+                val yCurrent = zoomToGaugeY(continuousZoom)
+
+                // 1. Semi-transparent dark background card
+                drawRoundRect(
+                    color = Color(0xCC0F172A),
+                    // topLeft = Offset(gaugeX - 24f, gaugeTopY - 10f),
+                    topLeft = Offset(gaugeX - 40f, gaugeTopY - 5f),
+                    size = Size(60f, gaugeHeightPx + 20f),
+                    cornerRadius = CornerRadius(6f, 6f)
+                )
+
+                // 2. Standard Tile Range Line (10..17, solid sky blue)
+                drawLine(
+                    color = Color(0xFF38BDF8),
+                    start = Offset(gaugeX, y10),
+                    end = Offset(gaugeX, y17),
+                    strokeWidth = 2.5f
+                )
+
+                // 3. Space beyond max zoom for overzooming (17..20, dashed amber)
+                drawLine(
+                    color = Color(0xFFFBBF24),
+                    start = Offset(gaugeX, y17),
+                    end = Offset(gaugeX, y20),
+                    strokeWidth = 2.5f,
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 3f), 0f)
+                )
+
+                // 4. Indicator 1: Min Zoom (10) on the left
+                drawLine(
+                    color = Color(0xFF94A3B8),
+                    start = Offset(gaugeX - 6f, y10),
+                    end = Offset(gaugeX, y10),
+                    strokeWidth = 2.0f
+                )
+                val text10 = textMeasurer.measure(
+                    text = "10",
+                    style = TextStyle(
+                        color = Color(0xFF94A3B8),
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                )
+                drawText(
+                    textLayoutResult = text10,
+                    topLeft = Offset(gaugeX - 8f - text10.size.width, y10 - text10.size.height / 2f)
+                )
+
+                // 5. Indicator 2: Max Tile Zoom (17) on the left
+                drawLine(
+                    color = Color(0xFF38BDF8),
+                    start = Offset(gaugeX - 6f, y17),
+                    end = Offset(gaugeX, y17),
+                    strokeWidth = 2.0f
+                )
+                val text17 = textMeasurer.measure(
+                    text = "17",
+                    style = TextStyle(
+                        color = Color(0xFF38BDF8),
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                )
+                drawText(
+                    textLayoutResult = text17,
+                    topLeft = Offset(gaugeX - 8f - text17.size.width, y17 - text17.size.height / 2f)
+                )
+
+                // 6. Small arrow on the right pointing to current zoom level
+                val arrowPath = Path().apply {
+                    moveTo(gaugeX + 3f, yCurrent)        // Arrow tip pointing at the line
+                    lineTo(gaugeX + 9f, yCurrent - 4.5f) // Top right
+                    lineTo(gaugeX + 9f, yCurrent + 4.5f) // Bottom right
+                    close()
+                }
+                drawPath(arrowPath, color = Color(0xFFFBBF24))
+
+                /** I don't want the numeric readout.
+                // Current zoom numeric readout (right of the arrow)
+                val currentZoomStr = if (continuousZoom >= 17.0f) {
+                    String.format(Locale.US, "%.1f", continuousZoom)
+                } else {
+                    "${continuousZoom.roundToInt()}"
+                }
+                val textCurrent = textMeasurer.measure(
+                    text = currentZoomStr,
+                    style = TextStyle(
+                        color = Color(0xFFFBBF24),
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                )
+                drawText(
+                    textLayoutResult = textCurrent,
+                    topLeft = Offset(gaugeX + 11f, yCurrent - textCurrent.size.height / 2f)
+                )
+                */
+                // ========================================================
+                // Map Scale Bar (Lower Left)
+                // 1, 5, or 10 of minor grid scale, closest to 1/5th screen width
+                // ========================================================
+                if (currentScale > 0.0) {
+                    val screenWidthMeters = widthPx / currentScale
+                    val targetMeters = screenWidthMeters / 5.0 // 1/5th screen width
+
+                    // Minor grid based on power of 10 decade scaling
+                    val powerK = kotlin.math.ceil(kotlin.math.log10(screenWidthMeters / 5.0)).toInt()
+                    val majorGridMeters = 10.0.pow(powerK)
+                    val minorGridMeters = majorGridMeters / 10.0
+
+                    // The 3 candidate distances: 1, 5, or 10 of minor grid
+                    val candidate1 = 1.0 * minorGridMeters
+                    val candidate5 = 5.0 * minorGridMeters
+                    val candidate10 = 10.0 * minorGridMeters
+
+                    val chosenMeters = listOf(candidate1, candidate5, candidate10)
+                        .minByOrNull { kotlin.math.abs(it - targetMeters) } ?: candidate5
+
+                    val barWidthPx = (chosenMeters * currentScale).toFloat()
+
+                    // Format text label (e.g. "500 m", "1 km", "5 km")
+                    val scaleText = if (chosenMeters >= 1000.0) {
+                        val km = chosenMeters / 1000.0
+                        if (km % 1.0 == 0.0) "${km.toInt()} km" else String.format(Locale.US, "%.1f km", km)
+                    } else {
+                        "${chosenMeters.toInt()} m"
+                    }
+
+                    // Lower-left positioning
+                    val scaleLeftX = 14.dp.toPx()
+                    val scaleRightX = scaleLeftX + barWidthPx
+                    val scaleBaselineY = heightPx - 46.dp.toPx() // Above bottom navigation bar
+
+                    val scaleTextResult = textMeasurer.measure(
+                        text = scaleText,
+                        style = TextStyle(
+                            color = Color.White,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    )
+
+                    // Semi-transparent dark background card
+                    val bgPadding = 6.dp.toPx()
+                    val bgTop = scaleBaselineY - scaleTextResult.size.height - 4f
+                    val bgHeight = scaleTextResult.size.height + 12.dp.toPx()
+                    drawRoundRect(
+                        color = Color(0xCC0F172A),
+                        topLeft = Offset(scaleLeftX - bgPadding, bgTop - 2f),
+                        size = Size(barWidthPx + bgPadding * 2f, bgHeight),
+                        cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx())
+                    )
+
+                    // Centered text label above the scale bar
+                    val textX = scaleLeftX + (barWidthPx - scaleTextResult.size.width) / 2f
+                    val textY = scaleBaselineY - scaleTextResult.size.height - 2f
+                    drawText(
+                        textLayoutResult = scaleTextResult,
+                        topLeft = Offset(textX, textY)
+                    )
+
+                    // Horizontal scale bar line
+                    drawLine(
+                        color = Color.White,
+                        start = Offset(scaleLeftX, scaleBaselineY),
+                        end = Offset(scaleRightX, scaleBaselineY),
+                        strokeWidth = 2.0f
+                    )
+
+                    // Left vertical tick mark
+                    drawLine(
+                        color = Color.White,
+                        start = Offset(scaleLeftX, scaleBaselineY - 4.dp.toPx()),
+                        end = Offset(scaleLeftX, scaleBaselineY + 4.dp.toPx()),
+                        strokeWidth = 2.0f
+                    )
+
+                    // Right vertical tick mark
+                    drawLine(
+                        color = Color.White,
+                        start = Offset(scaleRightX, scaleBaselineY - 4.dp.toPx()),
+                        end = Offset(scaleRightX, scaleBaselineY + 4.dp.toPx()),
+                        strokeWidth = 2.0f
+                    )
+                }
+            }
         }
 
         // Status overlay badge
@@ -1442,7 +1662,7 @@ private fun NavigationSettingsTab(
                     onClick = {
                         isDownloadingRoute = true
                         coroutineScope.launch {
-                            val count = OsmTileManager.downloadRouteAreaTiles(context, route, listOf(10, 11, 12, 13, 14, 15, 16, 17, 18)) { current, total ->
+                            val count = OsmTileManager.downloadRouteAreaTiles(context, route, listOf(10, 11, 12, 13, 14, 15, 16, 17)) { current, total ->
                                 routeProgressText = "$current / $total"
                             }
                             isDownloadingRoute = false
