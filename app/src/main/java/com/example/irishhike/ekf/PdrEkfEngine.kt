@@ -75,6 +75,7 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
         get() = isInitializedWithGps
 
     private var lastStepTimestampMs: Long = 0L
+    private var lastGpsTimestampMs: Long = 0L
     private var currentHeadingRad: Double = 0.0
     private var stepCount: Int = 0
     private var gpsFixCount: Int = 0
@@ -110,6 +111,7 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
 
         isInitializedWithGps = false
         lastStepTimestampMs = 0L
+        lastGpsTimestampMs = 0L
         currentHeadingRad = 0.0
         stepCount = 0
         gpsFixCount = 0
@@ -243,7 +245,7 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
     }
 
     @Synchronized
-    fun onGpsFix(lat: Double, lon: Double, accuracyMeters: Float, activeIntervalMs: Long): EkfState {
+    fun onGpsFix(lat: Double, lon: Double, accuracyMeters: Float, activeIntervalMs: Long, timestampMs: Long = System.currentTimeMillis()): EkfState {
         gpsFixCount++
 
         val gpsLocation = CoordinateUtils.latLonToMetric(lat, lon)
@@ -258,14 +260,37 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
             return getEkfState(activeIntervalMs)
         }
 
+        // --- TIME INTERVAL CALCULATION ---
+        val dtGpsSec = if (lastGpsTimestampMs > 0L) {
+            ((timestampMs - lastGpsTimestampMs) / 1000.0).coerceIn(0.1, 300.0)
+        } else {
+            1.0
+        }
+        lastGpsTimestampMs = timestampMs
+
         val deltaX = gpsLocation.x - x[IDX_X]
         val deltaY = gpsLocation.y - x[IDX_Y]
+
+        // --- OUTLIER / STALE FIX GUARD ---
+        // Allow for normal walking (1.5 m/s) plus 25m margin over the time elapsed.
+        // If GPS was gone for 60s, allow up to (25 + 60 * 1.5) = 115m.
+        // But if GPS came just 1s ago, drop any impossible jump > 26.5m.
+        val distanceToGps = hypot(deltaX, deltaY)
+        val maxAllowableDistance = 25.0 + (dtGpsSec * 1.5)
+        if (distanceToGps > maxAllowableDistance) {
+            // Reject stale/multipath GPS spike; return current state safely
+            return getEkfState(activeIntervalMs)
+        }
+
+        // Got here => gps is good (or at least not provably bad).
         val rVar = (accuracyMeters * accuracyMeters).toDouble().coerceAtLeast(4.0)
 
         val correctedHeading = normalizeAngleRad(currentHeadingRad - x[IDX_COMPASS_BIAS])
         val crossTrackErr = abs(deltaX * cos(correctedHeading) - deltaY * sin(correctedHeading))
         val currentSpeed = hypot(x[IDX_VX], x[IDX_VY])
 
+        /*
+        gemini 3.8 is now saying to remove it!
         // --- COMPASS BIAS INFLATION GUARD ---
         // ONLY inflate compass bias uncertainty if:
         // 1. GPS fix is clean and accurate (accuracy <= 8.0m)
@@ -274,9 +299,11 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
         // otherwise cause crossTrackErr to blow compass bias uncertainty out of control.
         if (accuracyMeters <= 8.0f && currentSpeed >= 0.4 && crossTrackErr > 2.5) {
             val clampedErr = crossTrackErr.coerceAtMost(6.0)
-            val inflation = 0.02 * clampedErr * clampedErr
-            p[IDX_COMPASS_BIAS][IDX_COMPASS_BIAS] = (p[IDX_COMPASS_BIAS][IDX_COMPASS_BIAS] + inflation).coerceAtMost(0.4)
+            val inflation = 0.01 * clampedErr
+            p[IDX_COMPASS_BIAS][IDX_COMPASS_BIAS] = (p[IDX_COMPASS_BIAS][IDX_COMPASS_BIAS] + inflation).coerceAtMost(0.08)
         }
+
+         */
 
         // Direct position observation updates (X and Y independently)
         val hX = doubleArrayOf(1.0, 0.0, 0.0, 0.0, 0.0, 0.0)
@@ -302,61 +329,71 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
         return getEkfState(activeIntervalMs)
     }
 
-    private fun updateScalarObservation(residual: Double, h: DoubleArray, rVar: Double) {
-        var s = rVar
-        val phT = DoubleArray(6)
+    private fun updateScalarObservation(residual: Double, h: DoubleArray, rVariance: Double) {
+        // Calculate innovation variance S = H * P * H^T + R
+        var s = rVariance
+        for (i in 0..5) {
+            for (j in 0..5) {
+                s += h[i] * p[i][j] * h[j]
+            }
+        }
+        if (s <= 1e-9) return
+
+        // Compute Kalman gain K = (P * H^T) / S
+        val k = DoubleArray(6)
         for (i in 0..5) {
             var sum = 0.0
             for (j in 0..5) {
                 sum += p[i][j] * h[j]
             }
-            phT[i] = sum
-            s += h[i] * sum
+            k[i] = sum / s
         }
 
-        if (s <= 1e-6 || s.isNaN()) return
+        // If this observation is a direct GPS position fix (X or Y),
+        // decouple it so it NEVER distorts stride length or compass bias!
+        val isPositionUpdate = (h[IDX_X] == 1.0 || h[IDX_Y] == 1.0)
+        if (isPositionUpdate) {
+            k[IDX_STRIDE] = 0.0
+            k[IDX_COMPASS_BIAS] = 0.0
+        }
 
-        // Kalman gain K
-        val k = DoubleArray(6) { (phT[it] / s).coerceIn(-5.0, 5.0) }
-
-        // Clamp state correction to prevent wild jumps
+        // Update state vector x with safety clamping
         for (i in 0..5) {
             val delta = k[i] * residual
-            // Never allow a single observation to teleport position by > 50m
-            val clampedDelta = if (i == IDX_X || i == IDX_Y) delta.coerceIn(-50.0, 50.0) else delta
+            val clampedDelta = when (i) {
+                IDX_X, IDX_Y -> delta.coerceIn(-50.0, 50.0)
+                IDX_STRIDE -> delta.coerceIn(-0.05, 0.05)
+                IDX_COMPASS_BIAS -> delta.coerceIn(-0.05, 0.05)
+                else -> delta
+            }
             x[i] += clampedDelta
         }
 
-        // Joseph form covariance update: P = (I - KH) * P * (I - KH)^T + K * R * K^T
-        // Guaranteed mathematically to stay symmetric and positive semi-definite!
-        val iMinusKh = Array(6) { DoubleArray(6) }
-        for (i in 0..5) {
-            for (j in 0..5) {
-                iMinusKh[i][j] = (if (i == j) 1.0 else 0.0) - k[i] * h[j]
-            }
-        }
+        // Keep physical states within realistic human bounds
+        x[IDX_STRIDE] = x[IDX_STRIDE].coerceIn(config.minStrideMeters, config.maxStrideMeters)
+        // Compass bias should never exceed +/- 20 degrees (+/- 0.35 radians)
+        x[IDX_COMPASS_BIAS] = x[IDX_COMPASS_BIAS].coerceIn(-0.35, 0.35)
 
-        val temp = Array(6) { DoubleArray(6) }
+        // Update covariance matrix: P = (I - K*H) * P
+        val newP = Array(6) { DoubleArray(6) }
         for (i in 0..5) {
             for (j in 0..5) {
                 var sum = 0.0
                 for (m in 0..5) {
-                    sum += iMinusKh[i][m] * p[m][j]
+                    val eye = if (i == m) 1.0 else 0.0
+                    val iMinusKH = eye - (k[i] * h[m])
+                    sum += iMinusKH * p[m][j]
                 }
-                temp[i][j] = sum
+                newP[i][j] = sum
             }
         }
 
+        // Enforce symmetry and positive variance on diagonal
         for (i in 0..5) {
             for (j in 0..5) {
-                var sum = 0.0
-                for (m in 0..5) {
-                    sum += temp[i][m] * iMinusKh[j][m]
-                }
-                p[i][j] = sum + k[i] * k[j] * rVar
+                val symmetric = 0.5 * (newP[i][j] + newP[j][i])
+                p[i][j] = if (i == j) symmetric.coerceAtLeast(1e-6) else symmetric
             }
-            // Force positive diagonal variance
-            p[i][i] = p[i][i].coerceAtLeast(1e-4)
         }
     }
 
