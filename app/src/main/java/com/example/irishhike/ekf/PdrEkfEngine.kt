@@ -55,6 +55,7 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
         const val IDX_VY = 3
         const val IDX_STRIDE = 4
         const val IDX_COMPASS_BIAS = 5
+        private const val MAX_ALLOWED_REJECTIONS = 2
     }
 
     // State vector X = [x, y, vx, vy, L, b_theta]
@@ -76,9 +77,12 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
 
     private var lastStepTimestampMs: Long = 0L
     private var lastGpsTimestampMs: Long = 0L
+    private var lastGpsMetricX: Double? = null
+    private var lastGpsMetricY: Double? = null
     private var currentHeadingRad: Double = 0.0
     private var stepCount: Int = 0
     private var gpsFixCount: Int = 0
+    private var consecutiveGpsRejections: Int = 0
 
     @Synchronized
     fun setHeadingRad(headingRad: Double) {
@@ -112,9 +116,13 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
         isInitializedWithGps = false
         lastStepTimestampMs = 0L
         lastGpsTimestampMs = 0L
+        lastGpsMetricX = null
+        lastGpsMetricY = null
         currentHeadingRad = 0.0
         stepCount = 0
         gpsFixCount = 0
+        consecutiveGpsRejections = 0
+        sanitizeCovariance()
     }
 
     @Synchronized
@@ -166,19 +174,14 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
             p[i][i] += config.qDiag[i] * clampedDt
         }
 
-        // DO NOT add velocity to position here! Position is already integrated in onStepDetected().
-
-        // Ensure diagonal variances stay strictly positive and bounded
-        for (i in 0..5) {
-            if (p[i][i] < 1e-6 || p[i][i].isNaN()) p[i][i] = 1e-4
-        }
-
+        sanitizeCovariance()
         return getEkfState()
     }
 
     @Synchronized
     fun onStepDetected(headingRawRad: Double, timestampMs: Long) {
         if (!isInitializedWithGps) return
+        if (headingRawRad.isNaN() || headingRawRad.isInfinite()) return
 
         val currentSpeedMps = hypot(x[IDX_VX], x[IDX_VY])
         // Suppress step integration if vehicle speed (> 3.5 m/s) is detected
@@ -190,10 +193,10 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
         val correctedHeading = normalizeAngleRad(currentHeadingRad - bTheta)
 
         val dtStepSec = if (lastStepTimestampMs > 0L) {
-            (timestampMs - lastStepTimestampMs) / 1000.0
+            ((timestampMs - lastStepTimestampMs) / 1000.0).coerceIn(0.2, 2.0)
         } else {
             0.6
-        }.coerceIn(0.2, 2.0)
+        }
         lastStepTimestampMs = timestampMs
 
         val strideL = x[IDX_STRIDE]
@@ -240,12 +243,17 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
         p[IDX_STRIDE][IDX_STRIDE] += config.qDiag[IDX_STRIDE]
         p[IDX_COMPASS_BIAS][IDX_COMPASS_BIAS] += config.qDiag[IDX_COMPASS_BIAS]
 
-        p[IDX_X][IDX_X] = p[IDX_X][IDX_X].coerceIn(0.1, 150.0)
-        p[IDX_Y][IDX_Y] = p[IDX_Y][IDX_Y].coerceIn(0.1, 150.0)
+        sanitizeCovariance()
     }
 
     @Synchronized
-    fun onGpsFix(lat: Double, lon: Double, accuracyMeters: Float, activeIntervalMs: Long, timestampMs: Long = System.currentTimeMillis()): EkfState {
+    fun onGpsFix(
+        lat: Double,
+        lon: Double,
+        accuracyMeters: Float,
+        activeIntervalMs: Long = 1000L,
+        timestampMs: Long = System.currentTimeMillis()
+    ): EkfState {
         gpsFixCount++
 
         val gpsLocation = CoordinateUtils.latLonToMetric(lat, lon)
@@ -257,62 +265,119 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
             p[IDX_X][IDX_X] = initialVar
             p[IDX_Y][IDX_Y] = initialVar
             isInitializedWithGps = true
+            lastGpsTimestampMs = timestampMs
+            lastGpsMetricX = gpsLocation.x
+            lastGpsMetricY = gpsLocation.y
+            sanitizeCovariance()
             return getEkfState(activeIntervalMs)
         }
 
-        // --- TIME INTERVAL CALCULATION ---
         val dtGpsSec = if (lastGpsTimestampMs > 0L) {
-            ((timestampMs - lastGpsTimestampMs) / 1000.0).coerceIn(0.1, 300.0)
+            ((timestampMs - lastGpsTimestampMs) / 1000.0).coerceIn(0.1, 30.0)
         } else {
             1.0
         }
-        lastGpsTimestampMs = timestampMs
 
         val deltaX = gpsLocation.x - x[IDX_X]
         val deltaY = gpsLocation.y - x[IDX_Y]
-
-        // --- OUTLIER / STALE FIX GUARD ---
-        // Allow for normal walking (1.5 m/s) plus 25m margin over the time elapsed.
-        // If GPS was gone for 60s, allow up to (25 + 60 * 1.5) = 115m.
-        // But if GPS came just 1s ago, drop any impossible jump > 26.5m.
         val distanceToGps = hypot(deltaX, deltaY)
+
+        // Course-over-ground initial compass bias seeding and refinement
+        val prevGpsX = lastGpsMetricX
+        val prevGpsY = lastGpsMetricY
+        if (prevGpsX != null && prevGpsY != null) {
+            val dGpsX = gpsLocation.x - prevGpsX
+            val dGpsY = gpsLocation.y - prevGpsY
+            val gpsDist = hypot(dGpsX, dGpsY)
+            if (accuracyMeters <= 10.0f && gpsDist > 1.5 && stepCount >= 2) {
+                val gpsBearingRad = atan2(dGpsX, dGpsY)
+                val rawBias = normalizeAngleRad(currentHeadingRad - gpsBearingRad)
+                if (abs(x[IDX_COMPASS_BIAS]) < 1e-4) {
+                    x[IDX_COMPASS_BIAS] = rawBias.coerceIn(-0.35, 0.35)
+                    p[IDX_COMPASS_BIAS][IDX_COMPASS_BIAS] = 0.05
+                } else {
+                    val biasError = normalizeAngleRad(rawBias - x[IDX_COMPASS_BIAS])
+                    x[IDX_COMPASS_BIAS] = normalizeAngleRad(x[IDX_COMPASS_BIAS] + 0.15 * biasError).coerceIn(-0.35, 0.35)
+                }
+            }
+        }
+        lastGpsMetricX = gpsLocation.x
+        lastGpsMetricY = gpsLocation.y
+
         val maxAllowableDistance = 25.0 + (dtGpsSec * 1.5)
+
+        // Gate evaluation
         if (distanceToGps > maxAllowableDistance) {
-            // Reject stale/multipath GPS spike; return current state safely
+            if (accuracyMeters <= 10.0f) {
+                consecutiveGpsRejections++
+
+                // WATCHDOG: Re-anchor directly to GPS position after 2 consecutive good fixes
+                if (consecutiveGpsRejections >= MAX_ALLOWED_REJECTIONS) {
+                    x[IDX_X] = gpsLocation.x
+                    x[IDX_Y] = gpsLocation.y
+                    x[IDX_VX] = 0.0
+                    x[IDX_VY] = 0.0
+
+                    val reanchorVar = (accuracyMeters * accuracyMeters).toDouble().coerceIn(4.0, 36.0)
+                    for (j in 0..5) {
+                        p[IDX_X][j] = 0.0
+                        p[j][IDX_X] = 0.0
+                        p[IDX_Y][j] = 0.0
+                        p[j][IDX_Y] = 0.0
+                    }
+                    p[IDX_X][IDX_X] = reanchorVar
+                    p[IDX_Y][IDX_Y] = reanchorVar
+
+                    consecutiveGpsRejections = 0
+                    lastGpsTimestampMs = timestampMs
+                    sanitizeCovariance()
+                    return getEkfState(activeIntervalMs)
+                }
+            }
+
+            lastGpsTimestampMs = timestampMs
             return getEkfState(activeIntervalMs)
         }
 
-        // Got here => gps is good (or at least not provably bad).
-        val rVar = (accuracyMeters * accuracyMeters).toDouble().coerceAtLeast(4.0)
+        // Fix is within gate
+        consecutiveGpsRejections = 0
+        lastGpsTimestampMs = timestampMs
 
-        val correctedHeading = normalizeAngleRad(currentHeadingRad - x[IDX_COMPASS_BIAS])
-        val crossTrackErr = abs(deltaX * cos(correctedHeading) - deltaY * sin(correctedHeading))
-        val currentSpeed = hypot(x[IDX_VX], x[IDX_VY])
-
-        /*
-        gemini 3.8 is now saying to remove it!
-        // --- COMPASS BIAS INFLATION GUARD ---
-        // ONLY inflate compass bias uncertainty if:
-        // 1. GPS fix is clean and accurate (accuracy <= 8.0m)
-        // 2. The hiker is actively moving (speed >= 0.4 m/s)
-        // When the phone is in a pocket, degraded GPS fixes (accuracy > 15m) would
-        // otherwise cause crossTrackErr to blow compass bias uncertainty out of control.
-        if (accuracyMeters <= 8.0f && currentSpeed >= 0.4 && crossTrackErr > 2.5) {
-            val clampedErr = crossTrackErr.coerceAtMost(6.0)
-            val inflation = 0.01 * clampedErr
-            p[IDX_COMPASS_BIAS][IDX_COMPASS_BIAS] = (p[IDX_COMPASS_BIAS][IDX_COMPASS_BIAS] + inflation).coerceAtMost(0.08)
+        // ADAPTIVE DRIFT RECOVERY:
+        // When high-quality GPS (accuracy <= 10m) shows drift (> 6.0m) from PDR,
+        // blend aggressively toward GPS to immediately eliminate post-canopy error (< 4m)
+        if (accuracyMeters <= 10.0f && distanceToGps > 6.0) {
+            val blendFactor = 0.80
+            x[IDX_X] += blendFactor * deltaX
+            x[IDX_Y] += blendFactor * deltaY
+            p[IDX_X][IDX_X] = 16.0
+            p[IDX_Y][IDX_Y] = 16.0
         }
 
-         */
+        // --- 1. Robust Measurement Noise Inflation in Canopy ---
+        // When accuracy is degraded (> 7m) or speed is low, inflate R so GPS only
+        // pulls gently over time rather than jerking the hiker sideways on every fix
+        var rVar = (accuracyMeters * accuracyMeters).toDouble().coerceAtLeast(4.0)
+        if (accuracyMeters > 7.0f) {
+            // Under canopy, GPS accuracy is overly optimistic; inflate R quadratically
+            val canopyFactor = (accuracyMeters / 6.0).toDouble()
+            rVar *= (canopyFactor * canopyFactor).coerceIn(2.0, 8.0)
+        }
+
+        // --- 2. Max Pedestrian Step Jump Clamping ---
+        // A single 1-second GPS fix should never pull the hiker more than a realistic
+        // walking distance (max 2.0m per fix)
+        val maxAllowableDelta = 2.0 + (dtGpsSec * 1.5)
+        val clampedDeltaX = deltaX.coerceIn(-maxAllowableDelta, maxAllowableDelta)
+        val clampedDeltaY = deltaY.coerceIn(-maxAllowableDelta, maxAllowableDelta)
 
         // Direct position observation updates (X and Y independently)
         val hX = doubleArrayOf(1.0, 0.0, 0.0, 0.0, 0.0, 0.0)
-        updateScalarObservation(deltaX, hX, rVar)
+        updateScalarObservation(clampedDeltaX, hX, rVar)
 
         val hY = doubleArrayOf(0.0, 1.0, 0.0, 0.0, 0.0, 0.0)
-        updateScalarObservation(deltaY, hY, rVar)
+        updateScalarObservation(clampedDeltaY, hY, rVar)
 
-        // Clamp velocity to human walking ceiling
         val speedMps = hypot(x[IDX_VX], x[IDX_VY])
         if (speedMps > 3.0) {
             val scale = 3.0 / speedMps
@@ -320,26 +385,55 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
             x[IDX_VY] *= scale
         }
 
-        p[IDX_X][IDX_X] = p[IDX_X][IDX_X].coerceIn(0.1, 150.0)
-        p[IDX_Y][IDX_Y] = p[IDX_Y][IDX_Y].coerceIn(0.1, 150.0)
-
         x[IDX_STRIDE] = x[IDX_STRIDE].coerceIn(config.minStrideMeters, config.maxStrideMeters)
-        x[IDX_COMPASS_BIAS] = normalizeAngleRad(x[IDX_COMPASS_BIAS])
+        x[IDX_COMPASS_BIAS] = x[IDX_COMPASS_BIAS].coerceIn(-0.35, 0.35)
 
+        sanitizeCovariance()
         return getEkfState(activeIntervalMs)
     }
 
+    private fun sanitizeCovariance() {
+        for (i in 0..5) {
+            for (j in 0..5) {
+                var sym = 0.5 * (p[i][j] + p[j][i])
+                if (sym.isNaN() || sym.isInfinite()) {
+                    sym = if (i == j) 1.0 else 0.0
+                }
+                if (i == j) {
+                    val minVar = when (i) {
+                        IDX_X, IDX_Y -> 1.0
+                        IDX_VX, IDX_VY -> 0.01
+                        IDX_STRIDE -> 0.001
+                        IDX_COMPASS_BIAS -> 0.005
+                        else -> 0.01
+                    }
+                    val maxVar = when (i) {
+                        IDX_X, IDX_Y -> 150.0
+                        IDX_VX, IDX_VY -> 10.0
+                        IDX_STRIDE -> 0.5
+                        IDX_COMPASS_BIAS -> 1.0
+                        else -> 100.0
+                    }
+                    p[i][j] = sym.coerceIn(minVar, maxVar)
+                } else {
+                    p[i][j] = sym.coerceIn(-50.0, 50.0)
+                }
+            }
+        }
+    }
+
     private fun updateScalarObservation(residual: Double, h: DoubleArray, rVariance: Double) {
-        // Calculate innovation variance S = H * P * H^T + R
+        if (residual.isNaN() || rVariance.isNaN() || rVariance <= 0.0) return
+
         var s = rVariance
         for (i in 0..5) {
             for (j in 0..5) {
                 s += h[i] * p[i][j] * h[j]
             }
         }
-        if (s <= 1e-9) return
 
-        // Compute Kalman gain K = (P * H^T) / S
+        if (s <= 1e-9 || s.isNaN() || s.isInfinite()) return
+
         val k = DoubleArray(6)
         for (i in 0..5) {
             var sum = 0.0
@@ -347,17 +441,15 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
                 sum += p[i][j] * h[j]
             }
             k[i] = sum / s
+            if (k[i].isNaN() || k[i].isInfinite()) k[i] = 0.0
         }
 
-        // If this observation is a direct GPS position fix (X or Y),
-        // decouple it so it NEVER distorts stride length or compass bias!
         val isPositionUpdate = (h[IDX_X] == 1.0 || h[IDX_Y] == 1.0)
         if (isPositionUpdate) {
             k[IDX_STRIDE] = 0.0
             k[IDX_COMPASS_BIAS] = 0.0
         }
 
-        // Update state vector x with safety clamping
         for (i in 0..5) {
             val delta = k[i] * residual
             val clampedDelta = when (i) {
@@ -366,15 +458,14 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
                 IDX_COMPASS_BIAS -> delta.coerceIn(-0.05, 0.05)
                 else -> delta
             }
-            x[i] += clampedDelta
+            if (!clampedDelta.isNaN() && !clampedDelta.isInfinite()) {
+                x[i] += clampedDelta
+            }
         }
 
-        // Keep physical states within realistic human bounds
         x[IDX_STRIDE] = x[IDX_STRIDE].coerceIn(config.minStrideMeters, config.maxStrideMeters)
-        // Compass bias should never exceed +/- 20 degrees (+/- 0.35 radians)
         x[IDX_COMPASS_BIAS] = x[IDX_COMPASS_BIAS].coerceIn(-0.35, 0.35)
 
-        // Update covariance matrix: P = (I - K*H) * P
         val newP = Array(6) { DoubleArray(6) }
         for (i in 0..5) {
             for (j in 0..5) {
@@ -388,13 +479,13 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
             }
         }
 
-        // Enforce symmetry and positive variance on diagonal
         for (i in 0..5) {
             for (j in 0..5) {
-                val symmetric = 0.5 * (newP[i][j] + newP[j][i])
-                p[i][j] = if (i == j) symmetric.coerceAtLeast(1e-6) else symmetric
+                p[i][j] = newP[i][j]
             }
         }
+
+        sanitizeCovariance()
     }
 
     fun getEkfState(activeIntervalMs: Long = 1000L): EkfState {

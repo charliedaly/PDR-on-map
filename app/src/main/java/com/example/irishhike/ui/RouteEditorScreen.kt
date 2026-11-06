@@ -1,26 +1,26 @@
-// --- FILE: app/src/main/java/com/example/irishhike/ui/RouteEditorScreen.kt ---
-
 package com.example.irishhike.ui
 
+import android.net.Uri
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
@@ -39,6 +39,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -70,12 +71,13 @@ enum class RouteEditorViewMode {
 fun SpreadsheetCell(
     value: String,
     onValueChange: (String) -> Unit,
-    keyboardType: KeyboardType = KeyboardType.Text,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    keyboardType: KeyboardType = KeyboardType.Text
 ) {
     Surface(
         shape = RoundedCornerShape(4.dp),
         color = Color(0xFF1E293B),
+        border = BorderStroke(1.dp, Color(0xFF334155)),
         modifier = modifier.height(28.dp)
     ) {
         Box(
@@ -92,6 +94,7 @@ fun SpreadsheetCell(
                 textStyle = TextStyle(
                     fontSize = 11.sp,
                     color = Color.White,
+                    fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Medium
                 ),
                 modifier = Modifier.fillMaxWidth()
@@ -133,9 +136,82 @@ fun RouteEditorScreen(
     var viewMode by remember { mutableStateOf(RouteEditorViewMode.MAP) }
     var selectedWaypointIndex by remember { mutableStateOf<Int?>(null) }
 
-    // Map Pan and Zoom states
+    // Map Pan & Zoom states
     var zoomScale by remember { mutableFloatStateOf(1f) }
     var panOffset by remember { mutableStateOf(Offset.Zero) }
+
+    val context = LocalContext.current
+    var pendingCsvToSave by remember { mutableStateOf<String?>(null) }
+    var pendingRouteToSave by remember { mutableStateOf<Route?>(null) }
+
+    // System Document Creator launcher for guaranteed write permissions across Android storage
+    val createDocumentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("text/csv")
+    ) { targetUri: Uri? ->
+        if (targetUri != null && pendingCsvToSave != null) {
+            try {
+                context.contentResolver.openOutputStream(targetUri, "wt")?.use { stream ->
+                    stream.bufferedWriter().use { writer ->
+                        writer.write(pendingCsvToSave!!)
+                        writer.flush()
+                    }
+                }
+                Toast.makeText(context, "Saved route file successfully!", Toast.LENGTH_SHORT).show()
+                val updatedRoute = Route.createFromWaypoints(routeName, waypoints, sourceUri = targetUri)
+                onSaveRoute(pendingCsvToSave!!, updatedRoute)
+                onBack()
+            } catch (e: Exception) {
+                Toast.makeText(context, "Failed saving file: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    fun handleSave(forceSaveAs: Boolean = false) {
+        val newRoute = Route.createFromWaypoints(
+            name = routeName,
+            rawWaypoints = waypoints,
+            sourceUri = initialRoute?.sourceUri
+        )
+        val csv = waypoints.joinToString("\n") { wp ->
+            "${wp.name},${wp.x.toInt()},${wp.y.toInt()},${wp.altitude.toInt()}"
+        }
+
+        val sourceUri = initialRoute?.sourceUri
+        var directSaveSuccess = false
+
+        if (!forceSaveAs && sourceUri != null) {
+            try {
+                context.contentResolver.openOutputStream(sourceUri, "wt")?.use { stream ->
+                    stream.bufferedWriter().use { writer ->
+                        writer.write(csv)
+                        writer.flush()
+                    }
+                }
+                directSaveSuccess = true
+            } catch (_: Exception) {
+                // When files are opened via GetContent(), Android grants read-only access.
+                // Catch the SecurityException and proceed to createDocumentLauncher
+                directSaveSuccess = false
+            }
+        }
+
+        if (directSaveSuccess) {
+            Toast.makeText(context, "Saved: $routeName.csv", Toast.LENGTH_SHORT).show()
+            onSaveRoute(csv, newRoute)
+            onBack()
+        } else {
+            // Prompt user with Android system file-save dialog to pick save location with granted write permissions
+            pendingCsvToSave = csv
+            pendingRouteToSave = newRoute
+            try {
+                createDocumentLauncher.launch("$routeName.csv")
+            } catch (_: Exception) {
+                Toast.makeText(context, "Route saved in app", Toast.LENGTH_SHORT).show()
+                onSaveRoute(csv, newRoute)
+                onBack()
+            }
+        }
+    }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -163,6 +239,11 @@ fun RouteEditorScreen(
                     }
                 },
                 actions = {
+                    // Save As / Export to new file
+                    IconButton(onClick = { handleSave(forceSaveAs = true) }) {
+                        Text("💾+", fontSize = 16.sp, color = Color.White)
+                    }
+
                     // Toggle between Map & Spreadsheet views
                     IconButton(onClick = {
                         viewMode = if (viewMode == RouteEditorViewMode.MAP) {
@@ -191,16 +272,17 @@ fun RouteEditorScreen(
             )
         },
         bottomBar = {
-            // Dedicated bottom save bar (replaces settings button while editing)
             Surface(
                 color = Color(0xFF0F172A),
                 border = BorderStroke(1.dp, Color(0xFF1E293B)),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -215,21 +297,14 @@ fun RouteEditorScreen(
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
                     ) {
                         Text(
-                            text = if (viewMode == RouteEditorViewMode.MAP) "Spreadsheet Entry" else "Interactive Map",
+                            text = if (viewMode == RouteEditorViewMode.MAP) "📊 Spreadsheet" else "🗺️ Map Editor",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium
                         )
                     }
 
                     Button(
-                        onClick = {
-                            val newRoute = Route.createFromWaypoints(routeName, waypoints)
-                            val csv = waypoints.joinToString("\n") { wp ->
-                                "${wp.name},${wp.x.toInt()},${wp.y.toInt()},${wp.altitude.toInt()}"
-                            }
-                            onSaveRoute(csv, newRoute)
-                            onBack()
-                        },
+                        onClick = { handleSave(forceSaveAs = false) },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669))
                     ) {
                         Text("💾 Save Route", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
@@ -282,7 +357,7 @@ fun RouteEditorScreen(
                             }
                         },
                         onSelectWaypoint = { index ->
-                            selectedWaypointIndex = index
+                            selectedWaypointIndex = if (index >= 0) index else null
                         }
                     )
                 }
@@ -296,6 +371,25 @@ fun RouteEditorScreen(
             }
         }
     }
+}
+
+/**
+ * Backward compatibility overload in case callers invoke RouteEditorScreen with (Route, (Route) -> Unit, () -> Unit)
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun RouteEditorScreen(
+    route: Route,
+    onSaveRoute: (Route) -> Unit,
+    onNavigateBack: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    RouteEditorScreen(
+        initialRoute = route,
+        onSaveRoute = { _, r -> onSaveRoute(r) },
+        onBack = onNavigateBack,
+        modifier = modifier
+    )
 }
 
 @Composable
@@ -332,6 +426,26 @@ fun MapRouteEditor(
     val sharedDstPoly = remember { FloatArray(8) }
     val sharedPolyMatrix = remember { android.graphics.Matrix() }
 
+    // Android native text paint for '+' and waypoint numbering
+    val textPaint = remember {
+        android.graphics.Paint().apply {
+            color = android.graphics.Color.WHITE
+            textSize = 28f
+            textAlign = android.graphics.Paint.Align.CENTER
+            isAntiAlias = true
+            isFakeBoldText = true
+        }
+    }
+    val plusTextPaint = remember {
+        android.graphics.Paint().apply {
+            color = android.graphics.Color.WHITE
+            textSize = 28f
+            textAlign = android.graphics.Paint.Align.CENTER
+            isAntiAlias = true
+            isFakeBoldText = true
+        }
+    }
+
     // Compute bounding box for auto-centering
     var minX = Double.MAX_VALUE
     var maxX = -Double.MAX_VALUE
@@ -349,41 +463,175 @@ fun MapRouteEditor(
     val centerX = (minX + maxX) / 2.0
     val centerY = (minY + maxY) / 2.0
 
+    // Capture state references without restarting the gesture coroutine loop
+    val currentWaypoints by rememberUpdatedState(waypoints)
+    val currentZoomScale by rememberUpdatedState(zoomScale)
+    val currentPanOffset by rememberUpdatedState(panOffset)
+    val currentSpanX by rememberUpdatedState(spanX)
+    val currentSpanY by rememberUpdatedState(spanY)
+    val currentCenterX by rememberUpdatedState(centerX)
+    val currentCenterY by rememberUpdatedState(centerY)
+
     Box(
-        modifier = modifier
-            .fillMaxSize()
-            .pointerInput(Unit) {
-                detectTransformGestures { centroid, pan, zoom, _ ->
-                    val newZoom = (zoomScale * zoom).coerceIn(0.5f, 5.0f)
-                    val effectiveZoom = newZoom / zoomScale
-                    val center = Offset(size.width / 2f, size.height / 2f)
-                    val f = centroid - center
-                    val newPan = f + pan - (f - panOffset) * effectiveZoom
-                    onZoomPanChange(newZoom, newPan)
-                }
-            }
+        modifier = modifier.fillMaxSize()
     ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
+        Canvas(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) {
+                    awaitPointerEventScope {
+                        var touchedWaypointIdx: Int? = null
+                        var touchedPlusIdx: Int? = null
+                        var downPos = Offset.Zero
+                        var hasMoved = false
+
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val activePointers = event.changes.filter { it.pressed }
+
+                            if (activePointers.isEmpty()) {
+                                // All fingers released
+                                if (!hasMoved) {
+                                    if (touchedWaypointIdx != null) {
+                                        onSelectWaypoint(touchedWaypointIdx)
+                                    } else if (touchedPlusIdx != null) {
+                                        onInsertWaypointOnSegment(touchedPlusIdx)
+                                    } else {
+                                        onSelectWaypoint(-1)
+                                    }
+                                }
+                                touchedWaypointIdx = null
+                                touchedPlusIdx = null
+                                draggingIndex = null
+                                hasMoved = false
+                            } else if (activePointers.size == 1) {
+                                val pointer = activePointers[0]
+                                val isDown = event.changes.any { !it.previousPressed && it.pressed }
+
+                                val widthPx = size.width.toFloat()
+                                val heightPx = size.height.toFloat()
+                                val baseScale = minOf(
+                                    (widthPx * 0.85f) / currentSpanX.toFloat(),
+                                    (heightPx * 0.85f) / currentSpanY.toFloat()
+                                ) * currentZoomScale
+                                val originCx = widthPx / 2f + currentPanOffset.x
+                                val originCy = heightPx / 2f + currentPanOffset.y
+
+                                fun toOffset(x: Double, y: Double): Offset {
+                                    val cx = originCx + ((x - currentCenterX) * baseScale).toFloat()
+                                    val cy = originCy - ((y - currentCenterY) * baseScale).toFloat()
+                                    return Offset(cx, cy)
+                                }
+
+                                if (isDown) {
+                                    downPos = pointer.position
+                                    hasMoved = false
+                                    touchedWaypointIdx = null
+                                    touchedPlusIdx = null
+
+                                    // 1. Check if user touched down on a waypoint marker
+                                    for (i in currentWaypoints.indices.reversed()) {
+                                        val p = toOffset(currentWaypoints[i].x, currentWaypoints[i].y)
+                                        if (hypot((pointer.position.x - p.x).toDouble(), (pointer.position.y - p.y).toDouble()) <= 44.0) {
+                                            touchedWaypointIdx = i
+                                            draggingIndex = i
+                                            break
+                                        }
+                                    }
+
+                                    // 2. Check if user touched down on a '+' segment midpoint
+                                    if (touchedWaypointIdx == null) {
+                                        for (i in 0 until currentWaypoints.size - 1) {
+                                            val p1 = toOffset(currentWaypoints[i].x, currentWaypoints[i].y)
+                                            val p2 = toOffset(currentWaypoints[i + 1].x, currentWaypoints[i + 1].y)
+                                            val mid = Offset((p1.x + p2.x) / 2f, (p1.y + p2.y) / 2f)
+                                            if (hypot((pointer.position.x - mid.x).toDouble(), (pointer.position.y - mid.y).toDouble()) <= 38.0) {
+                                                touchedPlusIdx = i
+                                                break
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    val delta = pointer.position - pointer.previousPosition
+                                    if (!hasMoved && (pointer.position - downPos).getDistance() > 10f) {
+                                        hasMoved = true
+                                    }
+
+                                    if (hasMoved) {
+                                        if (touchedWaypointIdx != null) {
+                                            if (touchedWaypointIdx in currentWaypoints.indices) {
+                                                val cur = currentWaypoints[touchedWaypointIdx]
+                                                val deltaX = delta.x / baseScale
+                                                val deltaY = -delta.y / baseScale
+                                                onWaypointMoved(
+                                                    touchedWaypointIdx,
+                                                    round(cur.x + deltaX),
+                                                    round(cur.y + deltaY)
+                                                )
+                                            }
+                                        } else {
+                                            val newPan = currentPanOffset + delta
+                                            onZoomPanChange(currentZoomScale, newPan)
+                                        }
+                                        pointer.consume()
+                                    }
+                                }
+                            } else if (activePointers.size >= 2) {
+                                hasMoved = true
+                                touchedWaypointIdx = null
+                                touchedPlusIdx = null
+                                draggingIndex = null
+
+                                val p1 = activePointers[0]
+                                val p2 = activePointers[1]
+
+                                val currCentroid = (p1.position + p2.position) / 2f
+                                val prevCentroid = (p1.previousPosition + p2.previousPosition) / 2f
+                                val panDelta = currCentroid - prevCentroid
+
+                                val currDist = (p1.position - p2.position).getDistance()
+                                val prevDist = (p1.previousPosition - p2.previousPosition).getDistance()
+
+                                if (prevDist > 10f) {
+                                    val zoomRatio = currDist / prevDist
+                                    val newZoom = (currentZoomScale * zoomRatio).coerceIn(0.4f, 8.0f)
+                                    val effectiveZoom = newZoom / currentZoomScale
+
+                                    val screenCenter = Offset(size.width / 2f, size.height / 2f)
+                                    val f = currCentroid - screenCenter
+                                    val newPan = f + panDelta - (f - currentPanOffset) * effectiveZoom
+
+                                    onZoomPanChange(newZoom, newPan)
+                                } else {
+                                    onZoomPanChange(currentZoomScale, currentPanOffset + panDelta)
+                                }
+
+                                p1.consume()
+                                p2.consume()
+                            }
+                        }
+                    }
+                }
+        ) {
             val widthPx = size.width
             val heightPx = size.height
-
             val baseScale = minOf(
-                (widthPx * 0.80f) / spanX.toFloat(),
-                (heightPx * 0.80f) / spanY.toFloat()
+                (widthPx * 0.85f) / spanX.toFloat(),
+                (heightPx * 0.85f) / spanY.toFloat()
             ) * zoomScale
-
             val originCx = widthPx / 2f + panOffset.x
             val originCy = heightPx / 2f + panOffset.y
 
             fun toOffset(x: Double, y: Double): Offset {
-                val cx = originCx + ((x - centerX) * baseScale).toFloat()
-                // Invert Y coordinate so Irish Grid North points upward
-                val cy = originCy - ((y - centerY) * baseScale).toFloat()
-                return Offset(cx, cy)
+                val sx = originCx + (x - centerX).toFloat() * baseScale
+                val sy = originCy - (y - centerY).toFloat() * baseScale
+                return Offset(sx, sy)
             }
 
-            // --- 1. Draw OpenTopoMap Background Tiles (Contours & Relief) ---
+            // --- 1. Draw Offline OSM Map Background Tiles ---
             try {
+                if (OsmTileManager.tileCacheVersion.intValue < 0) return@Canvas
+
                 val currentScale = baseScale.toDouble()
                 val autoZoom = round(kotlin.math.log2(93113.0 * currentScale)).toInt().coerceIn(10, 17)
 
@@ -402,11 +650,10 @@ fun MapRouteEditor(
                 )
 
                 for (tile in topoTiles) {
-                    val corners = OsmTileManager.getTileCorners(tile.zoom, tile.tileX, tile.tileY)
-                    val pNW = toOffset(corners.nwMetric.x, corners.nwMetric.y)
-                    val pNE = toOffset(corners.neMetric.x, corners.neMetric.y)
-                    val pSE = toOffset(corners.seMetric.x, corners.seMetric.y)
-                    val pSW = toOffset(corners.swMetric.x, corners.swMetric.y)
+                    val pNW = toOffset(tile.nwMetric.x, tile.nwMetric.y)
+                    val pNE = toOffset(tile.neMetric.x, tile.neMetric.y)
+                    val pSE = toOffset(tile.seMetric.x, tile.seMetric.y)
+                    val pSW = toOffset(tile.swMetric.x, tile.swMetric.y)
 
                     if (pNW.x.isFinite() && pNW.y.isFinite() &&
                         pNE.x.isFinite() && pNE.y.isFinite() &&
@@ -433,8 +680,8 @@ fun MapRouteEditor(
                         }
                     }
                 }
-            } catch (e: Exception) {
-                // Graceful fallback if offline tile decoding encounters transient error
+            } catch (_: Exception) {
+                // Graceful fallback
             }
 
             // --- 2. Draw Route Segments ---
@@ -442,176 +689,140 @@ fun MapRouteEditor(
                 val p1 = toOffset(waypoints[i].x, waypoints[i].y)
                 val p2 = toOffset(waypoints[i + 1].x, waypoints[i + 1].y)
 
-                // Dark outline for visibility over bright topo contours
                 drawLine(
-                    color = Color(0xFF0F172A).copy(alpha = 0.8f),
+                    color = Color(0xFF0F172A).copy(alpha = 0.85f),
                     start = p1,
                     end = p2,
-                    strokeWidth = 10f
+                    strokeWidth = 12f
                 )
 
-                // Vivid green route track line
                 drawLine(
                     color = Color(0xFF10B981),
                     start = p1,
                     end = p2,
-                    strokeWidth = 5f
+                    strokeWidth = 6f
                 )
 
-                // (+) Segment split midpoint marker
                 val mid = Offset((p1.x + p2.x) / 2f, (p1.y + p2.y) / 2f)
-                drawCircle(color = Color(0xFF0F172A), radius = 18f, center = mid)
-                drawCircle(color = Color(0xFF34D399), radius = 18f, center = mid, style = Stroke(width = 3f))
+                drawCircle(color = Color(0xFF0F172A), radius = 24f, center = mid)
+                drawCircle(color = Color.White, radius = 20f, center = mid)
+                drawCircle(color = Color(0xFF059669), radius = 17f, center = mid)
+
+                drawContext.canvas.nativeCanvas.drawText("+", mid.x, mid.y + 10f, plusTextPaint)
             }
 
-            // --- 3. Draw Waypoint Circles ---
+            // --- 3. Draw Waypoint Markers ---
             waypoints.forEachIndexed { index, wp ->
                 val pos = toOffset(wp.x, wp.y)
                 val isSelected = selectedWaypointIndex == index
+                val isDragging = draggingIndex == index
                 val isStart = index == 0
                 val isEnd = index == waypoints.size - 1
 
                 val color = when {
                     isStart -> Color(0xFF10B981)
                     isEnd -> Color(0xFFEF4444)
+                    isSelected -> Color(0xFF0284C7)
                     else -> Color(0xFF38BDF8)
                 }
 
-                if (isSelected) {
-                    drawCircle(color = color.copy(alpha = 0.35f), radius = 28f, center = pos)
+                if (isSelected || isDragging) {
+                    drawCircle(color = Color(0xFF38BDF8).copy(alpha = 0.35f), radius = 42f, center = pos)
+                    drawCircle(color = Color(0xFF38BDF8), radius = 34f, center = pos, style = Stroke(width = 3f))
                 }
-                drawCircle(color = Color(0xFF0F172A), radius = 18f, center = pos)
-                drawCircle(color = color, radius = 18f, center = pos, style = Stroke(width = 4f))
+
+                drawCircle(color = Color(0xFF0F172A), radius = 26f, center = pos)
+                drawCircle(color = color, radius = 22f, center = pos)
+
+                drawContext.canvas.nativeCanvas.drawText("${index + 1}", pos.x, pos.y + 9f, textPaint)
             }
         }
 
-        // Tap gestures for selecting waypoints and clicking (+) to split segments
-        Box(
+        // --- 4. Floating On-Screen Zoom Controls (+ / - / Fit) ---
+        Column(
             modifier = Modifier
-                .fillMaxSize()
-                .pointerInput(waypoints, zoomScale, panOffset) {
-                    detectTapGestures { tapOffset ->
-                        val widthPx = size.width
-                        val heightPx = size.height
-                        val baseScale = minOf(
-                            (widthPx * 0.80f) / spanX.toFloat(),
-                            (heightPx * 0.80f) / spanY.toFloat()
-                        ) * zoomScale
-                        val originCx = widthPx / 2f + panOffset.x
-                        val originCy = heightPx / 2f + panOffset.y
-
-                        fun toOffset(x: Double, y: Double): Offset {
-                            val cx = originCx + ((x - centerX) * baseScale).toFloat()
-                            val cy = originCy - ((y - centerY) * baseScale).toFloat()
-                            return Offset(cx, cy)
-                        }
-
-                        // Check if tap hit any Waypoint circle
-                        for (i in waypoints.indices) {
-                            val pos = toOffset(waypoints[i].x, waypoints[i].y)
-                            if (hypot((tapOffset.x - pos.x).toDouble(), (tapOffset.y - pos.y).toDouble()) < 32.0) {
-                                onSelectWaypoint(i)
-                                return@detectTapGestures
-                            }
-                        }
-
-                        // Check if tap hit any (+) midpoint circle
-                        for (i in 0 until waypoints.size - 1) {
-                            val p1 = toOffset(waypoints[i].x, waypoints[i].y)
-                            val p2 = toOffset(waypoints[i + 1].x, waypoints[i + 1].y)
-                            val mid = Offset((p1.x + p2.x) / 2f, (p1.y + p2.y) / 2f)
-                            if (hypot((tapOffset.x - mid.x).toDouble(), (tapOffset.y - mid.y).toDouble()) < 28.0) {
-                                onInsertWaypointOnSegment(i)
-                                return@detectTapGestures
-                            }
-                        }
-                    }
+                .align(Alignment.BottomStart)
+                .padding(start = 16.dp, bottom = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = Color(0xFF1E293B).copy(alpha = 0.92f),
+                border = BorderStroke(1.dp, Color(0xFF475569)),
+                modifier = Modifier.size(46.dp)
+            ) {
+                IconButton(onClick = {
+                    val newZoom = (zoomScale * 1.35f).coerceAtMost(8.0f)
+                    onZoomPanChange(newZoom, panOffset)
+                }) {
+                    Text("+", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
                 }
-                .pointerInput(waypoints, zoomScale, panOffset) {
-                    detectDragGestures(
-                        onDragStart = { startOffset ->
-                            val widthPx = size.width
-                            val heightPx = size.height
-                            val baseScale = minOf(
-                                (widthPx * 0.80f) / spanX.toFloat(),
-                                (heightPx * 0.80f) / spanY.toFloat()
-                            ) * zoomScale
-                            val originCx = widthPx / 2f + panOffset.x
-                            val originCy = heightPx / 2f + panOffset.y
+            }
 
-                            for (i in waypoints.indices) {
-                                val cx = originCx + ((waypoints[i].x - centerX) * baseScale).toFloat()
-                                val cy = originCy - ((waypoints[i].y - centerY) * baseScale).toFloat()
-                                if (hypot((startOffset.x - cx).toDouble(), (startOffset.y - cy).toDouble()) < 36.0) {
-                                    draggingIndex = i
-                                    onSelectWaypoint(i)
-                                    break
-                                }
-                            }
-                        },
-                        onDrag = { change, _ ->
-                            draggingIndex?.let { idx ->
-                                change.consume()
-                                val widthPx = size.width
-                                val heightPx = size.height
-                                val baseScale = minOf(
-                                    (widthPx * 0.80f) / spanX.toFloat(),
-                                    (heightPx * 0.80f) / spanY.toFloat()
-                                ) * zoomScale
-                                val originCx = widthPx / 2f + panOffset.x
-                                val originCy = heightPx / 2f + panOffset.y
-
-                                val newX = ((change.position.x - originCx) / baseScale) + centerX
-                                val newY = -((change.position.y - originCy) / baseScale) + centerY
-                                onWaypointMoved(idx, newX, newY)
-                            }
-                        },
-                        onDragEnd = { draggingIndex = null },
-                        onDragCancel = { draggingIndex = null }
-                    )
+            Surface(
+                shape = CircleShape,
+                color = Color(0xFF1E293B).copy(alpha = 0.92f),
+                border = BorderStroke(1.dp, Color(0xFF475569)),
+                modifier = Modifier.size(46.dp)
+            ) {
+                IconButton(onClick = {
+                    val newZoom = (zoomScale / 1.35f).coerceAtLeast(0.4f)
+                    onZoomPanChange(newZoom, panOffset)
+                }) {
+                    Text("-", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
                 }
-        )
+            }
 
-        // Selected Waypoint Floating Card with Delete Option
-        selectedWaypointIndex?.let { idx ->
-            if (idx in waypoints.indices) {
-                val wp = waypoints[idx]
-                Surface(
-                    color = Color(0xFF0F172A).copy(alpha = 0.95f),
-                    shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, Color(0xFF334155)),
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(12.dp)
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = Color(0xFF0F172A).copy(alpha = 0.92f),
+                border = BorderStroke(1.dp, Color(0xFF334155)),
+                modifier = Modifier
+                    .width(46.dp)
+                    .height(30.dp)
+            ) {
+                IconButton(onClick = {
+                    onZoomPanChange(1.0f, Offset.Zero)
+                }) {
+                    Text("Fit", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF38BDF8))
+                }
+            }
+        }
+
+        // --- 5. Selected Waypoint Info / Delete Card ---
+        if (selectedWaypointIndex != null && selectedWaypointIndex in waypoints.indices) {
+            val wp = waypoints[selectedWaypointIndex]
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = Color(0xFF0F172A).copy(alpha = 0.95f),
+                border = BorderStroke(1.dp, Color(0xFF334155)),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 10.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Column {
-                            Text(
-                                text = "${idx + 1}. ${wp.name}",
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 12.sp
-                            )
-                            Text(
-                                text = "E: ${wp.x.toInt()}  N: ${wp.y.toInt()}",
-                                color = Color(0xFF34D399),
-                                fontSize = 10.sp,
-                                fontFamily = FontFamily.Monospace
-                            )
-                        }
-
-                        Button(
-                            onClick = { onDeleteWaypoint(idx) },
-                            enabled = waypoints.size > 2,
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                            modifier = Modifier.height(28.dp)
+                    Text(
+                        text = "${selectedWaypointIndex + 1}. ${wp.name}",
+                        color = Color(0xFF38BDF8),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp
+                    )
+                    Text(
+                        text = "E: ${wp.x.toInt()}  N: ${wp.y.toInt()}",
+                        color = Color.White,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp
+                    )
+                    if (waypoints.size > 2) {
+                        IconButton(
+                            onClick = { onDeleteWaypoint(selectedWaypointIndex) },
+                            modifier = Modifier.size(26.dp)
                         ) {
-                            Text("🗑 Delete", fontSize = 11.sp, color = Color.White)
+                            Text("🗑", color = Color(0xFFFF5252), fontSize = 12.sp)
                         }
                     }
                 }
@@ -657,26 +868,26 @@ fun SpreadsheetRouteEditor(
         LazyColumn(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f),
-            verticalArrangement = Arrangement.spacedBy(3.dp)
+                .weight(1.0f),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             itemsIndexed(waypoints) { index, wp ->
                 Surface(
                     shape = RoundedCornerShape(4.dp),
-                    color = Color(0xFF0F172A),
+                    color = if (index % 2 == 0) Color(0xFF131D31) else Color(0xFF0F172A),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 6.dp, vertical = 3.dp),
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
                             text = "${index + 1}",
-                            fontSize = 11.sp,
-                            color = Color(0xFF64748B),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFF38BDF8),
                             modifier = Modifier.width(20.dp)
                         )
 
@@ -700,8 +911,8 @@ fun SpreadsheetRouteEditor(
                                 list[index] = Waypoint.fromMetric(wp.name, newX, wp.y, wp.altitude)
                                 onWaypointsChange(list)
                             },
-                            keyboardType = KeyboardType.Number,
-                            modifier = Modifier.weight(1.0f)
+                            modifier = Modifier.weight(1.0f),
+                            keyboardType = KeyboardType.Number
                         )
 
                         // 3. Northing (Y) cell
@@ -713,8 +924,8 @@ fun SpreadsheetRouteEditor(
                                 list[index] = Waypoint.fromMetric(wp.name, wp.x, newY, wp.altitude)
                                 onWaypointsChange(list)
                             },
-                            keyboardType = KeyboardType.Number,
-                            modifier = Modifier.weight(1.0f)
+                            modifier = Modifier.weight(1.0f),
+                            keyboardType = KeyboardType.Number
                         )
 
                         // 4. Altitude cell
@@ -726,8 +937,8 @@ fun SpreadsheetRouteEditor(
                                 list[index] = Waypoint.fromMetric(wp.name, wp.x, wp.y, newAlt)
                                 onWaypointsChange(list)
                             },
-                            keyboardType = KeyboardType.Number,
-                            modifier = Modifier.weight(0.5f)
+                            modifier = Modifier.weight(0.5f),
+                            keyboardType = KeyboardType.Number
                         )
 
                         // 5. In-place action buttons (Up, Down, Plus, Delete)

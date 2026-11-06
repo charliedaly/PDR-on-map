@@ -1,6 +1,6 @@
 
 
-// --- FILE: src/androidTest/java/com/example/irishhiketest/ExampleInstrumentedTest.kt ---
+// --- FILE: app/src/androidTest/java/com/example/irishhiketest/ExampleInstrumentedTest.kt ---
 
 package com.example.irishhiketest
 
@@ -28,7 +28,7 @@ class ExampleInstrumentedTest {
 }
 
 
-// --- FILE: src/androidTest/java/com/example/irishhiketest/ui/ControlPanelTest.kt ---
+// --- FILE: app/src/androidTest/java/com/example/irishhiketest/ui/ControlPanelTest.kt ---
 
 package com.example.irishhiketest.ui
 
@@ -155,7 +155,7 @@ class ControlPanelTest {
 }
 
 
-// --- FILE: src/test/java/com/example/irishhike/ExampleUnitTest.kt ---
+// --- FILE: app/src/test/java/com/example/irishhike/ExampleUnitTest.kt ---
 
 package com.example.irishhike
 
@@ -170,7 +170,7 @@ class ExampleUnitTest {
 }
 
 
-// --- FILE: src/test/java/com/example/irishhike/hike/HikeTest.kt ---
+// --- FILE: app/src/test/java/com/example/irishhike/hike/HikeTest.kt ---
 
 package com.example.irishhike.hike
 
@@ -374,7 +374,7 @@ class HikeTest {
 }
 
 
-// --- FILE: src/test/java/com/example/irishhike/hike/VehicleSpeedDetectionTest.kt ---
+// --- FILE: app/src/test/java/com/example/irishhike/hike/VehicleSpeedDetectionTest.kt ---
 
 package com.example.irishhike.hike
 
@@ -422,7 +422,7 @@ class VehicleSpeedDetectionTest {
 }
 
 
-// --- FILE: src/test/java/com/example/irishhike/telemetry/TelemetryPlaybackEngineTest.kt ---
+// --- FILE: app/src/test/java/com/example/irishhike/telemetry/TelemetryPlaybackEngineTest.kt ---
 
 package com.example.irishhike.telemetry
 
@@ -528,12 +528,13 @@ class TelemetryPlaybackEngineTest {
 }
 
 
-// --- FILE: src/test/java/com/example/irishhike/ekf/PdrEkfEngineTest.kt ---
+// --- FILE: app/src/test/java/com/example/irishhike/ekf/PdrEkfEngineTest.kt ---
 
 package com.example.irishhike.ekf
 
 import com.example.irishhike.data.EkfState
 import com.example.irishhike.data.Estimate
+import com.example.irishhike.data.HikeEvent
 import com.example.irishhike.util.CoordinateUtils
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -650,7 +651,7 @@ class PdrEkfEngineTest {
 }
 
 
-// --- FILE: src/test/java/com/example/irishhike/ekf/EkfTelemetryBouncingTest.kt ---
+// --- FILE: app/src/test/java/com/example/irishhike/ekf/EkfTelemetryBouncingTest.kt ---
 
 package com.example.irishhike.ekf
 
@@ -725,7 +726,7 @@ class EkfTelemetryBouncingTest {
 }
 
 
-// --- FILE: src/test/java/com/example/irishhike/ekf/EkfPlaybackTest.kt ---
+// --- FILE: app/src/test/java/com/example/irishhike/ekf/EkfPlaybackTest.kt ---
 
 package com.example.irishhike.ekf
 
@@ -1044,7 +1045,7 @@ class EkfPlaybackTest {
 }
 
 
-// --- FILE: src/test/java/com/example/irishhike/util/CoordUtilsGroundTruthTest.kt ---
+// --- FILE: app/src/test/java/com/example/irishhike/util/CoordUtilsGroundTruthTest.kt ---
 
 package com.example.irishhike.util
 
@@ -1124,7 +1125,7 @@ class CoordUtilsGroundTruthTest {
 }
 
 
-// --- FILE: src/test/java/com/example/irishhike/util/CoordinateUtilsTest.kt ---
+// --- FILE: app/src/test/java/com/example/irishhike/util/CoordinateUtilsTest.kt ---
 
 package com.example.irishhike.util
 
@@ -1220,7 +1221,7 @@ class CoordinateUtilsTest {
 }
 
 
-// --- FILE: src/test/java/com/example/irishhike/util/RouteParserTest.kt ---
+// --- FILE: app/src/test/java/com/example/irishhike/util/RouteParserTest.kt ---
 
 package com.example.irishhike.util
 
@@ -1272,7 +1273,7 @@ class RouteParserTest {
 }
 
 
-// --- FILE: src/test/java/com/example/irishhike/util/OsmTileProjectionTest.kt ---
+// --- FILE: app/src/test/java/com/example/irishhike/util/OsmTileProjectionTest.kt ---
 
 package com.example.irishhike.util
 
@@ -1346,7 +1347,7 @@ class OsmTileProjectionTest {
 }
 
 
-// --- FILE: src/test/java/com/example/irishhike/util/OsmTileCoverageTest.kt ---
+// --- FILE: app/src/test/java/com/example/irishhike/util/OsmTileCoverageTest.kt ---
 
 package com.example.irishhike.util
 
@@ -1373,7 +1374,7 @@ class OsmTileCoverageTest {
 }
 
 
-// --- FILE: src/test/java/com/example/irishhike/performance/BreadcrumbUiResponsivenessTest.kt ---
+// --- FILE: app/src/test/java/com/example/irishhike/performance/BreadcrumbUiResponsivenessTest.kt ---
 
 package com.example.irishhike.performance
 
@@ -1589,7 +1590,7 @@ class BreadcrumbUiResponsivenessTest {
 }
 
 
-// --- FILE: src/test/java/com/example/irishhike/performance/EkfLatencyBenchmarkTest.kt ---
+// --- FILE: app/src/test/java/com/example/irishhike/performance/EkfLatencyBenchmarkTest.kt ---
 
 package com.example.irishhike.performance
 
@@ -1739,7 +1740,7 @@ class EkfLatencyBenchmarkTest {
 }
 
 
-// --- FILE: src/test/java/com/example/irishhike/ui/HikeViewModelTest.kt ---
+// --- FILE: app/src/test/java/com/example/irishhike/ui/HikeViewModelTest.kt ---
 
 package com.example.irishhike.ui
 
@@ -1853,7 +1854,7 @@ class HikeViewModelTest {
 }
 
 
-// --- FILE: src/main/java/com/example/irishhike/hike/Hike.kt ---
+// --- FILE: app/src/main/java/com/example/irishhike/hike/Hike.kt ---
 
 package com.example.irishhike.hike
 
@@ -2225,7 +2226,7 @@ class Hike(var route: Route?, val config: HikeConfig = HikeConfig()) {
 }
 
 
-// --- FILE: src/main/java/com/example/irishhike/hike/NavigationMessage.kt ---
+// --- FILE: app/src/main/java/com/example/irishhike/hike/NavigationMessage.kt ---
 
 package com.example.irishhike.hike
 
@@ -2236,7 +2237,7 @@ data class NavigationMessage(
 )
 
 
-// --- FILE: src/main/java/com/example/irishhike/telemetry/TelemetryPlaybackEngine.kt ---
+// --- FILE: app/src/main/java/com/example/irishhike/telemetry/TelemetryPlaybackEngine.kt ---
 
 package com.example.irishhike.telemetry
 
@@ -2490,7 +2491,7 @@ class TelemetryPlaybackEngine {
 }
 
 
-// --- FILE: src/main/java/com/example/irishhike/telemetry/TelemetryEvent.kt ---
+// --- FILE: app/src/main/java/com/example/irishhike/telemetry/TelemetryEvent.kt ---
 
 package com.example.irishhike.telemetry
 
@@ -2524,7 +2525,7 @@ sealed class TelemetryEvent : Serializable {
 }
 
 
-// --- FILE: src/main/java/com/example/irishhike/telemetry/TelemetryRecorder.kt ---
+// --- FILE: app/src/main/java/com/example/irishhike/telemetry/TelemetryRecorder.kt ---
 
 package com.example.irishhike.telemetry
 
@@ -2724,7 +2725,7 @@ class TelemetryRecorder {
 }
 
 
-// --- FILE: src/main/java/com/example/irishhike/sensor/PdrStepDetector.kt ---
+// --- FILE: app/src/main/java/com/example/irishhike/sensor/PdrStepDetector.kt ---
 
 package com.example.irishhike.sensor
 
@@ -2871,7 +2872,7 @@ class PdrStepDetector(
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
 }
 
-// --- FILE: src/main/java/com/example/irishhike/ekf/PdrEkfEngine.kt ---
+// --- FILE: app/src/main/java/com/example/irishhike/ekf/PdrEkfEngine.kt ---
 
 package com.example.irishhike.ekf
 
@@ -2950,6 +2951,7 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
         get() = isInitializedWithGps
 
     private var lastStepTimestampMs: Long = 0L
+    private var lastGpsTimestampMs: Long = 0L
     private var currentHeadingRad: Double = 0.0
     private var stepCount: Int = 0
     private var gpsFixCount: Int = 0
@@ -2985,6 +2987,7 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
 
         isInitializedWithGps = false
         lastStepTimestampMs = 0L
+        lastGpsTimestampMs = 0L
         currentHeadingRad = 0.0
         stepCount = 0
         gpsFixCount = 0
@@ -3004,19 +3007,14 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
             2.0
         }
 
-        // --- VELOCITY DECAY (ANTI-RUNAWAY MECHANISM) ---
-        // If no step has been detected for > 1.2s (e.g. hiker stopped, or phone screen
-        // is off and sensor delivery is throttled), decay velocity smoothly to zero.
-        // This completely prevents the EKF from "ghost running" into empty space!
+        // Velocity decay if stationary / no steps
         if (timeSinceLastStepSec > 1.2) {
-            val decay = exp(-3.0 * clampedDt) // Drops velocity by 95% in ~1 second
+            val decay = exp(-3.0 * clampedDt)
             x[IDX_VX] *= decay
             x[IDX_VY] *= decay
-            p[IDX_VX][IDX_VX] = (p[IDX_VX][IDX_VX] * decay).coerceAtLeast(1e-4)
-            p[IDX_VY][IDX_VY] = (p[IDX_VY][IDX_VY] * decay).coerceAtLeast(1e-4)
         }
 
-        // F matrix propagation
+        // Covariance propagation P = F * P * F^T + Q
         val f = Array(6) { DoubleArray(6) }
         for (i in 0..5) f[i][i] = 1.0
         f[IDX_X][IDX_VX] = clampedDt
@@ -3044,12 +3042,12 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
             p[i][i] += config.qDiag[i] * clampedDt
         }
 
-        // Integrate dead reckoning position forward
-        x[IDX_X] += x[IDX_VX] * clampedDt
-        x[IDX_Y] += x[IDX_VY] * clampedDt
+        // DO NOT add velocity to position here! Position is already integrated in onStepDetected().
 
-        p[IDX_X][IDX_X] = p[IDX_X][IDX_X].coerceIn(0.1, 150.0)
-        p[IDX_Y][IDX_Y] = p[IDX_Y][IDX_Y].coerceIn(0.1, 150.0)
+        // Ensure diagonal variances stay strictly positive and bounded
+        for (i in 0..5) {
+            if (p[i][i] < 1e-6 || p[i][i].isNaN()) p[i][i] = 1e-4
+        }
 
         return getEkfState()
     }
@@ -3123,7 +3121,7 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
     }
 
     @Synchronized
-    fun onGpsFix(lat: Double, lon: Double, accuracyMeters: Float, activeIntervalMs: Long): EkfState {
+    fun onGpsFix(lat: Double, lon: Double, accuracyMeters: Float, activeIntervalMs: Long, timestampMs: Long = System.currentTimeMillis()): EkfState {
         gpsFixCount++
 
         val gpsLocation = CoordinateUtils.latLonToMetric(lat, lon)
@@ -3138,14 +3136,37 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
             return getEkfState(activeIntervalMs)
         }
 
+        // --- TIME INTERVAL CALCULATION ---
+        val dtGpsSec = if (lastGpsTimestampMs > 0L) {
+            ((timestampMs - lastGpsTimestampMs) / 1000.0).coerceIn(0.1, 300.0)
+        } else {
+            1.0
+        }
+        lastGpsTimestampMs = timestampMs
+
         val deltaX = gpsLocation.x - x[IDX_X]
         val deltaY = gpsLocation.y - x[IDX_Y]
+
+        // --- OUTLIER / STALE FIX GUARD ---
+        // Allow for normal walking (1.5 m/s) plus 25m margin over the time elapsed.
+        // If GPS was gone for 60s, allow up to (25 + 60 * 1.5) = 115m.
+        // But if GPS came just 1s ago, drop any impossible jump > 26.5m.
+        val distanceToGps = hypot(deltaX, deltaY)
+        val maxAllowableDistance = 25.0 + (dtGpsSec * 1.5)
+        if (distanceToGps > maxAllowableDistance) {
+            // Reject stale/multipath GPS spike; return current state safely
+            return getEkfState(activeIntervalMs)
+        }
+
+        // Got here => gps is good (or at least not provably bad).
         val rVar = (accuracyMeters * accuracyMeters).toDouble().coerceAtLeast(4.0)
 
         val correctedHeading = normalizeAngleRad(currentHeadingRad - x[IDX_COMPASS_BIAS])
         val crossTrackErr = abs(deltaX * cos(correctedHeading) - deltaY * sin(correctedHeading))
         val currentSpeed = hypot(x[IDX_VX], x[IDX_VY])
 
+        /*
+        gemini 3.8 is now saying to remove it!
         // --- COMPASS BIAS INFLATION GUARD ---
         // ONLY inflate compass bias uncertainty if:
         // 1. GPS fix is clean and accurate (accuracy <= 8.0m)
@@ -3154,9 +3175,11 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
         // otherwise cause crossTrackErr to blow compass bias uncertainty out of control.
         if (accuracyMeters <= 8.0f && currentSpeed >= 0.4 && crossTrackErr > 2.5) {
             val clampedErr = crossTrackErr.coerceAtMost(6.0)
-            val inflation = 0.02 * clampedErr * clampedErr
-            p[IDX_COMPASS_BIAS][IDX_COMPASS_BIAS] = (p[IDX_COMPASS_BIAS][IDX_COMPASS_BIAS] + inflation).coerceAtMost(0.4)
+            val inflation = 0.01 * clampedErr
+            p[IDX_COMPASS_BIAS][IDX_COMPASS_BIAS] = (p[IDX_COMPASS_BIAS][IDX_COMPASS_BIAS] + inflation).coerceAtMost(0.08)
         }
+
+         */
 
         // Direct position observation updates (X and Y independently)
         val hX = doubleArrayOf(1.0, 0.0, 0.0, 0.0, 0.0, 0.0)
@@ -3182,41 +3205,70 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
         return getEkfState(activeIntervalMs)
     }
 
-    private fun updateScalarObservation(residual: Double, h: DoubleArray, rVar: Double) {
-        var s = rVar
-        val phT = DoubleArray(6)
+    private fun updateScalarObservation(residual: Double, h: DoubleArray, rVariance: Double) {
+        // Calculate innovation variance S = H * P * H^T + R
+        var s = rVariance
+        for (i in 0..5) {
+            for (j in 0..5) {
+                s += h[i] * p[i][j] * h[j]
+            }
+        }
+        if (s <= 1e-9) return
+
+        // Compute Kalman gain K = (P * H^T) / S
+        val k = DoubleArray(6)
         for (i in 0..5) {
             var sum = 0.0
             for (j in 0..5) {
                 sum += p[i][j] * h[j]
             }
-            phT[i] = sum
-            s += h[i] * sum
+            k[i] = sum / s
         }
 
-        if (s <= 1e-9) return
+        // If this observation is a direct GPS position fix (X or Y),
+        // decouple it so it NEVER distorts stride length or compass bias!
+        val isPositionUpdate = (h[IDX_X] == 1.0 || h[IDX_Y] == 1.0)
+        if (isPositionUpdate) {
+            k[IDX_STRIDE] = 0.0
+            k[IDX_COMPASS_BIAS] = 0.0
+        }
 
-        val k = DoubleArray(6) { phT[it] / s }
-
+        // Update state vector x with safety clamping
         for (i in 0..5) {
-            x[i] += k[i] * residual
+            val delta = k[i] * residual
+            val clampedDelta = when (i) {
+                IDX_X, IDX_Y -> delta.coerceIn(-50.0, 50.0)
+                IDX_STRIDE -> delta.coerceIn(-0.05, 0.05)
+                IDX_COMPASS_BIAS -> delta.coerceIn(-0.05, 0.05)
+                else -> delta
+            }
+            x[i] += clampedDelta
         }
 
+        // Keep physical states within realistic human bounds
+        x[IDX_STRIDE] = x[IDX_STRIDE].coerceIn(config.minStrideMeters, config.maxStrideMeters)
+        // Compass bias should never exceed +/- 20 degrees (+/- 0.35 radians)
+        x[IDX_COMPASS_BIAS] = x[IDX_COMPASS_BIAS].coerceIn(-0.35, 0.35)
+
+        // Update covariance matrix: P = (I - K*H) * P
         val newP = Array(6) { DoubleArray(6) }
         for (i in 0..5) {
             for (j in 0..5) {
                 var sum = 0.0
                 for (m in 0..5) {
-                    val eyeMinusKh = (if (i == m) 1.0 else 0.0) - k[i] * h[m]
-                    sum += eyeMinusKh * p[m][j]
+                    val eye = if (i == m) 1.0 else 0.0
+                    val iMinusKH = eye - (k[i] * h[m])
+                    sum += iMinusKH * p[m][j]
                 }
                 newP[i][j] = sum
             }
         }
 
+        // Enforce symmetry and positive variance on diagonal
         for (i in 0..5) {
             for (j in 0..5) {
-                p[i][j] = newP[i][j]
+                val symmetric = 0.5 * (newP[i][j] + newP[j][i])
+                p[i][j] = if (i == j) symmetric.coerceAtLeast(1e-6) else symmetric
             }
         }
     }
@@ -3251,7 +3303,7 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
     }
 }
 
-// --- FILE: src/main/java/com/example/irishhike/MainActivity.kt ---
+// --- FILE: app/src/main/java/com/example/irishhike/MainActivity.kt ---
 
 package com.example.irishhike
 
@@ -3597,7 +3649,7 @@ fun MainDiagnosticScreen(
 }
 
 
-// --- FILE: src/main/java/com/example/irishhike/util/CoordinateUtils.kt ---
+// --- FILE: app/src/main/java/com/example/irishhike/util/CoordinateUtils.kt ---
 
 package com.example.irishhike.util
 
@@ -4111,7 +4163,7 @@ object CoordinateUtils {
 }
 
 
-// --- FILE: src/main/java/com/example/irishhike/util/TtsManager.kt ---
+// --- FILE: app/src/main/java/com/example/irishhike/util/TtsManager.kt ---
 
 package com.example.irishhike.util
 
@@ -4199,7 +4251,7 @@ class TtsManager(
 }
 
 
-// --- FILE: src/main/java/com/example/irishhike/util/LoggingUtils.kt ---
+// --- FILE: app/src/main/java/com/example/irishhike/util/LoggingUtils.kt ---
 
 package com.example.irishhike.util
 
@@ -4216,7 +4268,7 @@ object LoggingUtils {
 }
 
 
-// --- FILE: src/main/java/com/example/irishhike/util/OsmTileManager.kt ---
+// --- FILE: app/src/main/java/com/example/irishhike/util/OsmTileManager.kt ---
 
 package com.example.irishhike.util
 
@@ -4307,7 +4359,7 @@ object OsmTileManager {
     fun hasTileOnDiskOrCache(context: Context, zoom: Int, tileX: Int, tileY: Int): Boolean {
         val cacheKey = "$zoom/$tileX/$tileY"
         if (memoryCache.get(cacheKey) != null) return true
-        val tileFile = File(context.filesDir, "tiles/$zoom/$tileX/$tileY.png")
+        val tileFile = File(context.filesDir, "tiles_topo/$zoom/$tileX/$tileY.png")
         return tileFile.exists() && tileFile.length() > 0L
     }
 
@@ -4325,7 +4377,7 @@ object OsmTileManager {
                 var pY = tileY
 
                 while (pZoom >= 8) {
-                    val pFile = File(context.filesDir, "tiles/$pZoom/$pX/$pY.png")
+                    val pFile = File(context.filesDir, "tiles_topo/$pZoom/$pX/$pY.png")
                     if (pFile.exists() && pFile.length() > 0) {
                         val parentBitmap = BitmapFactory.decodeFile(pFile.absolutePath)
                         if (parentBitmap != null) {
@@ -4431,7 +4483,10 @@ object OsmTileManager {
             val tileFile = File(tileDir, "$y.png")
             if (!tileFile.exists() || tileFile.length() == 0L) {
                 try {
-                    val tileUrl = "https://tile.openstreetmap.org/$z/$x/$y.png"
+                    //val tileUrl = "https://tile.openstreetmap.org/$z/$x/$y.png"
+                    val subdomains = arrayOf("a", "b", "c")
+                    val server = subdomains[(x + y) % 3]
+                    val tileUrl = "https://$server.tile.opentopomap.org/$z/$x/$y.png"
                     val conn = URL(tileUrl).openConnection() as HttpURLConnection
                     conn.setRequestProperty("User-Agent", "HikingTool/1.0 (Android PDR Diagnostic App)")
                     conn.connectTimeout = 8000
@@ -4470,7 +4525,7 @@ object OsmTileManager {
     suspend fun downloadRouteAreaTiles(
         context: Context,
         route: Route,
-        zoomLevels: List<Int> = listOf(10, 11, 12, 13, 14, 15, 16, 17, 18),
+        zoomLevels: List<Int> = listOf(10, 11, 12, 13, 14, 15, 16, 17),
         onProgress: (Int, Int) -> Unit = { _, _ -> }
     ): Int = withContext(Dispatchers.IO) {
         if (route.waypoints.isEmpty()) return@withContext 0
@@ -4524,13 +4579,15 @@ object OsmTileManager {
 
         for (tile in totalTilesList) {
             val (z, x, y) = tile
-            val tileDir = File(context.filesDir, "tiles/$z/$x")
+            val tileDir = File(context.filesDir, "tiles_topo/$z/$x")
             if (!tileDir.exists()) tileDir.mkdirs()
 
             val tileFile = File(tileDir, "$y.png")
             if (!tileFile.exists() || tileFile.length() == 0L) {
                 try {
-                    val tileUrl = "https://tile.openstreetmap.org/$z/$x/$y.png"
+                    val subdomains = arrayOf("a", "b", "c")
+                    val server = subdomains[(x + y) % 3]
+                    val tileUrl = "https://$server.tile.opentopomap.org/$z/$x/$y.png"
                     val conn = URL(tileUrl).openConnection() as HttpURLConnection
                     conn.setRequestProperty("User-Agent", "HikingTool/1.0 (Android PDR Diagnostic App)")
                     conn.connectTimeout = 8000
@@ -4543,6 +4600,8 @@ object OsmTileManager {
                             }
                         }
                         if (tileFile.length() > 0) successCount++
+
+                        delay(60L) // Polite 60ms pause between tile requests
                     }
                 } catch (e: Exception) {
                     Log.e("OsmTileManager", "Failed route tile $z/$x/$y: ${e.message}")
@@ -4612,7 +4671,7 @@ object TileDownloadManifest {
 }
 
 
-// --- FILE: src/main/java/com/example/irishhike/util/OsmTileProjectionUtils.kt ---
+// --- FILE: app/src/main/java/com/example/irishhike/util/OsmTileProjectionUtils.kt ---
 
 package com.example.irishhike.util
 
@@ -4744,7 +4803,7 @@ object OsmTileProjectionUtils {
 }
 
 
-// --- FILE: src/main/java/com/example/irishhike/util/RouteParser.kt ---
+// --- FILE: app/src/main/java/com/example/irishhike/util/RouteParser.kt ---
 
 package com.example.irishhike.util
 
@@ -4914,7 +4973,7 @@ object RouteParser {
 }
 
 
-// --- FILE: src/main/java/com/example/irishhike/util/GpsValidationUtils.kt ---
+// --- FILE: app/src/main/java/com/example/irishhike/util/GpsValidationUtils.kt ---
 
 package com.example.irishhike.util
 
@@ -5025,7 +5084,7 @@ object GpsValidationUtils {
 }
 
 
-// --- FILE: src/main/java/com/example/irishhike/util/HikerTrackExporter.kt ---
+// --- FILE: app/src/main/java/com/example/irishhike/util/HikerTrackExporter.kt ---
 
 package com.example.irishhike.util
 
@@ -5033,7 +5092,6 @@ import android.content.Context
 import android.net.Uri
 import android.os.Environment
 import android.util.Log
-import android.widget.Toast
 import com.example.irishhike.model.Breadcrumb
 import java.io.File
 import java.text.SimpleDateFormat
@@ -5046,18 +5104,65 @@ object HikerTrackExporter {
 
     private const val TAG = "HikerTrackExporter"
 
+    /**
+     * Resolves the target directory:
+     *   Download / hillwalking / <route_name> /
+     *
+     * Tries public Download first; falls back to app external Download if permission is restricted.
+     */
+    fun resolveRouteDirectory(context: Context, routeName: String? = null, routeUri: Uri? = null): File {
+        val cleanRouteName = when {
+            !routeName.isNullOrBlank() -> routeName.trim()
+            routeUri != null -> RouteParser.extractRouteNameFromUri(context, routeUri)
+            else -> "default"
+        }.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+
+        // 1. Primary: Public Downloads / hillwalking / <route_name>
+        val publicDownloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        val primaryDir = File(File(publicDownloads, "hillwalking"), cleanRouteName)
+
+        val targetDir = try {
+            if (!primaryDir.exists()) {
+                val created = primaryDir.mkdirs()
+                if (created || primaryDir.exists()) primaryDir else null
+            } else {
+                primaryDir
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Cannot create public hillwalking dir (${e.message}), using app external storage")
+            null
+        }
+
+        // 2. Guaranteed fallback: app external files directory (visible on PC via USB)
+        // Path: /storage/emulated/0/Android/data/com.example.irishhike/files/Download/hillwalking/<route_name>
+        if (targetDir != null && targetDir.canWrite()) {
+            Log.i(TAG, "Resolved target route directory: ${targetDir.absolutePath}")
+            return targetDir
+        }
+
+        val appExternalDownloads = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+            ?: context.filesDir
+        val fallbackDir = File(File(appExternalDownloads, "hillwalking"), cleanRouteName)
+        if (!fallbackDir.exists()) {
+            fallbackDir.mkdirs()
+        }
+        Log.i(TAG, "Resolved fallback target route directory: ${fallbackDir.absolutePath}")
+        return fallbackDir
+    }
+
+    /**
+     * Exports breadcrumbs to a .gpx file inside Download/hillwalking/<route_name>/
+     * Designed to be called safely from a background coroutine.
+     */
     fun exportBreadcrumbsToGpx(
         context: Context,
         breadcrumbs: List<Breadcrumb>,
+        routeName: String? = null,
         routeUri: Uri? = null
     ): File? {
         if (breadcrumbs.isEmpty()) return null
 
-        val targetDir = resolveTargetDirectory(context, routeUri)
-        if (!targetDir.exists()) {
-            targetDir.mkdirs()
-        }
-
+        val targetDir = resolveRouteDirectory(context, routeName, routeUri)
         val timeFormatter = SimpleDateFormat("yyyyMMdd-HHmm", Locale.US)
         val timestampStr = timeFormatter.format(Date())
         val filename = "bc-$timestampStr.gpx"
@@ -5100,82 +5205,15 @@ object HikerTrackExporter {
         return try {
             file.writeText(sb.toString())
             Log.i(TAG, "Successfully exported breadcrumbs to: ${file.absolutePath}")
-            val displayPath = getRelativePathForDisplay(file)
-            Toast.makeText(context, "Saved breadcrumbs to:\n$displayPath", Toast.LENGTH_LONG).show()
             file
         } catch (e: Exception) {
             Log.e(TAG, "Failed to save breadcrumbs: ${e.message}", e)
-            Toast.makeText(context, "Failed to save breadcrumbs: ${e.message}", Toast.LENGTH_LONG).show()
             null
         }
     }
-
-    private fun getRelativePathForDisplay(file: File): String {
-        val absPath = file.absolutePath
-        val idx = absPath.indexOf("Download")
-        return if (idx != -1) absPath.substring(idx) else absPath
-    }
-
-    fun resolveTargetDirectory(context: Context, routeUri: Uri?): File {
-        if (routeUri != null) {
-            val uriString = routeUri.toString()
-            Log.d(TAG, "Resolving target directory for routeUri: $uriString")
-
-            if (routeUri.scheme == "file") {
-                val file = File(routeUri.path ?: "")
-                file.parentFile?.let {
-                    Log.d(TAG, "Resolved parent dir from file scheme: ${it.absolutePath}")
-                    return it
-                }
-            }
-
-            val decoded = Uri.decode(uriString)
-            val pathPart = when {
-                decoded.contains("primary:") -> decoded.substringAfter("primary:")
-                decoded.contains("raw:") -> decoded.substringAfter("raw:")
-                decoded.contains("/storage/") -> decoded.substringAfter("/storage/")
-                else -> null
-            }
-            if (pathPart != null) {
-                val fullPath = if (pathPart.startsWith("/")) pathPart else "/storage/emulated/0/$pathPart"
-                val file = File(fullPath)
-                file.parentFile?.let { parent ->
-                    if (!parent.exists()) parent.mkdirs()
-                    Log.d(TAG, "Resolved parent dir from pathPart: ${parent.absolutePath}")
-                    return parent
-                }
-            }
-
-            try {
-                context.contentResolver.query(routeUri, arrayOf(android.provider.MediaStore.MediaColumns.DATA), null, null, null)?.use { cursor ->
-                    if (cursor.moveToFirst()) {
-                        val colIdx = cursor.getColumnIndex(android.provider.MediaStore.MediaColumns.DATA)
-                        if (colIdx != -1) {
-                            val dataPath = cursor.getString(colIdx)
-                            if (!dataPath.isNullOrBlank()) {
-                                val file = File(dataPath)
-                                file.parentFile?.let {
-                                    Log.d(TAG, "Resolved parent dir via MediaColumns.DATA: ${it.absolutePath}")
-                                    return it
-                                }
-                            }
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Could not query MediaColumns.DATA: ${e.message}")
-            }
-        }
-
-        val fallback = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "freehike")
-        if (!fallback.exists()) fallback.mkdirs()
-        Log.d(TAG, "Fallback to freehike dir: ${fallback.absolutePath}")
-        return fallback
-    }
 }
 
-
-// --- FILE: src/main/java/com/example/irishhike/model/Leg.kt ---
+// --- FILE: app/src/main/java/com/example/irishhike/model/Leg.kt ---
 
 package com.example.irishhike.model
 
@@ -5192,7 +5230,7 @@ class Leg(
 }
 
 
-// --- FILE: src/main/java/com/example/irishhike/model/Breadcrumb.kt ---
+// --- FILE: app/src/main/java/com/example/irishhike/model/Breadcrumb.kt ---
 
 package com.example.irishhike.model
 
@@ -5207,7 +5245,7 @@ data class Breadcrumb(
 )
 
 
-// --- FILE: src/main/java/com/example/irishhike/model/Route.kt ---
+// --- FILE: app/src/main/java/com/example/irishhike/model/Route.kt ---
 
 package com.example.irishhike.model
 
@@ -5270,7 +5308,7 @@ class Route(
 }
 
 
-// --- FILE: src/main/java/com/example/irishhike/model/Waypoint.kt ---
+// --- FILE: app/src/main/java/com/example/irishhike/model/Waypoint.kt ---
 
 package com.example.irishhike.model
 
@@ -5360,7 +5398,7 @@ class Waypoint(
 }
 
 
-// --- FILE: src/main/java/com/example/irishhike/model/Location.kt ---
+// --- FILE: app/src/main/java/com/example/irishhike/model/Location.kt ---
 
 package com.example.irishhike.model
 
@@ -5406,7 +5444,7 @@ open class Location(
 }
 
 
-// --- FILE: src/main/java/com/example/irishhike/playback/GpxTrackParser.kt ---
+// --- FILE: app/src/main/java/com/example/irishhike/playback/GpxTrackParser.kt ---
 
 package com.example.irishhike.playback
 
@@ -5497,7 +5535,7 @@ object GpxTrackParser {
 }
 
 
-// --- FILE: src/main/java/com/example/irishhike/playback/TrackPlaybackEvent.kt ---
+// --- FILE: app/src/main/java/com/example/irishhike/playback/TrackPlaybackEvent.kt ---
 
 package com.example.irishhike.playback
 
@@ -5530,7 +5568,7 @@ sealed class TrackPlaybackEvent {
 }
 
 
-// --- FILE: src/main/java/com/example/irishhike/playback/TrackPlaybackEngine.kt ---
+// --- FILE: app/src/main/java/com/example/irishhike/playback/TrackPlaybackEngine.kt ---
 
 package com.example.irishhike.playback
 
@@ -5802,7 +5840,7 @@ class TrackPlaybackEngine {
 }
 
 
-// --- FILE: src/main/java/com/example/irishhike/config/AppConfig.kt ---
+// --- FILE: app/src/main/java/com/example/irishhike/config/AppConfig.kt ---
 
 package com.example.irishhike.config
 
@@ -5848,7 +5886,7 @@ data class MapConfig(
 )
 
 
-// --- FILE: src/main/java/com/example/irishhike/config/AppPreferences.kt ---
+// --- FILE: app/src/main/java/com/example/irishhike/config/AppPreferences.kt ---
 
 package com.example.irishhike.config
 
@@ -5975,7 +6013,7 @@ class AppPreferences(context: Context) {
 }
 
 
-// --- FILE: src/main/java/com/example/irishhike/service/PdrTrackingService.kt ---
+// --- FILE: app/src/main/java/com/example/irishhike/service/PdrTrackingService.kt ---
 
 package com.example.irishhike.service
 
@@ -6267,7 +6305,7 @@ class PdrTrackingService : Service() {
 }
 
 
-// --- FILE: src/main/java/com/example/irishhike/data/Models.kt ---
+// --- FILE: app/src/main/java/com/example/irishhike/data/Models.kt ---
 
 package com.example.irishhike.data
 
@@ -6303,7 +6341,7 @@ data class EkfState(
 }
 
 
-// --- FILE: src/main/java/com/example/irishhike/ui/ControlPanel.kt ---
+// --- FILE: app/src/main/java/com/example/irishhike/ui/ControlPanel.kt ---
 
 package com.example.irishhike.ui
 
@@ -6501,7 +6539,7 @@ fun ControlPanel(
 }
 
 
-// --- FILE: src/main/java/com/example/irishhike/ui/NavigationMessagePanel.kt ---
+// --- FILE: app/src/main/java/com/example/irishhike/ui/NavigationMessagePanel.kt ---
 
 package com.example.irishhike.ui
 
@@ -6594,7 +6632,7 @@ fun NavigationMessagePanel(
 }
 
 
-// --- FILE: src/main/java/com/example/irishhike/ui/TelemetryDashboard.kt ---
+// --- FILE: app/src/main/java/com/example/irishhike/ui/TelemetryDashboard.kt ---
 
 package com.example.irishhike.ui
 
@@ -6730,10 +6768,17 @@ private fun TelemetryItem(
 }
 
 
-// --- FILE: src/main/java/com/example/irishhike/ui/RouteEditorScreen.kt ---
+// --- FILE: app/src/main/java/com/example/irishhike/ui/RouteEditorScreen.kt ---
 
 package com.example.irishhike.ui
 
+import android.net.Uri
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -6741,13 +6786,18 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -6758,30 +6808,48 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.irishhike.model.Route
 import com.example.irishhike.model.Waypoint
+import com.example.irishhike.util.OsmTileManager
+import kotlin.math.hypot
+import kotlin.math.round
+
+enum class RouteEditorViewMode {
+    MAP,
+    SPREADSHEET
+}
 
 @Composable
 fun SpreadsheetCell(
     value: String,
     onValueChange: (String) -> Unit,
-    keyboardType: KeyboardType = KeyboardType.Text,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    keyboardType: KeyboardType = KeyboardType.Text
 ) {
     Surface(
         shape = RoundedCornerShape(4.dp),
         color = Color(0xFF1E293B),
+        border = BorderStroke(1.dp, Color(0xFF334155)),
         modifier = modifier.height(28.dp)
     ) {
         Box(
@@ -6798,6 +6866,7 @@ fun SpreadsheetCell(
                 textStyle = TextStyle(
                     fontSize = 11.sp,
                     color = Color.White,
+                    fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Medium
                 ),
                 modifier = Modifier.fillMaxWidth()
@@ -6829,251 +6898,890 @@ fun RouteEditorScreen(
             initialRoute.waypoints
         } else {
             listOf(
-                Waypoint.fromMetric("Start", 0.0, 0.0),
-                Waypoint.fromMetric("Target", 0.0, 100.0)
+                Waypoint.fromMetric("Start", 306500.0, 192800.0, 280.0),
+                Waypoint.fromMetric("Target", 303240.0, 191720.0, 925.0)
             )
         }
     }
 
     var waypoints by remember { mutableStateOf(initialWaypoints) }
+    var viewMode by remember { mutableStateOf(RouteEditorViewMode.MAP) }
+    var selectedWaypointIndex by remember { mutableStateOf<Int?>(null) }
+
+    // Map Pan & Zoom states
+    var zoomScale by remember { mutableFloatStateOf(1f) }
+    var panOffset by remember { mutableStateOf(Offset.Zero) }
+
+    val context = LocalContext.current
+    var pendingCsvToSave by remember { mutableStateOf<String?>(null) }
+    var pendingRouteToSave by remember { mutableStateOf<Route?>(null) }
+
+    // System Document Creator launcher for guaranteed write permissions across Android storage
+    val createDocumentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("text/csv")
+    ) { targetUri: Uri? ->
+        if (targetUri != null && pendingCsvToSave != null) {
+            try {
+                context.contentResolver.openOutputStream(targetUri, "wt")?.use { stream ->
+                    stream.bufferedWriter().use { writer ->
+                        writer.write(pendingCsvToSave!!)
+                        writer.flush()
+                    }
+                }
+                Toast.makeText(context, "Saved route file successfully!", Toast.LENGTH_SHORT).show()
+                val updatedRoute = Route.createFromWaypoints(routeName, waypoints, sourceUri = targetUri)
+                onSaveRoute(pendingCsvToSave!!, updatedRoute)
+                onBack()
+            } catch (e: Exception) {
+                Toast.makeText(context, "Failed saving file: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    fun handleSave(forceSaveAs: Boolean = false) {
+        val newRoute = Route.createFromWaypoints(
+            name = routeName,
+            rawWaypoints = waypoints,
+            sourceUri = initialRoute?.sourceUri
+        )
+        val csv = waypoints.joinToString("\n") { wp ->
+            "${wp.name},${wp.x.toInt()},${wp.y.toInt()},${wp.altitude.toInt()}"
+        }
+
+        val sourceUri = initialRoute?.sourceUri
+        var directSaveSuccess = false
+
+        if (!forceSaveAs && sourceUri != null) {
+            try {
+                context.contentResolver.openOutputStream(sourceUri, "wt")?.use { stream ->
+                    stream.bufferedWriter().use { writer ->
+                        writer.write(csv)
+                        writer.flush()
+                    }
+                }
+                directSaveSuccess = true
+            } catch (_: Exception) {
+                // When files are opened via GetContent(), Android grants read-only access.
+                // Catch the SecurityException and proceed to createDocumentLauncher
+                directSaveSuccess = false
+            }
+        }
+
+        if (directSaveSuccess) {
+            Toast.makeText(context, "Saved: $routeName.csv", Toast.LENGTH_SHORT).show()
+            onSaveRoute(csv, newRoute)
+            onBack()
+        } else {
+            // Prompt user with Android system file-save dialog to pick save location with granted write permissions
+            pendingCsvToSave = csv
+            pendingRouteToSave = newRoute
+            try {
+                createDocumentLauncher.launch("$routeName.csv")
+            } catch (_: Exception) {
+                Toast.makeText(context, "Route saved in app", Toast.LENGTH_SHORT).show()
+                onSaveRoute(csv, newRoute)
+                onBack()
+            }
+        }
+    }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
                 title = {
-                    Text(text = "Edit Route: $routeName", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Column {
+                        Text(
+                            text = "Edit Route: $routeName",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            maxLines = 1
+                        )
+                        Text(
+                            text = "${waypoints.size} waypoints • Mode: ${viewMode.name}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFF9FB3C8),
+                            fontSize = 11.sp
+                        )
+                    }
                 },
                 navigationIcon = {
-                    // Return Arrow (←)
-                    IconButton(onClick = {
-                        val newRoute = Route.createFromWaypoints(routeName, waypoints)
-                        val csv = waypoints.joinToString("\n") { wp ->
-                            "${wp.name},${wp.x},${wp.y},${wp.altitude}"
-                        }
-                        onSaveRoute(csv, newRoute)
-                        onBack()
-                    }) {
-                        Text("←", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    IconButton(onClick = onBack) {
+                        Text("←", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
                     }
                 },
                 actions = {
-                    // Vertical / Reverse Arrow on top right (↕)
+                    // Save As / Export to new file
+                    IconButton(onClick = { handleSave(forceSaveAs = true) }) {
+                        Text("💾+", fontSize = 16.sp, color = Color.White)
+                    }
+
+                    // Toggle between Map & Spreadsheet views
+                    IconButton(onClick = {
+                        viewMode = if (viewMode == RouteEditorViewMode.MAP) {
+                            RouteEditorViewMode.SPREADSHEET
+                        } else {
+                            RouteEditorViewMode.MAP
+                        }
+                    }) {
+                        Text(
+                            text = if (viewMode == RouteEditorViewMode.MAP) "📊" else "🗺️",
+                            fontSize = 18.sp
+                        )
+                    }
+
+                    // Reverse Waypoint Direction (↕)
                     IconButton(onClick = {
                         waypoints = waypoints.reversed()
                     }) {
-                        Text("↕", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                        Text("↕", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    containerColor = Color(0xFF0F172A),
+                    titleContentColor = Color.White
                 )
             )
-        }
-    ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(4.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp)
-        ) {
-            // Column Headers (rendered once at the top)
+        },
+        bottomBar = {
             Surface(
-                shape = RoundedCornerShape(4.dp),
-                color = Color(0xFF1E293B),
-                modifier = Modifier.fillMaxWidth()
+                color = Color(0xFF0F172A),
+                border = BorderStroke(1.dp, Color(0xFF1E293B)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 6.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Name", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color(0xFF9FB3C8), modifier = Modifier.weight(1.0f))
-                    Text("Easting (X)", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color(0xFF9FB3C8), modifier = Modifier.weight(1.0f))
-                    Text("Northing (Y)", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color(0xFF9FB3C8), modifier = Modifier.weight(1.0f))
-                    Text("Alt", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color(0xFF9FB3C8), modifier = Modifier.weight(0.5f))
-                    Text("Actions", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color(0xFF9FB3C8), modifier = Modifier.weight(1.2f))
+                    Button(
+                        onClick = {
+                            viewMode = if (viewMode == RouteEditorViewMode.MAP) {
+                                RouteEditorViewMode.SPREADSHEET
+                            } else {
+                                RouteEditorViewMode.MAP
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
+                    ) {
+                        Text(
+                            text = if (viewMode == RouteEditorViewMode.MAP) "📊 Spreadsheet" else "🗺️ Map Editor",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+
+                    Button(
+                        onClick = { handleSave(forceSaveAs = false) },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669))
+                    ) {
+                        Text("💾 Save Route", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    }
+                }
+            }
+        }
+    ) { innerPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .background(Color(0xFF020617))
+        ) {
+            when (viewMode) {
+                RouteEditorViewMode.MAP -> {
+                    MapRouteEditor(
+                        waypoints = waypoints,
+                        selectedWaypointIndex = selectedWaypointIndex,
+                        zoomScale = zoomScale,
+                        panOffset = panOffset,
+                        onZoomPanChange = { newZoom, newPan ->
+                            zoomScale = newZoom
+                            panOffset = newPan
+                        },
+                        onWaypointMoved = { index, newX, newY ->
+                            val list = waypoints.toMutableList()
+                            val cur = list[index]
+                            list[index] = Waypoint.fromMetric(cur.name, newX, newY, cur.altitude)
+                            waypoints = list
+                        },
+                        onInsertWaypointOnSegment = { segIndex ->
+                            val a = waypoints[segIndex]
+                            val b = waypoints[segIndex + 1]
+                            val midX = (a.x + b.x) / 2.0
+                            val midY = (a.y + b.y) / 2.0
+                            val midAlt = (a.altitude + b.altitude) / 2.0
+                            val newWp = Waypoint.fromMetric("WP ${segIndex + 2}", midX, midY, midAlt)
+                            val list = waypoints.toMutableList()
+                            list.add(segIndex + 1, newWp)
+                            waypoints = list
+                            selectedWaypointIndex = segIndex + 1
+                        },
+                        onDeleteWaypoint = { index ->
+                            if (waypoints.size > 2) {
+                                val list = waypoints.toMutableList()
+                                list.removeAt(index)
+                                waypoints = list
+                                selectedWaypointIndex = null
+                            }
+                        },
+                        onSelectWaypoint = { index ->
+                            selectedWaypointIndex = if (index >= 0) index else null
+                        }
+                    )
+                }
+
+                RouteEditorViewMode.SPREADSHEET -> {
+                    SpreadsheetRouteEditor(
+                        waypoints = waypoints,
+                        onWaypointsChange = { waypoints = it }
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Backward compatibility overload in case callers invoke RouteEditorScreen with (Route, (Route) -> Unit, () -> Unit)
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun RouteEditorScreen(
+    route: Route,
+    onSaveRoute: (Route) -> Unit,
+    onNavigateBack: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    RouteEditorScreen(
+        initialRoute = route,
+        onSaveRoute = { _, r -> onSaveRoute(r) },
+        onBack = onNavigateBack,
+        modifier = modifier
+    )
+}
+
+@Composable
+fun MapRouteEditor(
+    waypoints: List<Waypoint>,
+    selectedWaypointIndex: Int?,
+    zoomScale: Float,
+    panOffset: Offset,
+    onZoomPanChange: (Float, Offset) -> Unit,
+    onWaypointMoved: (Int, Double, Double) -> Unit,
+    onInsertWaypointOnSegment: (Int) -> Unit,
+    onDeleteWaypoint: (Int) -> Unit,
+    onSelectWaypoint: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    var draggingIndex by remember { mutableStateOf<Int?>(null) }
+
+    // Reusable paint and matrix objects for OpenTopoMap tile rendering
+    val sharedTilePaint = remember {
+        android.graphics.Paint().apply {
+            isAntiAlias = true
+            isFilterBitmap = true
+        }
+    }
+    val sharedSrcPoly = remember {
+        floatArrayOf(
+            0f, 0f,
+            256f, 0f,
+            256f, 256f,
+            0f, 256f
+        )
+    }
+    val sharedDstPoly = remember { FloatArray(8) }
+    val sharedPolyMatrix = remember { android.graphics.Matrix() }
+
+    // Android native text paint for '+' and waypoint numbering
+    val textPaint = remember {
+        android.graphics.Paint().apply {
+            color = android.graphics.Color.WHITE
+            textSize = 28f
+            textAlign = android.graphics.Paint.Align.CENTER
+            isAntiAlias = true
+            isFakeBoldText = true
+        }
+    }
+    val plusTextPaint = remember {
+        android.graphics.Paint().apply {
+            color = android.graphics.Color.WHITE
+            textSize = 28f
+            textAlign = android.graphics.Paint.Align.CENTER
+            isAntiAlias = true
+            isFakeBoldText = true
+        }
+    }
+
+    // Compute bounding box for auto-centering
+    var minX = Double.MAX_VALUE
+    var maxX = -Double.MAX_VALUE
+    var minY = Double.MAX_VALUE
+    var maxY = -Double.MAX_VALUE
+    waypoints.forEach { wp ->
+        if (wp.x < minX) minX = wp.x
+        if (wp.x > maxX) maxX = wp.x
+        if (wp.y < minY) minY = wp.y
+        if (wp.y > maxY) maxY = wp.y
+    }
+    val padding = maxOf(250.0, maxOf(maxX - minX, maxY - minY) * 0.15)
+    val spanX = maxOf(400.0, maxX - minX + padding * 2)
+    val spanY = maxOf(400.0, maxY - minY + padding * 2)
+    val centerX = (minX + maxX) / 2.0
+    val centerY = (minY + maxY) / 2.0
+
+    // Capture state references without restarting the gesture coroutine loop
+    val currentWaypoints by rememberUpdatedState(waypoints)
+    val currentZoomScale by rememberUpdatedState(zoomScale)
+    val currentPanOffset by rememberUpdatedState(panOffset)
+    val currentSpanX by rememberUpdatedState(spanX)
+    val currentSpanY by rememberUpdatedState(spanY)
+    val currentCenterX by rememberUpdatedState(centerX)
+    val currentCenterY by rememberUpdatedState(centerY)
+
+    Box(
+        modifier = modifier.fillMaxSize()
+    ) {
+        Canvas(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) {
+                    awaitPointerEventScope {
+                        var touchedWaypointIdx: Int? = null
+                        var touchedPlusIdx: Int? = null
+                        var downPos = Offset.Zero
+                        var hasMoved = false
+
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val activePointers = event.changes.filter { it.pressed }
+
+                            if (activePointers.isEmpty()) {
+                                // All fingers released
+                                if (!hasMoved) {
+                                    if (touchedWaypointIdx != null) {
+                                        onSelectWaypoint(touchedWaypointIdx)
+                                    } else if (touchedPlusIdx != null) {
+                                        onInsertWaypointOnSegment(touchedPlusIdx)
+                                    } else {
+                                        onSelectWaypoint(-1)
+                                    }
+                                }
+                                touchedWaypointIdx = null
+                                touchedPlusIdx = null
+                                draggingIndex = null
+                                hasMoved = false
+                            } else if (activePointers.size == 1) {
+                                val pointer = activePointers[0]
+                                val isDown = event.changes.any { !it.previousPressed && it.pressed }
+
+                                val widthPx = size.width.toFloat()
+                                val heightPx = size.height.toFloat()
+                                val baseScale = minOf(
+                                    (widthPx * 0.85f) / currentSpanX.toFloat(),
+                                    (heightPx * 0.85f) / currentSpanY.toFloat()
+                                ) * currentZoomScale
+                                val originCx = widthPx / 2f + currentPanOffset.x
+                                val originCy = heightPx / 2f + currentPanOffset.y
+
+                                fun toOffset(x: Double, y: Double): Offset {
+                                    val cx = originCx + ((x - currentCenterX) * baseScale).toFloat()
+                                    val cy = originCy - ((y - currentCenterY) * baseScale).toFloat()
+                                    return Offset(cx, cy)
+                                }
+
+                                if (isDown) {
+                                    downPos = pointer.position
+                                    hasMoved = false
+                                    touchedWaypointIdx = null
+                                    touchedPlusIdx = null
+
+                                    // 1. Check if user touched down on a waypoint marker
+                                    for (i in currentWaypoints.indices.reversed()) {
+                                        val p = toOffset(currentWaypoints[i].x, currentWaypoints[i].y)
+                                        if (hypot((pointer.position.x - p.x).toDouble(), (pointer.position.y - p.y).toDouble()) <= 44.0) {
+                                            touchedWaypointIdx = i
+                                            draggingIndex = i
+                                            break
+                                        }
+                                    }
+
+                                    // 2. Check if user touched down on a '+' segment midpoint
+                                    if (touchedWaypointIdx == null) {
+                                        for (i in 0 until currentWaypoints.size - 1) {
+                                            val p1 = toOffset(currentWaypoints[i].x, currentWaypoints[i].y)
+                                            val p2 = toOffset(currentWaypoints[i + 1].x, currentWaypoints[i + 1].y)
+                                            val mid = Offset((p1.x + p2.x) / 2f, (p1.y + p2.y) / 2f)
+                                            if (hypot((pointer.position.x - mid.x).toDouble(), (pointer.position.y - mid.y).toDouble()) <= 38.0) {
+                                                touchedPlusIdx = i
+                                                break
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    val delta = pointer.position - pointer.previousPosition
+                                    if (!hasMoved && (pointer.position - downPos).getDistance() > 10f) {
+                                        hasMoved = true
+                                    }
+
+                                    if (hasMoved) {
+                                        if (touchedWaypointIdx != null) {
+                                            if (touchedWaypointIdx in currentWaypoints.indices) {
+                                                val cur = currentWaypoints[touchedWaypointIdx]
+                                                val deltaX = delta.x / baseScale
+                                                val deltaY = -delta.y / baseScale
+                                                onWaypointMoved(
+                                                    touchedWaypointIdx,
+                                                    round(cur.x + deltaX),
+                                                    round(cur.y + deltaY)
+                                                )
+                                            }
+                                        } else {
+                                            val newPan = currentPanOffset + delta
+                                            onZoomPanChange(currentZoomScale, newPan)
+                                        }
+                                        pointer.consume()
+                                    }
+                                }
+                            } else if (activePointers.size >= 2) {
+                                hasMoved = true
+                                touchedWaypointIdx = null
+                                touchedPlusIdx = null
+                                draggingIndex = null
+
+                                val p1 = activePointers[0]
+                                val p2 = activePointers[1]
+
+                                val currCentroid = (p1.position + p2.position) / 2f
+                                val prevCentroid = (p1.previousPosition + p2.previousPosition) / 2f
+                                val panDelta = currCentroid - prevCentroid
+
+                                val currDist = (p1.position - p2.position).getDistance()
+                                val prevDist = (p1.previousPosition - p2.previousPosition).getDistance()
+
+                                if (prevDist > 10f) {
+                                    val zoomRatio = currDist / prevDist
+                                    val newZoom = (currentZoomScale * zoomRatio).coerceIn(0.4f, 8.0f)
+                                    val effectiveZoom = newZoom / currentZoomScale
+
+                                    val screenCenter = Offset(size.width / 2f, size.height / 2f)
+                                    val f = currCentroid - screenCenter
+                                    val newPan = f + panDelta - (f - currentPanOffset) * effectiveZoom
+
+                                    onZoomPanChange(newZoom, newPan)
+                                } else {
+                                    onZoomPanChange(currentZoomScale, currentPanOffset + panDelta)
+                                }
+
+                                p1.consume()
+                                p2.consume()
+                            }
+                        }
+                    }
+                }
+        ) {
+            val widthPx = size.width
+            val heightPx = size.height
+            val baseScale = minOf(
+                (widthPx * 0.85f) / spanX.toFloat(),
+                (heightPx * 0.85f) / spanY.toFloat()
+            ) * zoomScale
+            val originCx = widthPx / 2f + panOffset.x
+            val originCy = heightPx / 2f + panOffset.y
+
+            fun toOffset(x: Double, y: Double): Offset {
+                val sx = originCx + (x - centerX).toFloat() * baseScale
+                val sy = originCy - (y - centerY).toFloat() * baseScale
+                return Offset(sx, sy)
+            }
+
+            // --- 1. Draw Offline OSM Map Background Tiles ---
+            try {
+                if (OsmTileManager.tileCacheVersion.intValue < 0) return@Canvas
+
+                val currentScale = baseScale.toDouble()
+                val autoZoom = round(kotlin.math.log2(93113.0 * currentScale)).toInt().coerceIn(10, 17)
+
+                val leftMeters = centerX + (0f - originCx) / currentScale
+                val rightMeters = centerX + (widthPx - originCx) / currentScale
+                val topMeters = centerY - (0f - originCy) / currentScale
+                val bottomMeters = centerY - (heightPx - originCy) / currentScale
+
+                val minVisX = minOf(leftMeters, rightMeters) - 400.0
+                val maxVisX = maxOf(leftMeters, rightMeters) + 400.0
+                val minVisY = minOf(topMeters, bottomMeters) - 400.0
+                val maxVisY = maxOf(topMeters, bottomMeters) + 400.0
+
+                val topoTiles = OsmTileManager.getTilesForArea(
+                    minX = minVisX, maxX = maxVisX, minY = minVisY, maxY = maxVisY, zoom = autoZoom
+                )
+
+                for (tile in topoTiles) {
+                    val pNW = toOffset(tile.nwMetric.x, tile.nwMetric.y)
+                    val pNE = toOffset(tile.neMetric.x, tile.neMetric.y)
+                    val pSE = toOffset(tile.seMetric.x, tile.seMetric.y)
+                    val pSW = toOffset(tile.swMetric.x, tile.swMetric.y)
+
+                    if (pNW.x.isFinite() && pNW.y.isFinite() &&
+                        pNE.x.isFinite() && pNE.y.isFinite() &&
+                        pSE.x.isFinite() && pSE.y.isFinite() &&
+                        pSW.x.isFinite() && pSW.y.isFinite()
+                    ) {
+                        sharedDstPoly[0] = pNW.x; sharedDstPoly[1] = pNW.y
+                        sharedDstPoly[2] = pNE.x; sharedDstPoly[3] = pNE.y
+                        sharedDstPoly[4] = pSE.x; sharedDstPoly[5] = pSE.y
+                        sharedDstPoly[6] = pSW.x; sharedDstPoly[7] = pSW.y
+
+                        sharedPolyMatrix.reset()
+                        if (sharedPolyMatrix.setPolyToPoly(sharedSrcPoly, 0, sharedDstPoly, 0, 4)) {
+                            val bitmap = OsmTileManager.getTileBitmap(context, tile.zoom, tile.tileX, tile.tileY)
+                            if (bitmap != null) {
+                                val androidBitmap = bitmap.asAndroidBitmap()
+                                if (!androidBitmap.isRecycled) {
+                                    drawContext.canvas.nativeCanvas.save()
+                                    drawContext.canvas.nativeCanvas.concat(sharedPolyMatrix)
+                                    drawContext.canvas.nativeCanvas.drawBitmap(androidBitmap, 0f, 0f, sharedTilePaint)
+                                    drawContext.canvas.nativeCanvas.restore()
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (_: Exception) {
+                // Graceful fallback
+            }
+
+            // --- 2. Draw Route Segments ---
+            for (i in 0 until waypoints.size - 1) {
+                val p1 = toOffset(waypoints[i].x, waypoints[i].y)
+                val p2 = toOffset(waypoints[i + 1].x, waypoints[i + 1].y)
+
+                drawLine(
+                    color = Color(0xFF0F172A).copy(alpha = 0.85f),
+                    start = p1,
+                    end = p2,
+                    strokeWidth = 12f
+                )
+
+                drawLine(
+                    color = Color(0xFF10B981),
+                    start = p1,
+                    end = p2,
+                    strokeWidth = 6f
+                )
+
+                val mid = Offset((p1.x + p2.x) / 2f, (p1.y + p2.y) / 2f)
+                drawCircle(color = Color(0xFF0F172A), radius = 24f, center = mid)
+                drawCircle(color = Color.White, radius = 20f, center = mid)
+                drawCircle(color = Color(0xFF059669), radius = 17f, center = mid)
+
+                drawContext.canvas.nativeCanvas.drawText("+", mid.x, mid.y + 10f, plusTextPaint)
+            }
+
+            // --- 3. Draw Waypoint Markers ---
+            waypoints.forEachIndexed { index, wp ->
+                val pos = toOffset(wp.x, wp.y)
+                val isSelected = selectedWaypointIndex == index
+                val isDragging = draggingIndex == index
+                val isStart = index == 0
+                val isEnd = index == waypoints.size - 1
+
+                val color = when {
+                    isStart -> Color(0xFF10B981)
+                    isEnd -> Color(0xFFEF4444)
+                    isSelected -> Color(0xFF0284C7)
+                    else -> Color(0xFF38BDF8)
+                }
+
+                if (isSelected || isDragging) {
+                    drawCircle(color = Color(0xFF38BDF8).copy(alpha = 0.35f), radius = 42f, center = pos)
+                    drawCircle(color = Color(0xFF38BDF8), radius = 34f, center = pos, style = Stroke(width = 3f))
+                }
+
+                drawCircle(color = Color(0xFF0F172A), radius = 26f, center = pos)
+                drawCircle(color = color, radius = 22f, center = pos)
+
+                drawContext.canvas.nativeCanvas.drawText("${index + 1}", pos.x, pos.y + 9f, textPaint)
+            }
+        }
+
+        // --- 4. Floating On-Screen Zoom Controls (+ / - / Fit) ---
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(start = 16.dp, bottom = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = Color(0xFF1E293B).copy(alpha = 0.92f),
+                border = BorderStroke(1.dp, Color(0xFF475569)),
+                modifier = Modifier.size(46.dp)
+            ) {
+                IconButton(onClick = {
+                    val newZoom = (zoomScale * 1.35f).coerceAtMost(8.0f)
+                    onZoomPanChange(newZoom, panOffset)
+                }) {
+                    Text("+", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
                 }
             }
 
-            LazyColumn(
+            Surface(
+                shape = CircleShape,
+                color = Color(0xFF1E293B).copy(alpha = 0.92f),
+                border = BorderStroke(1.dp, Color(0xFF475569)),
+                modifier = Modifier.size(46.dp)
+            ) {
+                IconButton(onClick = {
+                    val newZoom = (zoomScale / 1.35f).coerceAtLeast(0.4f)
+                    onZoomPanChange(newZoom, panOffset)
+                }) {
+                    Text("-", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                }
+            }
+
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = Color(0xFF0F172A).copy(alpha = 0.92f),
+                border = BorderStroke(1.dp, Color(0xFF334155)),
+                modifier = Modifier
+                    .width(46.dp)
+                    .height(30.dp)
+            ) {
+                IconButton(onClick = {
+                    onZoomPanChange(1.0f, Offset.Zero)
+                }) {
+                    Text("Fit", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF38BDF8))
+                }
+            }
+        }
+
+        // --- 5. Selected Waypoint Info / Delete Card ---
+        if (selectedWaypointIndex != null && selectedWaypointIndex in waypoints.indices) {
+            val wp = waypoints[selectedWaypointIndex]
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = Color(0xFF0F172A).copy(alpha = 0.95f),
+                border = BorderStroke(1.dp, Color(0xFF334155)),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 10.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = "${selectedWaypointIndex + 1}. ${wp.name}",
+                        color = Color(0xFF38BDF8),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp
+                    )
+                    Text(
+                        text = "E: ${wp.x.toInt()}  N: ${wp.y.toInt()}",
+                        color = Color.White,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp
+                    )
+                    if (waypoints.size > 2) {
+                        IconButton(
+                            onClick = { onDeleteWaypoint(selectedWaypointIndex) },
+                            modifier = Modifier.size(26.dp)
+                        ) {
+                            Text("🗑", color = Color(0xFFFF5252), fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SpreadsheetRouteEditor(
+    waypoints: List<Waypoint>,
+    onWaypointsChange: (List<Waypoint>) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        // Table Header
+        Surface(
+            shape = RoundedCornerShape(4.dp),
+            color = Color(0xFF1E293B),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                itemsIndexed(waypoints) { index, wp ->
-                    Surface(
-                        shape = RoundedCornerShape(4.dp),
-                        color = Color(0xFF0F172A),
-                        tonalElevation = 1.dp,
-                        modifier = Modifier.fillMaxWidth()
+                Text("#", style = MaterialTheme.typography.labelSmall, color = Color(0xFF9FB3C8), modifier = Modifier.width(20.dp))
+                Text("Name", style = MaterialTheme.typography.labelSmall, color = Color(0xFF9FB3C8), modifier = Modifier.weight(1.0f))
+                Text("Easting (X)", style = MaterialTheme.typography.labelSmall, color = Color(0xFF9FB3C8), modifier = Modifier.weight(1.0f))
+                Text("Northing (Y)", style = MaterialTheme.typography.labelSmall, color = Color(0xFF9FB3C8), modifier = Modifier.weight(1.0f))
+                Text("Alt", style = MaterialTheme.typography.labelSmall, color = Color(0xFF9FB3C8), modifier = Modifier.weight(0.5f))
+                Text("Actions", style = MaterialTheme.typography.labelSmall, color = Color(0xFF9FB3C8), modifier = Modifier.weight(1.2f))
+            }
+        }
+
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1.0f),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            itemsIndexed(waypoints) { index, wp ->
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = if (index % 2 == 0) Color(0xFF131D31) else Color(0xFF0F172A),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
+                        Text(
+                            text = "${index + 1}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFF38BDF8),
+                            modifier = Modifier.width(20.dp)
+                        )
+
+                        // 1. Name cell
+                        SpreadsheetCell(
+                            value = wp.name,
+                            onValueChange = { newName ->
+                                val list = waypoints.toMutableList()
+                                list[index] = Waypoint.fromMetric(newName, wp.x, wp.y, wp.altitude)
+                                onWaypointsChange(list)
+                            },
+                            modifier = Modifier.weight(1.0f)
+                        )
+
+                        // 2. Easting (X) cell
+                        SpreadsheetCell(
+                            value = wp.x.toInt().toString(),
+                            onValueChange = { newXStr ->
+                                val newX = newXStr.toDoubleOrNull() ?: wp.x
+                                val list = waypoints.toMutableList()
+                                list[index] = Waypoint.fromMetric(wp.name, newX, wp.y, wp.altitude)
+                                onWaypointsChange(list)
+                            },
+                            modifier = Modifier.weight(1.0f),
+                            keyboardType = KeyboardType.Number
+                        )
+
+                        // 3. Northing (Y) cell
+                        SpreadsheetCell(
+                            value = wp.y.toInt().toString(),
+                            onValueChange = { newYStr ->
+                                val newY = newYStr.toDoubleOrNull() ?: wp.y
+                                val list = waypoints.toMutableList()
+                                list[index] = Waypoint.fromMetric(wp.name, wp.x, newY, wp.altitude)
+                                onWaypointsChange(list)
+                            },
+                            modifier = Modifier.weight(1.0f),
+                            keyboardType = KeyboardType.Number
+                        )
+
+                        // 4. Altitude cell
+                        SpreadsheetCell(
+                            value = wp.altitude.toInt().toString(),
+                            onValueChange = { newAltStr ->
+                                val newAlt = newAltStr.toDoubleOrNull() ?: wp.altitude
+                                val list = waypoints.toMutableList()
+                                list[index] = Waypoint.fromMetric(wp.name, wp.x, wp.y, newAlt)
+                                onWaypointsChange(list)
+                            },
+                            modifier = Modifier.weight(0.5f),
+                            keyboardType = KeyboardType.Number
+                        )
+
+                        // 5. In-place action buttons (Up, Down, Plus, Delete)
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 6.dp, vertical = 3.dp),
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.weight(1.2f),
+                            horizontalArrangement = Arrangement.SpaceEvenly,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            var nameVal by remember(wp) { mutableStateOf(wp.name) }
-                            var xVal by remember(wp) { mutableStateOf(wp.x.toInt().toString()) }
-                            var yVal by remember(wp) { mutableStateOf(wp.y.toInt().toString()) }
-                            var altVal by remember(wp) { mutableStateOf(wp.altitude.toInt().toString()) }
-
-                            // Name cell
-                            SpreadsheetCell(
-                                value = nameVal,
-                                onValueChange = {
-                                    nameVal = it
-                                    val list = waypoints.toMutableList()
-                                    list[index] = Waypoint.fromMetric(
-                                        name = it,
-                                        x = xVal.toDoubleOrNull() ?: wp.x,
-                                        y = yVal.toDoubleOrNull() ?: wp.y,
-                                        altitude = altVal.toDoubleOrNull() ?: wp.altitude,
-                                        arrive = wp.arrive,
-                                        approach = wp.approach
-                                    )
-                                    waypoints = list
-                                },
-                                modifier = Modifier.weight(1.0f)
-                            )
-
-                            // Easting (X) cell
-                            SpreadsheetCell(
-                                value = xVal,
-                                onValueChange = {
-                                    xVal = it
-                                    val list = waypoints.toMutableList()
-                                    list[index] = Waypoint.fromMetric(
-                                        name = nameVal,
-                                        x = it.toDoubleOrNull() ?: wp.x,
-                                        y = yVal.toDoubleOrNull() ?: wp.y,
-                                        altitude = altVal.toDoubleOrNull() ?: wp.altitude,
-                                        arrive = wp.arrive,
-                                        approach = wp.approach
-                                    )
-                                    waypoints = list
-                                },
-                                keyboardType = KeyboardType.Number,
-                                modifier = Modifier.weight(1.0f)
-                            )
-
-                            // Northing (Y) cell
-                            SpreadsheetCell(
-                                value = yVal,
-                                onValueChange = {
-                                    yVal = it
-                                    val list = waypoints.toMutableList()
-                                    list[index] = Waypoint.fromMetric(
-                                        name = nameVal,
-                                        x = xVal.toDoubleOrNull() ?: wp.x,
-                                        y = it.toDoubleOrNull() ?: wp.y,
-                                        altitude = altVal.toDoubleOrNull() ?: wp.altitude,
-                                        arrive = wp.arrive,
-                                        approach = wp.approach
-                                    )
-                                    waypoints = list
-                                },
-                                keyboardType = KeyboardType.Number,
-                                modifier = Modifier.weight(1.0f)
-                            )
-
-                            // Altitude cell
-                            SpreadsheetCell(
-                                value = altVal,
-                                onValueChange = {
-                                    altVal = it
-                                    val list = waypoints.toMutableList()
-                                    list[index] = Waypoint.fromMetric(
-                                        name = nameVal,
-                                        x = xVal.toDoubleOrNull() ?: wp.x,
-                                        y = yVal.toDoubleOrNull() ?: wp.y,
-                                        altitude = it.toDoubleOrNull() ?: wp.altitude,
-                                        arrive = wp.arrive,
-                                        approach = wp.approach
-                                    )
-                                    waypoints = list
-                                },
-                                keyboardType = KeyboardType.Number,
-                                modifier = Modifier.weight(0.5f)
-                            )
-
-                            // In-place action buttons (Up, Down, Plus, Delete)
-                            Row(
-                                modifier = Modifier.weight(1.2f),
-                                horizontalArrangement = Arrangement.SpaceEvenly,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                // Up arrow (↑)
-                                IconButton(
-                                    onClick = {
-                                        if (index > 0) {
-                                            val list = waypoints.toMutableList()
-                                            val item = list.removeAt(index)
-                                            list.add(index - 1, item)
-                                            waypoints = list
-                                        }
-                                    },
-                                    enabled = index > 0,
-                                    modifier = Modifier.size(24.dp)
-                                ) {
-                                    Text("↑", color = if (index > 0) Color.White else Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                }
-
-                                // Down arrow (↓)
-                                IconButton(
-                                    onClick = {
-                                        if (index < waypoints.size - 1) {
-                                            val list = waypoints.toMutableList()
-                                            val item = list.removeAt(index)
-                                            list.add(index + 1, item)
-                                            waypoints = list
-                                        }
-                                    },
-                                    enabled = index < waypoints.size - 1,
-                                    modifier = Modifier.size(24.dp)
-                                ) {
-                                    Text("↓", color = if (index < waypoints.size - 1) Color.White else Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                }
-
-                                // Plus (+)
-                                IconButton(
-                                    onClick = {
+                            // Up arrow (↑)
+                            IconButton(
+                                onClick = {
+                                    if (index > 0) {
                                         val list = waypoints.toMutableList()
-                                        val newWp = Waypoint.fromMetric(
-                                            name = "W${waypoints.size + 1}",
-                                            x = wp.x + 50.0,
-                                            y = wp.y + 50.0,
-                                            altitude = wp.altitude
-                                        )
-                                        list.add(index + 1, newWp)
-                                        waypoints = list
-                                    },
-                                    modifier = Modifier.size(24.dp)
-                                ) {
-                                    Text("+", color = Color(0xFF4CAF50), fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                                }
+                                        val item = list.removeAt(index)
+                                        list.add(index - 1, item)
+                                        onWaypointsChange(list)
+                                    }
+                                },
+                                enabled = index > 0,
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Text("↑", color = if (index > 0) Color.White else Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
 
-                                // Delete (🗑)
-                                IconButton(
-                                    onClick = {
-                                        if (waypoints.size > 2) {
-                                            val list = waypoints.toMutableList()
-                                            list.removeAt(index)
-                                            waypoints = list
-                                        }
-                                    },
-                                    enabled = waypoints.size > 2,
-                                    modifier = Modifier.size(24.dp)
-                                ) {
-                                    Text("🗑", color = if (waypoints.size > 2) Color(0xFFFF5252) else Color.Gray, fontSize = 9.sp)
-                                }
+                            // Down arrow (↓)
+                            IconButton(
+                                onClick = {
+                                    if (index < waypoints.size - 1) {
+                                        val list = waypoints.toMutableList()
+                                        val item = list.removeAt(index)
+                                        list.add(index + 1, item)
+                                        onWaypointsChange(list)
+                                    }
+                                },
+                                enabled = index < waypoints.size - 1,
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Text("↓", color = if (index < waypoints.size - 1) Color.White else Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+
+                            // Plus (+)
+                            IconButton(
+                                onClick = {
+                                    val list = waypoints.toMutableList()
+                                    val newWp = Waypoint.fromMetric(
+                                        name = "W${waypoints.size + 1}",
+                                        x = wp.x + 50.0,
+                                        y = wp.y + 50.0,
+                                        altitude = wp.altitude
+                                    )
+                                    list.add(index + 1, newWp)
+                                    onWaypointsChange(list)
+                                },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Text("+", color = Color(0xFF4CAF50), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            }
+
+                            // Delete (🗑)
+                            IconButton(
+                                onClick = {
+                                    if (waypoints.size > 2) {
+                                        val list = waypoints.toMutableList()
+                                        list.removeAt(index)
+                                        onWaypointsChange(list)
+                                    }
+                                },
+                                enabled = waypoints.size > 2,
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Text("🗑", color = if (waypoints.size > 2) Color(0xFFFF5252) else Color.Gray, fontSize = 9.sp)
                             }
                         }
                     }
@@ -7083,8 +7791,7 @@ fun RouteEditorScreen(
     }
 }
 
-
-// --- FILE: src/main/java/com/example/irishhike/ui/ViewportTracker.kt ---
+// --- FILE: app/src/main/java/com/example/irishhike/ui/ViewportTracker.kt ---
 
 package com.example.irishhike.ui
 
@@ -7161,7 +7868,7 @@ internal class ViewportTracker {
 }
 
 
-// --- FILE: src/main/java/com/example/irishhike/ui/theme/Type.kt ---
+// --- FILE: app/src/main/java/com/example/irishhike/ui/theme/Type.kt ---
 
 package com.example.irishhike.ui.theme
 
@@ -7182,7 +7889,7 @@ val Typography = Typography(
 )
 
 
-// --- FILE: src/main/java/com/example/irishhike/ui/theme/Color.kt ---
+// --- FILE: app/src/main/java/com/example/irishhike/ui/theme/Color.kt ---
 
 package com.example.irishhike.ui.theme
 
@@ -7197,7 +7904,7 @@ val PurpleGrey40 = Color(0xFF625b71)
 val Pink40 = Color(0xFF7D5260)
 
 
-// --- FILE: src/main/java/com/example/irishhike/ui/theme/Theme.kt ---
+// --- FILE: app/src/main/java/com/example/irishhike/ui/theme/Theme.kt ---
 
 package com.example.irishhike.ui.theme
 
@@ -7248,7 +7955,7 @@ fun PDRWithEKFTestTheme(
 }
 
 
-// --- FILE: src/main/java/com/example/irishhike/ui/HikeViewModel.kt ---
+// --- FILE: app/src/main/java/com/example/irishhike/ui/HikeViewModel.kt ---
 
 package com.example.irishhike.ui
 
@@ -7271,12 +7978,14 @@ import com.example.irishhike.telemetry.TelemetryEvent
 import com.example.irishhike.telemetry.TelemetryRecorder
 import com.example.irishhike.util.HikerTrackExporter
 import com.example.irishhike.util.RouteParser
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class HikeViewModel : ViewModel() {
 
@@ -7339,10 +8048,31 @@ class HikeViewModel : ViewModel() {
     }
 
     fun exportBreadcrumbs(context: Context) {
-        val history = HikeRepository.getBreadcrumbHistory()
-        val currentRoute = activeRoute.value
-        android.util.Log.d("HikeViewModel", "Exporting breadcrumbs. Active route: ${currentRoute?.name}, sourceUri: ${currentRoute?.sourceUri}")
-        HikerTrackExporter.exportBreadcrumbsToGpx(context, history, currentRoute?.sourceUri)
+        viewModelScope.launch(Dispatchers.IO) {
+            val history = HikeRepository.getBreadcrumbHistory()
+            val currentRoute = activeRoute.value
+            android.util.Log.d("HikeViewModel", "Exporting ${history.size} breadcrumbs on background thread...")
+
+            val exportedFile = HikerTrackExporter.exportBreadcrumbsToGpx(
+                context,
+                history,
+                currentRoute?.name,
+                currentRoute?.sourceUri
+            )
+
+            withContext(Dispatchers.Main) {
+                if (exportedFile != null) {
+                    val folderName = exportedFile.parentFile?.name ?: "hillwalking"
+                    Toast.makeText(
+                        context,
+                        "Saved ${history.size} breadcrumbs to:\nhillwalking/$folderName/${exportedFile.name}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                } else {
+                    Toast.makeText(context, "Failed to save breadcrumbs file", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
     }
 
     fun loadSampleRoute() {
@@ -7489,16 +8219,29 @@ class HikeViewModel : ViewModel() {
         }
         context.startService(intent)
 
-        val targetDir = HikerTrackExporter.resolveTargetDirectory(context, activeRoute.value?.sourceUri)
-        val file = HikeRepository.telemetryRecorder.saveToTimestampedFile(targetDir)
-        if (file != null) {
-            val count = HikeRepository.telemetryRecorder.getEvents().size
-            android.util.Log.i("HikeViewModel", "Saved $count telemetry events to ${file.absolutePath}")
-            Toast.makeText(
+        viewModelScope.launch(Dispatchers.IO) {
+            val currentRoute = activeRoute.value
+            val targetDir = HikerTrackExporter.resolveRouteDirectory(
                 context,
-                "Saved $count telemetry events to:\n${file.name}",
-                Toast.LENGTH_LONG
-            ).show()
+                currentRoute?.name,
+                currentRoute?.sourceUri
+            )
+            val file = HikeRepository.telemetryRecorder.saveToTimestampedFile(targetDir)
+            val count = HikeRepository.telemetryRecorder.getEvents().size
+
+            withContext(Dispatchers.Main) {
+                if (file != null && file.exists()) {
+                    android.util.Log.i("HikeViewModel", "Saved $count telemetry events to ${file.absolutePath}")
+                    val routeFolderName = targetDir.name
+                    Toast.makeText(
+                        context,
+                        "Saved $count telemetry events to:\nhillwalking/$routeFolderName/${file.name}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                } else {
+                    android.util.Log.e("HikeViewModel", "Failed to save telemetry file!")
+                }
+            }
         }
     }
 
@@ -7524,7 +8267,7 @@ class HikeViewModel : ViewModel() {
 }
 
 
-// --- FILE: src/main/java/com/example/irishhike/ui/HikeNavigationPanel.kt ---
+// --- FILE: app/src/main/java/com/example/irishhike/ui/HikeNavigationPanel.kt ---
 
 package com.example.irishhike.ui
 
@@ -7653,9 +8396,13 @@ fun HikeNavigationPanel(
 
             // Line 3: Hiker: (000 000) 000° 10000m 0.0m/s
             val hikerLoc = activeEkfState.position.value
-            val easting6 = ((hikerLoc.x.toInt() % 100000) / 100).coerceIn(0, 999)
-            val northing6 = ((hikerLoc.y.toInt() % 100000) / 100).coerceIn(0, 999)
-            val gridRefStr = String.format(Locale.US, "%03d %03d", easting6, northing6)
+            val gridRefStr = if (activeEkfState.isInitializedWithGps) {
+                val easting6 = ((hikerLoc.x.toInt() % 100000) / 100).coerceIn(0, 999)
+                val northing6 = ((hikerLoc.y.toInt() % 100000) / 100).coerceIn(0, 999)
+                String.format(Locale.of("en", "IE"), "%03d %03d", easting6, northing6)
+            } else {
+                "Acquiring GPS..."
+            }
 
             val hikerBearingDeg = Math.toDegrees(activeEkfState.bearingRad.value)
             val normalizedBearing = (hikerBearingDeg % 360.0 + 360.0) % 360.0
@@ -7678,7 +8425,7 @@ fun HikeNavigationPanel(
 }
 
 
-// --- FILE: src/main/java/com/example/irishhike/ui/MapScreen.kt ---
+// --- FILE: app/src/main/java/com/example/irishhike/ui/MapScreen.kt ---
 
 package com.example.irishhike.ui
 
@@ -7696,17 +8443,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.layout.width
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -7729,7 +8475,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
@@ -7741,6 +8490,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
@@ -7761,11 +8511,24 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.ceil
 import kotlin.math.cos
+import kotlin.math.floor
 import kotlin.math.hypot
+import kotlin.math.log10
+import kotlin.math.pow
 import kotlin.math.round
 import kotlin.math.sin
 import kotlin.math.sqrt
+import kotlin.math.roundToInt
+
+data class StationaryStop(
+    val x: Double,
+    val y: Double,
+    val durationSec: Long,
+    val startTimestampMs: Long,
+    val endTimestampMs: Long
+)
 
 @Composable
 fun MapScreen(
@@ -7787,8 +8550,8 @@ fun MapScreen(
 ) {
     val context = LocalContext.current
     val isLegView = mapConfig.isLegView
-    val show1kmGrid = mapConfig.show1kmGrid
-    val show100mGrid = mapConfig.show100mGrid
+    val show1kmGrid = mapConfig.show1kmGrid      // Major adaptive grid toggle
+    val show100mGrid = mapConfig.show100mGrid    // Minor adaptive grid toggle
 
     val viewportTracker = remember { ViewportTracker() }
 
@@ -7842,34 +8605,125 @@ fun MapScreen(
         )
     }
 
-    var minSpeed = 0.0
-    var maxSpeed = 2.5
-    var minStride = 0.4
-    var maxStride = 1.2
-
-    if (validBreadcrumbs.isNotEmpty()) {
+    // --- OPTIMIZATION: Speed & Stride statistics cached outside frame draw loop ---
+    val speedAndStrideStats = remember(validBreadcrumbs.size, breadcrumbConfig.colorMode) {
         var minS = Double.MAX_VALUE
         var maxS = -Double.MAX_VALUE
         var minSt = Double.MAX_VALUE
         var maxSt = -Double.MAX_VALUE
 
-        validBreadcrumbs.forEachIndexed { index, bc ->
-            val s = getBreadcrumbSpeed(index, validBreadcrumbs)
-            if (s < minS) minS = s
-            if (s > maxS) maxS = s
+        if (validBreadcrumbs.isNotEmpty()) {
+            for (i in validBreadcrumbs.indices) {
+                val s = getBreadcrumbSpeed(i, validBreadcrumbs)
+                if (s < minS) minS = s
+                if (s > maxS) maxS = s
 
-            val st = getBreadcrumbStride(index, validBreadcrumbs)
-            if (st < minSt) minSt = st
-            if (st > maxSt) maxSt = st
+                val st = getBreadcrumbStride(i, validBreadcrumbs)
+                if (st < minSt) minSt = st
+                if (st > maxSt) maxSt = st
+            }
         }
+        val effMinS = if (minS == Double.MAX_VALUE || maxS <= minS) 0.0 else minS
+        val effMaxS = if (maxS == -Double.MAX_VALUE || maxS <= minS) 2.5 else maxS
+        val effMinSt = if (minSt == Double.MAX_VALUE || maxSt <= minSt) 0.4 else minSt
+        val effMaxSt = if (maxSt == -Double.MAX_VALUE || maxSt <= minSt) 1.2 else maxSt
+        floatArrayOf(effMinS.toFloat(), effMaxS.toFloat(), effMinSt.toFloat(), effMaxSt.toFloat())
+    }
 
-        if (minS != Double.MAX_VALUE && maxS != -Double.MAX_VALUE) {
-            minSpeed = minS
-            maxSpeed = maxS
-        }
-        if (minSt != Double.MAX_VALUE && maxSt != -Double.MAX_VALUE) {
-            minStride = minSt
-            maxStride = maxSt
+    val minSpeed = speedAndStrideStats[0].toDouble()
+    val maxSpeed = speedAndStrideStats[1].toDouble()
+    val minStride = speedAndStrideStats[2].toDouble()
+    val maxStride = speedAndStrideStats[3].toDouble()
+
+    // --- FEATURE: Detect and Merge Stationary Rest Stops within 1 Minute ---
+    val mergedStationaryStops = remember(validBreadcrumbs.size, breadcrumbConfig.showStationaryStops) {
+        if (!breadcrumbConfig.showStationaryStops || validBreadcrumbs.size < 2) {
+            emptyList<StationaryStop>()
+        } else {
+            val rawStops = mutableListOf<StationaryStop>()
+            var stopStartBc: Breadcrumb? = null
+            var stopLastBc: Breadcrumb? = null
+            var sumX = 0.0
+            var sumY = 0.0
+            var stopPointCount = 0
+
+            // 1. Identify raw stops where speed is under 0.3 m/s for at least 30 seconds
+            for (bc in validBreadcrumbs) {
+                val speed = bc.ekfState?.speedMps?.value ?: 0.0
+                if (speed < 0.3) {
+                    if (stopStartBc == null) {
+                        stopStartBc = bc
+                        sumX = 0.0
+                        sumY = 0.0
+                        stopPointCount = 0
+                    }
+                    stopLastBc = bc
+                    sumX += bc.location.x
+                    sumY += bc.location.y
+                    stopPointCount++
+                } else {
+                    if (stopStartBc != null && stopLastBc != null) {
+                        val durationSec = (stopLastBc.timestampMs - stopStartBc.timestampMs) / 1000L
+                        if (durationSec >= 30L && stopPointCount > 0) {
+                            rawStops.add(
+                                StationaryStop(
+                                    x = sumX / stopPointCount,
+                                    y = sumY / stopPointCount,
+                                    durationSec = durationSec,
+                                    startTimestampMs = stopStartBc.timestampMs,
+                                    endTimestampMs = stopLastBc.timestampMs
+                                )
+                            )
+                        }
+                    }
+                    stopStartBc = null
+                    stopLastBc = null
+                }
+            }
+
+            if (stopStartBc != null && stopLastBc != null) {
+                val durationSec = (stopLastBc.timestampMs - stopStartBc.timestampMs) / 1000L
+                if (durationSec >= 30L && stopPointCount > 0) {
+                    rawStops.add(
+                        StationaryStop(
+                            x = sumX / stopPointCount,
+                            y = sumY / stopPointCount,
+                            durationSec = durationSec,
+                            startTimestampMs = stopStartBc.timestampMs,
+                            endTimestampMs = stopLastBc.timestampMs
+                        )
+                    )
+                }
+            }
+
+            // 2. Merge stops within 1 minute (60,000 ms) of each other
+            val merged = mutableListOf<StationaryStop>()
+            for (stop in rawStops) {
+                if (merged.isEmpty()) {
+                    merged.add(stop)
+                } else {
+                    val prev = merged.last()
+                    val gapMs = stop.startTimestampMs - prev.endTimestampMs
+                    if (gapMs in 0..60000L) {
+                        val totalSec = prev.durationSec + stop.durationSec
+                        val w1 = prev.durationSec.toDouble() / totalSec
+                        val w2 = stop.durationSec.toDouble() / totalSec
+                        val combinedX = prev.x * w1 + stop.x * w2
+                        val combinedY = prev.y * w1 + stop.y * w2
+
+                        merged[merged.lastIndex] = StationaryStop(
+                            x = combinedX,
+                            y = combinedY,
+                            durationSec = totalSec,
+                            startTimestampMs = prev.startTimestampMs,
+                            endTimestampMs = stop.endTimestampMs
+                        )
+                    } else {
+                        merged.add(stop)
+                    }
+                }
+            }
+            merged
         }
     }
 
@@ -7971,33 +8825,21 @@ fun MapScreen(
             }
 
             if (currentScale > 0.0) {
-                val minVisX: Double
-                val maxVisX: Double
-                val minVisY: Double
-                val maxVisY: Double
+                // Exact visible world boundaries derived directly from screen pixels and zoom
+                val leftMeters = centerX + (0f - originCx - panOffset.x) / currentScale
+                val rightMeters = centerX + (widthPx - originCx - panOffset.x) / currentScale
+                val topMeters = centerY - (0f - originCy - panOffset.y) / currentScale
+                val bottomMeters = centerY - (heightPx - originCy - panOffset.y) / currentScale
 
-                if (isLegView && legStart != null) {
-                    minVisX = minOf(interpStartX, interpTargetX) - 1000.0
-                    maxVisX = maxOf(interpStartX, interpTargetX) + 1000.0
-                    minVisY = minOf(interpStartY, interpTargetY) - 1000.0
-                    maxVisY = maxOf(interpStartY, interpTargetY) + 1000.0
-                } else {
-                    val leftMeters = centerX + (0f - originCx - panOffset.x) / currentScale
-                    val rightMeters = centerX + (widthPx - originCx - panOffset.x) / currentScale
-                    val topMeters = centerY - (0f - originCy - panOffset.y) / currentScale
-                    val bottomMeters = centerY - (heightPx - originCy - panOffset.y) / currentScale
+                val minVisX = minOf(leftMeters, rightMeters)
+                val maxVisX = maxOf(leftMeters, rightMeters)
+                val minVisY = minOf(topMeters, bottomMeters)
+                val maxVisY = maxOf(topMeters, bottomMeters)
 
-                    minVisX = minOf(leftMeters, rightMeters) - 500.0
-                    maxVisX = maxOf(leftMeters, rightMeters) + 500.0
-                    minVisY = minOf(topMeters, bottomMeters) - 500.0
-                    maxVisY = maxOf(topMeters, bottomMeters) + 500.0
-                }
-
-                // --- Draw Offline OSM Map Background Tiles (Two-Pass Layered Renderer) ---
+                // --- Draw Offline OSM Map Background Tiles ---
                 if (mapConfig.showOsmBackground) {
                     try {
-                        val startTime = System.currentTimeMillis()
-                        val autoZoom = round(kotlin.math.log2(93113.0 * currentScale)).toInt().coerceIn(8, 18)
+                        val autoZoom = round(kotlin.math.log2(93113.0 * currentScale)).toInt().coerceIn(8, 17)
                         val baseZoom = autoZoom.coerceAtMost(14)
 
                         val drawSingleTile: (com.example.irishhike.util.MetricTileCorners, Boolean) -> Unit = { tile, fromCacheOnly ->
@@ -8039,74 +8881,90 @@ fun MapScreen(
                             }
                         }
 
-                        // Pass 1: Draw continuous base map layer (Ireland base map, zooms 8..14)
                         val baseTiles = OsmTileManager.getTilesForArea(
-                            minX = minVisX, maxX = maxVisX, minY = minVisY, maxY = maxVisY, zoom = baseZoom
+                            minX = minVisX - 500.0, maxX = maxVisX + 500.0, minY = minVisY - 500.0, maxY = maxVisY + 500.0, zoom = baseZoom
                         )
                         for (tile in baseTiles) {
                             drawSingleTile(tile, false)
                         }
 
-                        // Pass 2: Draw high-resolution route area tile overlay (zooms 15..18)
                         if (autoZoom > 14) {
                             val highResTiles = OsmTileManager.getTilesForArea(
-                                minX = minVisX, maxX = maxVisX, minY = minVisY, maxY = maxVisY, zoom = autoZoom
+                                minX = minVisX - 200.0, maxX = maxVisX + 200.0, minY = minVisY - 200.0, maxY = maxVisY + 200.0, zoom = autoZoom
                             )
                             for (tile in highResTiles) {
                                 drawSingleTile(tile, true)
                             }
                         }
-
-                        android.util.Log.d("PDR_DIAG", "CANVAS_DRAW_DONE -> time: ${System.currentTimeMillis() - startTime} ms")
-                    } catch (e: Exception) {
-                        android.util.Log.e("MapScreen", "Error rendering OSM background tiles: ${e.message}", e)
-                    }
+                    } catch (_: Exception) {}
                 }
 
-                // 1) Draw 100m gridlines (unlabeled)
+                // =========================================================================
+                // ADAPTIVE DECADE GRID SCALING (POWERS OF 10)
+                // Constraint 1: Maximum 5 major gridlines in each direction
+                // Constraint 2: Minimum 2 minor gridlines in each direction
+                // =========================================================================
+                val curSpanX = (maxVisX - minVisX).coerceAtLeast(1.0)
+                val curSpanY = (maxVisY - minVisY).coerceAtLeast(1.0)
+                val maxSpan = maxOf(curSpanX, curSpanY)
+                val minSpan = minOf(curSpanX, curSpanY)
+
+                val minMajorStepRequired = maxSpan / 5.0
+                val maxMajorStepAllowed = (minSpan / 2.0) * 10.0
+
+                var powerK = ceil(log10(minMajorStepRequired.coerceAtLeast(1.0))).toInt()
+                if (10.0.pow(powerK.toDouble()) > maxMajorStepAllowed && powerK > 0) {
+                    powerK--
+                }
+
+                val clampedPowerK = powerK.coerceIn(0, 5)
+                val majorStep = 10.0.pow(clampedPowerK.toDouble()).toInt().coerceAtLeast(1)
+                val minorStep = (majorStep / 10).coerceAtLeast(1)
+
+                // 1) Draw Minor Gridlines (Unlabeled, 10x smaller subdivision)
                 if (show100mGrid) {
-                    val spacing100mPx = 100.0 * currentScale
-                    if (spacing100mPx >= 3.0) {
-                        val start100mX = (kotlin.math.floor(minVisX / 100.0) * 100.0).toInt()
-                        val end100mX = (kotlin.math.ceil(maxVisX / 100.0) * 100.0).toInt()
+                    val minorSpacingPx = minorStep * currentScale
+                    if (minorSpacingPx >= 3.0) {
+                        val startMinorX = (floor(minVisX / minorStep) * minorStep).toInt()
+                        val endMinorX = (ceil(maxVisX / minorStep) * minorStep).toInt()
 
-                        for (xMeters in start100mX..end100mX step 100) {
-                            if (show1kmGrid && xMeters % 1000 == 0) continue
-                            val p1 = toCanvasOffset(xMeters.toDouble(), minVisY)
-                            val p2 = toCanvasOffset(xMeters.toDouble(), maxVisY)
+                        for (xM in startMinorX..endMinorX step minorStep) {
+                            if (xM % majorStep == 0) continue // Skip where major line will be drawn
+                            val p1 = toCanvasOffset(xM.toDouble(), minVisY)
+                            val p2 = toCanvasOffset(xM.toDouble(), maxVisY)
                             drawLine(
-                                color = Color(0xFF38BDF8).copy(alpha = 0.4f),
+                                color = Color(0xFF38BDF8).copy(alpha = 0.28f),
                                 start = p1,
                                 end = p2,
-                                strokeWidth = 1.25f
+                                strokeWidth = 1.0f
                             )
                         }
 
-                        val start100mY = (kotlin.math.floor(minVisY / 100.0) * 100.0).toInt()
-                        val end100mY = (kotlin.math.ceil(maxVisY / 100.0) * 100.0).toInt()
+                        val startMinorY = (floor(minVisY / minorStep) * minorStep).toInt()
+                        val endMinorY = (ceil(maxVisY / minorStep) * minorStep).toInt()
 
-                        for (yMeters in start100mY..end100mY step 100) {
-                            if (show1kmGrid && yMeters % 1000 == 0) continue
-                            val p1 = toCanvasOffset(minVisX, yMeters.toDouble())
-                            val p2 = toCanvasOffset(maxVisX, yMeters.toDouble())
+                        for (yM in startMinorY..endMinorY step minorStep) {
+                            if (yM % majorStep == 0) continue
+                            val p1 = toCanvasOffset(minVisX, yM.toDouble())
+                            val p2 = toCanvasOffset(maxVisX, yM.toDouble())
                             drawLine(
-                                color = Color(0xFF38BDF8).copy(alpha = 0.4f),
+                                color = Color(0xFF38BDF8).copy(alpha = 0.28f),
                                 start = p1,
                                 end = p2,
-                                strokeWidth = 1.25f
+                                strokeWidth = 1.0f
                             )
                         }
                     }
                 }
 
-                // 2) Draw 1km gridlines with 2-digit grid labels
+                // 2) Draw Major Gridlines (Labeled, max 5 in each direction)
                 if (show1kmGrid) {
-                    val start1kmX = (kotlin.math.floor(minVisX / 1000.0) * 1000.0).toInt()
-                    val end1kmX = (kotlin.math.ceil(maxVisX / 1000.0) * 1000.0).toInt()
+                    val startMajorX = (floor(minVisX / majorStep) * majorStep).toInt()
+                    val endMajorX = (ceil(maxVisX / majorStep) * majorStep).toInt()
 
-                    for (xMeters in start1kmX..end1kmX step 1000) {
-                        val p1 = toCanvasOffset(xMeters.toDouble(), minVisY)
-                        val p2 = toCanvasOffset(xMeters.toDouble(), maxVisY)
+                    for (xM in startMajorX..endMajorX step majorStep) {
+                        val p1 = toCanvasOffset(xM.toDouble(), minVisY)
+                        val p2 = toCanvasOffset(xM.toDouble(), maxVisY)
                         drawLine(
                             color = Color(0xFF00E5FF).copy(alpha = 0.70f),
                             start = p1,
@@ -8114,26 +8972,37 @@ fun MapScreen(
                             strokeWidth = 2.0f
                         )
 
-                        // 2-digit Easting label (drawn to the left of the vertical grid line)
-                        val kmDigitX = String.format(Locale.US, "%02d", (abs(xMeters) / 1000) % 100)
+                        // Easting label with on-screen boundary check (stops piling in lower-left corner)
+                        val labelStr = formatGridLabel(xM, clampedPowerK)
                         val textResult = textMeasurer.measure(
-                            text = kmDigitX,
+                            text = labelStr,
                             style = TextStyle(color = Color(0xFF00E5FF), fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         )
-                        val labelY = (p1.y + 12f).coerceIn(12f, heightPx - textResult.size.height - 12f)
-                        val labelX = p1.x - textResult.size.width - 4f
-                        drawText(
-                            textLayoutResult = textResult,
-                            topLeft = Offset(labelX, labelY)
-                        )
+                        val textWidth = textResult.size.width.toFloat()
+                        val textHeight = textResult.size.height.toFloat()
+
+                        if (p1.x >= textWidth + 8f && p1.x <= widthPx - 8f) {
+                            val labelX = p1.x - textWidth - 4f
+                            val labelY = heightPx - textHeight - 12f
+
+                            drawRect(
+                                color = Color.Black.copy(alpha = 0.60f),
+                                topLeft = Offset(labelX - 3f, labelY - 2f),
+                                size = Size(textWidth + 6f, textHeight + 4f)
+                            )
+                            drawText(
+                                textLayoutResult = textResult,
+                                topLeft = Offset(labelX, labelY)
+                            )
+                        }
                     }
 
-                    val start1kmY = (kotlin.math.floor(minVisY / 1000.0) * 1000.0).toInt()
-                    val end1kmY = (kotlin.math.ceil(maxVisY / 1000.0) * 1000.0).toInt()
+                    val startMajorY = (floor(minVisY / majorStep) * majorStep).toInt()
+                    val endMajorY = (ceil(maxVisY / majorStep) * majorStep).toInt()
 
-                    for (yMeters in start1kmY..end1kmY step 1000) {
-                        val p1 = toCanvasOffset(minVisX, yMeters.toDouble())
-                        val p2 = toCanvasOffset(maxVisX, yMeters.toDouble())
+                    for (yM in startMajorY..endMajorY step majorStep) {
+                        val p1 = toCanvasOffset(minVisX, yM.toDouble())
+                        val p2 = toCanvasOffset(maxVisX, yM.toDouble())
                         drawLine(
                             color = Color(0xFF00E5FF).copy(alpha = 0.70f),
                             start = p1,
@@ -8141,18 +9010,29 @@ fun MapScreen(
                             strokeWidth = 2.0f
                         )
 
-                        // 2-digit Northing label (drawn above the horizontal grid line)
-                        val kmDigitY = String.format(Locale.US, "%02d", (abs(yMeters) / 1000) % 100)
+                        // Northing label with on-screen boundary check (stops piling in lower-left corner)
+                        val labelStr = formatGridLabel(yM, clampedPowerK)
                         val textResult = textMeasurer.measure(
-                            text = kmDigitY,
+                            text = labelStr,
                             style = TextStyle(color = Color(0xFF00E5FF), fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         )
-                        val labelX = (p1.x + 12f).coerceIn(12f, widthPx - textResult.size.width - 12f)
-                        val labelY = p1.y - textResult.size.height - 2f
-                        drawText(
-                            textLayoutResult = textResult,
-                            topLeft = Offset(labelX, labelY)
-                        )
+                        val textWidth = textResult.size.width.toFloat()
+                        val textHeight = textResult.size.height.toFloat()
+
+                        if (p1.y >= textHeight + 8f && p1.y <= heightPx - textHeight - 24f) {
+                            val labelX = 12f
+                            val labelY = p1.y - textHeight - 2f
+
+                            drawRect(
+                                color = Color.Black.copy(alpha = 0.60f),
+                                topLeft = Offset(labelX - 3f, labelY - 2f),
+                                size = Size(textWidth + 6f, textHeight + 4f)
+                            )
+                            drawText(
+                                textLayoutResult = textResult,
+                                topLeft = Offset(labelX, labelY)
+                            )
+                        }
                     }
                 }
             }
@@ -8174,7 +9054,7 @@ fun MapScreen(
                 )
             }
 
-            // Draw waypoints
+            // Draw waypoints with outer bisector smart label placement
             route?.waypoints?.forEach { wp ->
                 val center = toCanvasOffset(wp.x, wp.y)
                 val isTarget = (wp == currentTargetWaypoint)
@@ -8194,10 +9074,9 @@ fun MapScreen(
                         else -> "%.0fm".format(wp.altitude)
                     }
 
-                    // Compute smart label placement: opposite the acute angle (outer bisector of connected legs)
-                    val connectedLegs = route?.legs?.filter { it.start == wp || it.target == wp } ?: emptyList()
+                    val connectedLegs = route.legs.filter { it.start == wp || it.target == wp }
                     var normalX = 0f
-                    var normalY = -1f // default upward offset
+                    var normalY = -1f
 
                     if (connectedLegs.isNotEmpty()) {
                         var sumDx = 0.0
@@ -8214,7 +9093,6 @@ fun MapScreen(
                         }
                         val sumLen = hypot(sumDx, sumDy)
                         if (sumLen > 0.01) {
-                            // Point in the exact opposite direction of the sum of unit vectors (outer bisector / opposite acute angle)
                             normalX = (-sumDx / sumLen).toFloat()
                             normalY = (-sumDy / sumLen).toFloat()
                         } else {
@@ -8224,10 +9102,8 @@ fun MapScreen(
                             val dy = other.y - wp.y
                             val len = hypot(dx, dy)
                             if (len > 0.1) {
-                                val dirX = (dx / len).toFloat()
-                                val dirY = (dy / len).toFloat()
-                                normalX = -dirY
-                                normalY = dirX
+                                normalX = -(dy / len).toFloat()
+                                normalY = (dx / len).toFloat()
                             }
                         }
                     }
@@ -8249,21 +9125,17 @@ fun MapScreen(
 
                     if (abs(normalX) >= abs(normalY)) {
                         if (normalX < 0f) {
-                            // Points left -> place to the left of waypoint
                             labelX = center.x - clearance - textResult.size.width
                             labelY = center.y - (textResult.size.height / 2f)
                         } else {
-                            // Points right -> place to the right of waypoint
                             labelX = center.x + clearance
                             labelY = center.y - (textResult.size.height / 2f)
                         }
                     } else {
                         if (normalY < 0f) {
-                            // Points up -> place above waypoint
                             labelY = center.y - clearance - textResult.size.height
                             labelX = center.x - (textResult.size.width / 2f)
                         } else {
-                            // Points down -> place below waypoint
                             labelY = center.y + clearance
                             labelX = center.x - (textResult.size.width / 2f)
                         }
@@ -8273,7 +9145,7 @@ fun MapScreen(
                     drawRect(
                         color = Color.Black.copy(alpha = 0.20f),
                         topLeft = Offset(labelX - bgPadding, labelY - bgPadding),
-                        size = androidx.compose.ui.geometry.Size(
+                        size = Size(
                             textResult.size.width + bgPadding * 2f,
                             textResult.size.height + bgPadding * 2f
                         )
@@ -8297,154 +9169,143 @@ fun MapScreen(
                 }
             }
 
-            // Draw historical breadcrumbs with user's configured styling & diameter
-            if (breadcrumbConfig.showBreadcrumbs) {
-                val totalCount = renderBreadcrumbs.size.toFloat().coerceAtLeast(1f)
+            // --- DRAW BREADCRUMBS ---
+            if (breadcrumbConfig.showBreadcrumbs && renderBreadcrumbs.isNotEmpty()) {
+                val totalCount = renderBreadcrumbs.size.toFloat()
+                val speedRange = (maxSpeed - minSpeed).toFloat().coerceAtLeast(0.001f)
+                val strideRange = (maxStride - minStride).toFloat().coerceAtLeast(0.001f)
+                val speedColor1 = Color(breadcrumbConfig.speedStartColor)
+                val speedColor2 = Color(breadcrumbConfig.speedEndColor)
+                val strideColor1 = Color(breadcrumbConfig.strideStartColor)
+                val strideColor2 = Color(breadcrumbConfig.strideEndColor)
 
-                var minSpeed = Double.MAX_VALUE
-                var maxSpeed = -Double.MAX_VALUE
-                var minStride = Double.MAX_VALUE
-                var maxStride = -Double.MAX_VALUE
-
-                validBreadcrumbs.forEachIndexed { index, _ ->
-                    val s = getBreadcrumbSpeed(index, validBreadcrumbs)
-                    if (s < minSpeed) minSpeed = s
-                    if (s > maxSpeed) maxSpeed = s
-
-                    val st = getBreadcrumbStride(index, validBreadcrumbs)
-                    if (st < minStride) minStride = st
-                    if (st > maxStride) maxStride = st
+                val offsets = Array(renderBreadcrumbs.size) { i ->
+                    toCanvasOffset(renderBreadcrumbs[i].location.x, renderBreadcrumbs[i].location.y)
                 }
 
-                if (minSpeed == Double.MAX_VALUE || maxSpeed == -Double.MAX_VALUE) { minSpeed = 0.0; maxSpeed = 2.5 }
-                if (minStride == Double.MAX_VALUE || maxStride == -Double.MAX_VALUE) { minStride = 0.4; maxStride = 1.2 }
+                // 1. Line segments connecting points
+                val lineStroke = 1.2f * zoomScale.coerceIn(0.5f, 2f)
+                for (i in 1 until renderBreadcrumbs.size) {
+                    val p1 = offsets[i - 1]
+                    val p2 = offsets[i]
 
-                renderBreadcrumbs.forEachIndexed { index, bc ->
-                    val center = toCanvasOffset(bc.location.x, bc.location.y)
+                    val alpha = if (breadcrumbConfig.fadeWithAge) {
+                        0.25f + 0.75f * (i / totalCount)
+                    } else 1.0f
+
+                    val lineColor = if (breadcrumbConfig.colorMode == BreadcrumbColorMode.GPS_PDR) {
+                        if (renderBreadcrumbs[i].isGpsFix) Color(0xFFFF5252).copy(alpha = 0.5f * alpha)
+                        else Color(0xFF00E5FF).copy(alpha = 0.7f * alpha)
+                    } else {
+                        Color(0xFF00E5FF).copy(alpha = 0.6f * alpha)
+                    }
+
+                    drawLine(
+                        color = lineColor,
+                        start = p1,
+                        end = p2,
+                        strokeWidth = lineStroke
+                    )
+                }
+
+                // 2. Dots and accuracy circles
+                val baseDotRadius = breadcrumbConfig.dotDiameterPx * zoomScale.coerceIn(0.5f, 2.0f)
+
+                renderBreadcrumbs.forEachIndexed { i, bc ->
+                    val center = offsets[i]
 
                     val baseColor = when (breadcrumbConfig.colorMode) {
                         BreadcrumbColorMode.GPS_PDR -> {
                             if (bc.isGpsFix) Color(0xFFFF3333) else Color(0xFF2196F3)
                         }
                         BreadcrumbColorMode.SPEED -> {
-                            val speedMps = getBreadcrumbSpeed(index, renderBreadcrumbs)
-                            val range = (maxSpeed - minSpeed).toFloat().coerceAtLeast(0.001f)
-                            val t = ((speedMps - minSpeed) / range).coerceIn(0.0, 1.0).toFloat()
-                            lerp(Color(breadcrumbConfig.speedStartColor), Color(breadcrumbConfig.speedEndColor), t)
+                            val speedMps = getBreadcrumbSpeed(i, renderBreadcrumbs)
+                            val t = ((speedMps - minSpeed) / speedRange).coerceIn(0.0, 1.0).toFloat()
+                            lerp(speedColor1, speedColor2, t)
                         }
                         BreadcrumbColorMode.STRIDE -> {
-                            val stride = getBreadcrumbStride(index, renderBreadcrumbs)
-                            val range = (maxStride - minStride).toFloat().coerceAtLeast(0.001f)
-                            val t = ((stride - minStride) / range).coerceIn(0.0, 1.0).toFloat()
-                            lerp(Color(breadcrumbConfig.strideStartColor), Color(breadcrumbConfig.strideEndColor), t)
+                            val stride = getBreadcrumbStride(i, renderBreadcrumbs)
+                            val t = ((stride - minStride) / strideRange).coerceIn(0.0, 1.0).toFloat()
+                            lerp(strideColor1, strideColor2, t)
                         }
                     }
 
                     val alphaMultiplier = if (breadcrumbConfig.fadeWithAge) {
-                        val progress = if (totalCount > 1f) index / (totalCount - 1f) else 1f
-                        0.2f + 0.8f * progress
-                    } else {
-                        1.0f
-                    }
+                        0.2f + 0.8f * (i / totalCount)
+                    } else 1.0f
 
                     val finalColor = baseColor.copy(alpha = baseColor.alpha * alphaMultiplier)
-
-                    // Draw line segment connecting to previous breadcrumb with width 1.0 and gradient transparency
-                    if (index > 0) {
-                        val prevBc = renderBreadcrumbs[index - 1]
-                        val prevCenter = toCanvasOffset(prevBc.location.x, prevBc.location.y)
-
-                        val prevAlphaMultiplier = if (breadcrumbConfig.fadeWithAge) {
-                            val progress = if (totalCount > 1f) (index - 1) / (totalCount - 1f) else 1f
-                            0.2f + 0.8f * progress
-                        } else {
-                            1.0f
-                        }
-                        val prevColor = baseColor.copy(alpha = baseColor.alpha * prevAlphaMultiplier)
-
-                        drawLine(
-                            brush = Brush.linearGradient(
-                                colors = listOf(prevColor, finalColor),
-                                start = prevCenter,
-                                end = center
-                            ),
-                            start = prevCenter,
-                            end = center,
-                            strokeWidth = 1.0f * zoomScale.coerceIn(0.5f, 2f)
-                        )
-                    }
 
                     if (breadcrumbConfig.showAccuracyCircles && bc.ekfState != null) {
                         val accRadiusPx = (sqrt(bc.ekfState.position.variance) * currentScale).toFloat().coerceIn(4f, 80f)
                         drawCircle(
-                            color = finalColor.copy(alpha = 0.6f * alphaMultiplier),
+                            color = finalColor.copy(alpha = 0.35f * alphaMultiplier),
                             radius = accRadiusPx,
                             center = center,
-                            style = Stroke(width = 1.5f * zoomScale.coerceIn(0.5f, 2f))
+                            style = Stroke(width = 1.0f)
                         )
                     }
 
-                    val dotRadius = breadcrumbConfig.dotDiameterPx * zoomScale.coerceIn(0.5f, 2.0f)
                     drawCircle(
                         color = finalColor,
-                        radius = dotRadius,
+                        radius = baseDotRadius,
                         center = center
                     )
                 }
             }
 
-            // Draw Stationary Rest Stop Circles & Duration Labels
-            if (breadcrumbConfig.showStationaryStops && renderBreadcrumbs.size >= 2) {
-                var stopStartBc: Breadcrumb? = null
-                var stopLastBc: Breadcrumb? = null
+            // --- FEATURE: Draw Combined Stationary Rest Stops within 1 Minute ---
+            if (breadcrumbConfig.showStationaryStops && mergedStationaryStops.isNotEmpty()) {
+                for (stop in mergedStationaryStops) {
+                    val stopCenter = toCanvasOffset(stop.x, stop.y)
 
-                for (i in 0 until renderBreadcrumbs.size) {
-                    val bc = renderBreadcrumbs[i]
-                    val speed = bc.ekfState?.speedMps?.value ?: 0.0
+                    val durationMin = stop.durationSec / 60
+                    val durationSecRem = stop.durationSec % 60
+                    val stopRadiusPx = (16f + (stop.durationSec / 60f).coerceAtMost(20f) * 1.0f) * zoomScale.coerceIn(0.8f, 2.5f)
 
-                    if (speed < 0.3) {
-                        if (stopStartBc == null) {
-                            stopStartBc = bc
-                        }
-                        stopLastBc = bc
-                    } else {
-                        if (stopStartBc != null && stopLastBc != null) {
-                            val durationSec = (stopLastBc.timestampMs - stopStartBc.timestampMs) / 1000L
-                            if (durationSec >= 30L) {
-                                val stopCenter = toCanvasOffset(stopStartBc.location.x, stopStartBc.location.y)
-                                val durationMin = durationSec / 60
-                                val durationSecRem = durationSec % 60
-                                val timeText = if (durationMin > 0) "${durationMin}m ${durationSecRem}s" else "${durationSecRem}s"
+                    drawCircle(
+                        color = Color(0xFFFFB300).copy(alpha = 0.22f),
+                        radius = stopRadiusPx,
+                        center = stopCenter
+                    )
+                    drawCircle(
+                        color = Color(0xFFFFB300),
+                        radius = stopRadiusPx,
+                        center = stopCenter,
+                        style = Stroke(width = 2.0f * zoomScale.coerceIn(0.8f, 2.0f))
+                    )
 
-                                drawCircle(
-                                    color = Color(0xFFFFB300).copy(alpha = 0.25f),
-                                    radius = 16f * zoomScale.coerceIn(0.8f, 2.5f),
-                                    center = stopCenter
-                                )
-                                drawCircle(
-                                    color = Color(0xFFFFB300),
-                                    radius = 16f * zoomScale.coerceIn(0.8f, 2.5f),
-                                    center = stopCenter,
-                                    style = Stroke(width = 2f)
-                                )
+                    val timeText = if (durationMin > 0) "${durationMin}m ${durationSecRem}s" else "${durationSecRem}s"
+                    val labelText = "Stopped $timeText"
+                    val textResult = textMeasurer.measure(
+                        text = labelText,
+                        style = TextStyle(
+                            color = Color(0xFFFFD700),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    )
 
-                                val textResult = textMeasurer.measure(
-                                    text = "Stopped $timeText",
-                                    style = TextStyle(color = Color(0xFFFFD700), fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                                )
-                                drawText(
-                                    textLayoutResult = textResult,
-                                    topLeft = Offset(stopCenter.x - textResult.size.width / 2f, stopCenter.y + 18f)
-                                )
-                            }
-                        }
-                        stopStartBc = null
-                        stopLastBc = null
-                    }
+                    val labelX = stopCenter.x - textResult.size.width / 2f
+                    val labelY = stopCenter.y + stopRadiusPx + 4f
+
+                    drawRect(
+                        color = Color.Black.copy(alpha = 0.65f),
+                        topLeft = Offset(labelX - 4f, labelY - 2f),
+                        size = Size(
+                            textResult.size.width + 8f,
+                            textResult.size.height + 4f
+                        )
+                    )
+
+                    drawText(
+                        textLayoutResult = textResult,
+                        topLeft = Offset(labelX, labelY)
+                    )
                 }
             }
 
-            // Draw current active EKF position indicator (only if initialized)
+            // Draw current active EKF position indicator
             if (activeEkfState.isInitializedWithGps) {
                 val activePos = activeEkfState.position.value
                 val currentCenter = toCanvasOffset(activePos.x, activePos.y)
@@ -8502,7 +9363,7 @@ fun MapScreen(
                 )
             }
 
-            // Draw direct line from current hiker position to current leg target waypoint
+            // Draw direct line from current hiker position to target waypoint
             val activeTarget = currentTargetWaypoint ?: activeLeg?.target ?: route?.legs?.firstOrNull()?.target
             if (activeEkfState.isInitializedWithGps && activeTarget != null) {
                 val activePos = activeEkfState.position.value
@@ -8516,6 +9377,223 @@ fun MapScreen(
                     strokeWidth = 3.5f * zoomScale.coerceIn(0.5f, 2.5f),
                     pathEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 8f), 0f)
                 )
+            }
+
+            // ========================================================
+            // Zoom Indicator Gauge (Lower Right, above Fit All button)
+            // ========================================================
+            if (currentScale > 0.0) {
+                val minGaugeZoom = 10.0f
+                val maxTileZoom = 17.0f
+                val maxOverzoom = 20.0f
+
+                // Continuous zoom level derived from canvas scale
+                val continuousZoom = (kotlin.math.log2(93113.0 * currentScale)).toFloat()
+
+                val gaugeHeightPx = 110f
+                val gaugeBottomY = heightPx - 58.dp.toPx() // Clears the Fit All / Gear buttons
+                val gaugeTopY = gaugeBottomY - gaugeHeightPx
+                //val gaugeX = widthPx - 28.dp.toPx()
+                val gaugeX = widthPx - 10.dp.toPx()
+
+                fun zoomToGaugeY(z: Float): Float {
+                    val clamped = z.coerceIn(minGaugeZoom, maxOverzoom)
+                    val fraction = (clamped - minGaugeZoom) / (maxOverzoom - minGaugeZoom)
+                    return gaugeBottomY - fraction * gaugeHeightPx
+                }
+
+                val y10 = zoomToGaugeY(10f)
+                val y17 = zoomToGaugeY(17f)
+                val y20 = zoomToGaugeY(20f)
+                val yCurrent = zoomToGaugeY(continuousZoom)
+
+                // 1. Semi-transparent dark background card
+                drawRoundRect(
+                    color = Color(0xCC0F172A),
+                    // topLeft = Offset(gaugeX - 24f, gaugeTopY - 10f),
+                    topLeft = Offset(gaugeX - 40f, gaugeTopY - 5f),
+                    size = Size(60f, gaugeHeightPx + 20f),
+                    cornerRadius = CornerRadius(6f, 6f)
+                )
+
+                // 2. Standard Tile Range Line (10..17, solid sky blue)
+                drawLine(
+                    color = Color(0xFF38BDF8),
+                    start = Offset(gaugeX, y10),
+                    end = Offset(gaugeX, y17),
+                    strokeWidth = 2.5f
+                )
+
+                // 3. Space beyond max zoom for overzooming (17..20, dashed amber)
+                drawLine(
+                    color = Color(0xFFFBBF24),
+                    start = Offset(gaugeX, y17),
+                    end = Offset(gaugeX, y20),
+                    strokeWidth = 2.5f,
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 3f), 0f)
+                )
+
+                // 4. Indicator 1: Min Zoom (10) on the left
+                drawLine(
+                    color = Color(0xFF94A3B8),
+                    start = Offset(gaugeX - 6f, y10),
+                    end = Offset(gaugeX, y10),
+                    strokeWidth = 2.0f
+                )
+                val text10 = textMeasurer.measure(
+                    text = "10",
+                    style = TextStyle(
+                        color = Color(0xFF94A3B8),
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                )
+                drawText(
+                    textLayoutResult = text10,
+                    topLeft = Offset(gaugeX - 8f - text10.size.width, y10 - text10.size.height / 2f)
+                )
+
+                // 5. Indicator 2: Max Tile Zoom (17) on the left
+                drawLine(
+                    color = Color(0xFF38BDF8),
+                    start = Offset(gaugeX - 6f, y17),
+                    end = Offset(gaugeX, y17),
+                    strokeWidth = 2.0f
+                )
+                val text17 = textMeasurer.measure(
+                    text = "17",
+                    style = TextStyle(
+                        color = Color(0xFF38BDF8),
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                )
+                drawText(
+                    textLayoutResult = text17,
+                    topLeft = Offset(gaugeX - 8f - text17.size.width, y17 - text17.size.height / 2f)
+                )
+
+                // 6. Small arrow on the right pointing to current zoom level
+                val arrowPath = Path().apply {
+                    moveTo(gaugeX + 3f, yCurrent)        // Arrow tip pointing at the line
+                    lineTo(gaugeX + 9f, yCurrent - 4.5f) // Top right
+                    lineTo(gaugeX + 9f, yCurrent + 4.5f) // Bottom right
+                    close()
+                }
+                drawPath(arrowPath, color = Color(0xFFFBBF24))
+
+                /** I don't want the numeric readout.
+                // Current zoom numeric readout (right of the arrow)
+                val currentZoomStr = if (continuousZoom >= 17.0f) {
+                    String.format(Locale.US, "%.1f", continuousZoom)
+                } else {
+                    "${continuousZoom.roundToInt()}"
+                }
+                val textCurrent = textMeasurer.measure(
+                    text = currentZoomStr,
+                    style = TextStyle(
+                        color = Color(0xFFFBBF24),
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                )
+                drawText(
+                    textLayoutResult = textCurrent,
+                    topLeft = Offset(gaugeX + 11f, yCurrent - textCurrent.size.height / 2f)
+                )
+                */
+                // ========================================================
+                // Map Scale Bar (Lower Left)
+                // 1, 5, or 10 of minor grid scale, closest to 1/5th screen width
+                // ========================================================
+                if (currentScale > 0.0) {
+                    val screenWidthMeters = widthPx / currentScale
+                    val targetMeters = screenWidthMeters / 5.0 // 1/5th screen width
+
+                    // Minor grid based on power of 10 decade scaling
+                    val powerK = kotlin.math.ceil(kotlin.math.log10(screenWidthMeters / 5.0)).toInt()
+                    val majorGridMeters = 10.0.pow(powerK)
+                    val minorGridMeters = majorGridMeters / 10.0
+
+                    // The 3 candidate distances: 1, 5, or 10 of minor grid
+                    val candidate1 = 1.0 * minorGridMeters
+                    val candidate5 = 5.0 * minorGridMeters
+                    val candidate10 = 10.0 * minorGridMeters
+
+                    val chosenMeters = listOf(candidate1, candidate5, candidate10)
+                        .minByOrNull { kotlin.math.abs(it - targetMeters) } ?: candidate5
+
+                    val barWidthPx = (chosenMeters * currentScale).toFloat()
+
+                    // Format text label (e.g. "500 m", "1 km", "5 km")
+                    val scaleText = if (chosenMeters >= 1000.0) {
+                        val km = chosenMeters / 1000.0
+                        if (km % 1.0 == 0.0) "${km.toInt()} km" else String.format(Locale.US, "%.1f km", km)
+                    } else {
+                        "${chosenMeters.toInt()} m"
+                    }
+
+                    // Lower-left positioning
+                    val scaleLeftX = 14.dp.toPx()
+                    val scaleRightX = scaleLeftX + barWidthPx
+                    val scaleBaselineY = heightPx - 46.dp.toPx() // Above bottom navigation bar
+
+                    val scaleTextResult = textMeasurer.measure(
+                        text = scaleText,
+                        style = TextStyle(
+                            color = Color.White,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    )
+
+                    // Semi-transparent dark background card
+                    val bgPadding = 6.dp.toPx()
+                    val bgTop = scaleBaselineY - scaleTextResult.size.height - 4f
+                    val bgHeight = scaleTextResult.size.height + 12.dp.toPx()
+                    drawRoundRect(
+                        color = Color(0xCC0F172A),
+                        topLeft = Offset(scaleLeftX - bgPadding, bgTop - 2f),
+                        size = Size(barWidthPx + bgPadding * 2f, bgHeight),
+                        cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx())
+                    )
+
+                    // Centered text label above the scale bar
+                    val textX = scaleLeftX + (barWidthPx - scaleTextResult.size.width) / 2f
+                    val textY = scaleBaselineY - scaleTextResult.size.height - 2f
+                    drawText(
+                        textLayoutResult = scaleTextResult,
+                        topLeft = Offset(textX, textY)
+                    )
+
+                    // Horizontal scale bar line
+                    drawLine(
+                        color = Color.White,
+                        start = Offset(scaleLeftX, scaleBaselineY),
+                        end = Offset(scaleRightX, scaleBaselineY),
+                        strokeWidth = 2.0f
+                    )
+
+                    // Left vertical tick mark
+                    drawLine(
+                        color = Color.White,
+                        start = Offset(scaleLeftX, scaleBaselineY - 4.dp.toPx()),
+                        end = Offset(scaleLeftX, scaleBaselineY + 4.dp.toPx()),
+                        strokeWidth = 2.0f
+                    )
+
+                    // Right vertical tick mark
+                    drawLine(
+                        color = Color.White,
+                        start = Offset(scaleRightX, scaleBaselineY - 4.dp.toPx()),
+                        end = Offset(scaleRightX, scaleBaselineY + 4.dp.toPx()),
+                        strokeWidth = 2.0f
+                    )
+                }
             }
         }
 
@@ -8536,7 +9614,7 @@ fun MapScreen(
             )
         }
 
-        // Color Legend Overlay Card for Speed / Stride Color Modes (only shown when breadcrumbs exist on screen)
+        // Color Legend Overlay Card
         if (breadcrumbConfig.showBreadcrumbs && validBreadcrumbs.isNotEmpty() && (breadcrumbConfig.colorMode == BreadcrumbColorMode.SPEED || breadcrumbConfig.colorMode == BreadcrumbColorMode.STRIDE)) {
             val isSpeed = breadcrumbConfig.colorMode == BreadcrumbColorMode.SPEED
             val minVal = if (isSpeed) minSpeed * 3.6 else minStride
@@ -8586,7 +9664,7 @@ fun MapScreen(
             }
         }
 
-        // Lower Right Corner Controls (Fit All button and Gear Icon Settings button)
+        // Lower Right Corner Controls
         Row(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
@@ -8619,7 +9697,7 @@ fun MapScreen(
             }
         }
 
-        // 5-Tab Settings Overhaul Dialog
+        // Settings Dialog
         if (showSettingsDialog) {
             var selectedTabIndex by remember { mutableIntStateOf(com.example.irishhike.repository.HikeRepository.loadSettingsTab()) }
             val tabs = listOf("Map", "Breadcrumbs", "Audio", "Navigation", "Dev")
@@ -8674,6 +9752,26 @@ fun MapScreen(
     }
 }
 
+/**
+ * Formats coordinates for adaptive decade gridlines.
+ * Power 0 (1m) -> 5-digit local meters (00000 to 99999)
+ * Power 1 (10m) -> 4-digit (0000 to 9999)
+ * Power 2 (100m) -> 3-digit (000 to 999)
+ * Power 3 (1km) -> 2-digit kilometer number (00 to 99)
+ * Power 4 (10km) -> 10km decade marker
+ */
+private fun formatGridLabel(coordMeters: Int, power: Int): String {
+    val localMeters = (coordMeters % 100000).let { if (it < 0) it + 100000 else it }
+    return when (power) {
+        0 -> String.format(Locale.US, "%05d", localMeters)
+        1 -> String.format(Locale.US, "%04d", localMeters / 10)
+        2 -> String.format(Locale.US, "%03d", localMeters / 100)
+        3 -> String.format(Locale.US, "%02d", (localMeters / 1000) % 100)
+        4 -> String.format(Locale.US, "%d0", (localMeters / 10000) % 10)
+        else -> String.format(Locale.US, "%d", coordMeters / 1000)
+    }
+}
+
 @Composable
 private fun MapSettingsTab(
     mapConfig: MapConfig,
@@ -8716,8 +9814,8 @@ private fun MapSettingsTab(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text("1km Gridlines", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                Text("Display 1km major Irish gridlines", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Major Gridlines", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                Text("Adaptive decade lines with labels (max 5 per axis)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Switch(
                 checked = mapConfig.show1kmGrid,
@@ -8731,8 +9829,8 @@ private fun MapSettingsTab(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text("100m Gridlines", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                Text("Display 100m minor Irish gridlines", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Minor Gridlines", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                Text("10x smaller subdivision lines without labels", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Switch(
                 checked = mapConfig.show100mGrid,
@@ -8846,7 +9944,7 @@ private fun BreadcrumbsSettingsTab(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text("Stationary Rest Stops", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                Text("Circle & duration label when stationary > 30s", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Combined circle and duration when stationary for 30s or more", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Switch(
                 checked = breadcrumbConfig.showStationaryStops,
@@ -8993,7 +10091,7 @@ private fun NavigationSettingsTab(
                     onClick = {
                         isDownloadingRoute = true
                         coroutineScope.launch {
-                            val count = OsmTileManager.downloadRouteAreaTiles(context, route, listOf(10, 11, 12, 13, 14, 15, 16, 17, 18)) { current, total ->
+                            val count = OsmTileManager.downloadRouteAreaTiles(context, route, listOf(10, 11, 12, 13, 14, 15, 16, 17)) { current, total ->
                                 routeProgressText = "$current / $total"
                             }
                             isDownloadingRoute = false
@@ -9089,8 +10187,7 @@ private fun getBreadcrumbStride(index: Int, list: List<Breadcrumb>): Double {
     return bc.ekfState?.strideLengthMeters?.value ?: 0.75
 }
 
-
-// --- FILE: src/main/java/com/example/irishhike/repository/HikeRepository.kt ---
+// --- FILE: app/src/main/java/com/example/irishhike/repository/HikeRepository.kt ---
 
 package com.example.irishhike.repository
 
@@ -9407,7 +10504,7 @@ object HikeRepository {
 }
 
 
-// --- FILE: src/main/AndroidManifest.xml ---
+// --- FILE: app/src/main/AndroidManifest.xml ---
 
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
@@ -9425,6 +10522,7 @@ object HikeRepository {
 
     <application
         android:allowBackup="true"
+        android:requestLegacyExternalStorage="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
