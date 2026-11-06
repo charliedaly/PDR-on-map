@@ -86,7 +86,7 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
 
     @Synchronized
     fun setHeadingRad(headingRad: Double) {
-        currentHeadingRad = normalizeAngleRad(headingRad)
+        updateSmoothedHeading(headingRad)
     }
 
     init {
@@ -122,6 +122,8 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
         stepCount = 0
         gpsFixCount = 0
         consecutiveGpsRejections = 0
+        isHeadingInitialized = false
+
         sanitizeCovariance()
     }
 
@@ -188,7 +190,7 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
         if (currentSpeedMps > 3.5) return
 
         stepCount++
-        currentHeadingRad = normalizeAngleRad(headingRawRad)
+        updateSmoothedHeading(headingRawRad)
         val bTheta = x[IDX_COMPASS_BIAS]
         val correctedHeading = normalizeAngleRad(currentHeadingRad - bTheta)
 
@@ -422,6 +424,26 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
         }
     }
 
+    private var recentHeadingJitterRad: Double = 0.05 // ~12 degrees initial
+
+    private var isHeadingInitialized = false
+
+    private fun updateSmoothedHeading(newHeadingRad: Double) {
+        if (newHeadingRad.isNaN() || newHeadingRad.isInfinite()) return
+        val normalized = normalizeAngleRad(newHeadingRad)
+        if (!isHeadingInitialized) {
+            isHeadingInitialized = true
+            currentHeadingRad = normalized
+            recentHeadingJitterRad = 0.05
+        } else {
+            val diff = normalizeAngleRad(normalized - currentHeadingRad)
+            // Track dynamic heading jitter (low when straight, rises during sharp turns)
+            recentHeadingJitterRad = 0.80 * recentHeadingJitterRad + 0.20 * abs(diff)
+            // Smooth heading update
+            currentHeadingRad = normalizeAngleRad(currentHeadingRad + 0.25 * diff)
+        }
+    }
+
     private fun updateScalarObservation(residual: Double, h: DoubleArray, rVariance: Double) {
         if (residual.isNaN() || rVariance.isNaN() || rVariance <= 0.0) return
 
@@ -497,14 +519,29 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
         val velYVar = p[IDX_VY][IDX_VY].coerceAtLeast(1e-4)
         val velVarCombined = sqrt(velXVar * velXVar + velYVar * velYVar)
 
-        val biasVar = p[IDX_COMPASS_BIAS][IDX_COMPASS_BIAS].coerceAtLeast(1e-4)
+        val speed = hypot(x[IDX_VX], x[IDX_VY])
+
+        // --- REALISTIC DYNAMIC BEARING VARIANCE ---
+        // 1. Motion factor: stationary = high uncertainty; walking = tight uncertainty
+        val speedFactor = when {
+            speed < 0.3 -> 0.08  // ~16° std dev when stopped/standing
+            speed < 0.8 -> 0.02  // ~8° std dev when strolling slowly
+            else -> 0.006       // ~4.5° std dev when walking normally (>= 0.8 m/s)
+        }
+
+        // 2. Turning/jitter factor: rises during active turns, falls on straight paths
+        val jitterFactor = (recentHeadingJitterRad * recentHeadingJitterRad).coerceIn(0.001, 0.04)
+
+        // 3. Total combined bearing variance in rad²
+        val totalBearingVar = (speedFactor + jitterFactor).coerceIn(0.004, 0.12)
+        // (0.004 rad² = ±3.6°, 0.12 rad² = ±20°)
 
         return EkfState(
             timestampMs = System.currentTimeMillis(),
             position = Estimate(Vector2D(x[IDX_X], x[IDX_Y]), posVarCombined),
             velocity = Estimate(Vector2D(x[IDX_VX], x[IDX_VY]), velVarCombined),
-            bearingRad = Estimate(normalizeAngleRad(currentHeadingRad - x[IDX_COMPASS_BIAS]), biasVar),
-            compassBiasRad = Estimate(x[IDX_COMPASS_BIAS], biasVar),
+            bearingRad = Estimate(normalizeAngleRad(currentHeadingRad - x[IDX_COMPASS_BIAS]), totalBearingVar),
+            compassBiasRad = Estimate(x[IDX_COMPASS_BIAS], p[IDX_COMPASS_BIAS][IDX_COMPASS_BIAS]),
             strideLengthMeters = Estimate(x[IDX_STRIDE], p[IDX_STRIDE][IDX_STRIDE]),
             stepCount = stepCount,
             gpsFixCount = gpsFixCount,

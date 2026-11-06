@@ -178,27 +178,45 @@ class Hike(var route: Route?, val config: HikeConfig = HikeConfig()) {
         }
 
         // 6. OFFCOURSE
-        if (ekfState?.speedMps?.value ?: 0.0 >= config.offCourseMinSpeedMps) {
-            val requiredBearing = location.bearingTo(leg.target)
-            val hikerBearing = ekfState?.let { Math.toDegrees(it.bearingRad.value) }
-                ?: previousLocation?.bearingTo(location)
-                ?: requiredBearing
-
-            val bearingOffset = angleDifference(hikerBearing, requiredBearing)
-
+// 6. OFFCOURSE CHECK
+        val currentSpeed = ekfState?.speedMps?.value ?: 0.0
+        if (currentSpeed >= config.offCourseMinSpeedMps) {
             val bearingVariance = ekfState?.bearingRad?.variance ?: 0.0
             val bearingStdDevDeg = Math.toDegrees(sqrt(bearingVariance))
-            val twoSigmaUncertaintyDeg = 2.0 * bearingStdDevDeg
 
-            if (bearingOffset > config.offCourseHeadingDevDeg + twoSigmaUncertaintyDeg) {
-                val isDriftingFurther = bearingOffset > (lastOffCourseOffset + 2.0)
-                val coolOffMs =
-                    if (isDriftingFurther) config.driftCoolOffSec * 1000L else config.steadyCoolOffSec * 1000L
+            // GATE 1: Confidence Gate
+            // Only trigger off-course guidance if the bearing estimate is reliable (<= 12.0°)
+            // If the hiker is paused, turning in place, or phone is swinging, wait until stable
+            if (bearingStdDevDeg <= 12.0) {
+                val requiredBearing = location.bearingTo(leg.target)
+                val hikerBearing = ekfState?.let { Math.toDegrees(it.bearingRad.value) }
+                    ?: previousLocation?.bearingTo(location)
+                    ?: requiredBearing
 
-                if (currentTimeMs - lastOffCourseTimeMs >= coolOffMs) {
-                    lastOffCourseTimeMs = currentTimeMs
-                    lastOffCourseOffset = bearingOffset
-                    return LegState.OFFCOURSE
+                val bearingOffset = angleDifference(hikerBearing, requiredBearing)
+
+                // GATE 2: Statistically Confident Threshold
+                // Base tolerance (e.g. 10°) plus 2-sigma sensor uncertainty (~8-10° when walking)
+                // Creates an adaptive ~18° to 20° corridor around the path
+                val twoSigmaUncertaintyDeg = 2.0 * bearingStdDevDeg
+                val dynamicThreshold = config.offCourseHeadingDevDeg + twoSigmaUncertaintyDeg
+
+                if (bearingOffset > dynamicThreshold) {
+                    val isDriftingFurther = bearingOffset > (lastOffCourseOffset + 2.0)
+                    val coolOffMs = if (isDriftingFurther) {
+                        config.driftCoolOffSec * 1000L      // Rapid reminder (4s) if walking further astray
+                    } else {
+                        config.steadyCoolOffSec * 1000L     // Gentle reminder (6s) if holding steady offset
+                    }
+
+                    if (currentTimeMs - lastOffCourseTimeMs >= coolOffMs) {
+                        lastOffCourseTimeMs = currentTimeMs
+                        lastOffCourseOffset = bearingOffset
+                        return LegState.OFFCOURSE
+                    }
+                } else if (bearingOffset <= config.offCourseHeadingDevDeg) {
+                    // RESET: When back on track, reset the baseline so the next drift is caught immediately
+                    lastOffCourseOffset = 0.0
                 }
             }
         }

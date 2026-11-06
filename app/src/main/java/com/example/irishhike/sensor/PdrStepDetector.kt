@@ -78,27 +78,19 @@ class PdrStepDetector(
             Sensor.TYPE_ROTATION_VECTOR -> {
                 SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
 
-                // Remap coordinate system if phone is held upright or in pocket
-                // Check if device is tilted vertically (> 45 degrees inclination)
-                val isUpright = abs(rotationMatrix[7]) > 0.707f
-                val targetMatrix = if (isUpright) {
-                    SensorManager.remapCoordinateSystem(
-                        rotationMatrix,
-                        SensorManager.AXIS_X,
-                        SensorManager.AXIS_Z,
-                        remappedMatrix
-                    )
-                    remappedMatrix
-                } else {
-                    rotationMatrix
-                }
+                // Continuous horizontal projection of the phone's top edge (+Y forward)
+                // R[1] is the East component; R[4] is the North component in world coordinates.
+                val east = rotationMatrix[1].toDouble()
+                val north = rotationMatrix[4].toDouble()
 
-                SensorManager.getOrientation(targetMatrix, orientationAngles)
-                var azimuth = orientationAngles[0].toDouble()
-                if (azimuth < 0.0) {
-                    azimuth += 2.0 * PI
+                // Ensure the vector has sufficient horizontal magnitude (valid for tilt < 80 degrees)
+                if (kotlin.math.hypot(east, north) > 0.05) {
+                    var azimuth = atan2(east, north)
+                    if (azimuth < 0.0) {
+                        azimuth += 2.0 * PI
+                    }
+                    currentHeadingRad = azimuth
                 }
-                currentHeadingRad = azimuth
             }
 
             Sensor.TYPE_ACCELEROMETER -> {
