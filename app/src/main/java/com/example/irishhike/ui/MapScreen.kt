@@ -70,6 +70,7 @@ import com.example.irishhike.config.BreadcrumbColorMode
 import com.example.irishhike.config.BreadcrumbConfig
 import com.example.irishhike.config.HikeConfig
 import com.example.irishhike.config.MapConfig
+import com.example.irishhike.config.PhoneMount
 import com.example.irishhike.data.EkfState
 import com.example.irishhike.model.Breadcrumb
 import com.example.irishhike.model.Leg
@@ -91,7 +92,6 @@ import kotlin.math.pow
 import kotlin.math.round
 import kotlin.math.sin
 import kotlin.math.sqrt
-import kotlin.math.roundToInt
 
 data class StationaryStop(
     val x: Double,
@@ -121,8 +121,8 @@ fun MapScreen(
 ) {
     val context = LocalContext.current
     val isLegView = mapConfig.isLegView
-    val show1kmGrid = mapConfig.show1kmGrid      // Major adaptive grid toggle
-    val show100mGrid = mapConfig.show100mGrid    // Minor adaptive grid toggle
+    val show1kmGrid = mapConfig.show1kmGrid
+    val show100mGrid = mapConfig.show100mGrid
 
     val viewportTracker = remember { ViewportTracker() }
 
@@ -138,7 +138,7 @@ fun MapScreen(
         if (previousLegState != null && activeLeg != null && activeLeg != previousLegState && isLegView) {
             for (step in 0..20) {
                 transitionProgress = step / 20.0f
-                delay(100L) // 20 steps * 100ms = 2000ms (2 seconds)
+                delay(100L)
             }
         }
         previousLegState = activeLeg
@@ -155,10 +155,10 @@ fun MapScreen(
     }
     val sharedSrcPoly = remember {
         floatArrayOf(
-            0f, 0f,       // Top-Left (NW)
-            256f, 0f,     // Top-Right (NE)
-            256f, 256f,   // Bottom-Right (SE)
-            0f, 256f      // Bottom-Left (SW)
+            0f, 0f,
+            256f, 0f,
+            256f, 256f,
+            0f, 256f
         )
     }
     val sharedDstPoly = remember { FloatArray(8) }
@@ -176,7 +176,6 @@ fun MapScreen(
         )
     }
 
-    // --- OPTIMIZATION: Speed & Stride statistics cached outside frame draw loop ---
     val speedAndStrideStats = remember(validBreadcrumbs.size, breadcrumbConfig.colorMode) {
         var minS = Double.MAX_VALUE
         var maxS = -Double.MAX_VALUE
@@ -196,8 +195,8 @@ fun MapScreen(
         }
         val effMinS = if (minS == Double.MAX_VALUE || maxS <= minS) 0.0 else minS
         val effMaxS = if (maxS == -Double.MAX_VALUE || maxS <= minS) 2.5 else maxS
-        val effMinSt = if (minSt == Double.MAX_VALUE || maxSt <= minSt) 0.4 else minSt
-        val effMaxSt = if (maxSt == -Double.MAX_VALUE || maxSt <= minSt) 1.2 else maxSt
+        val effMinSt = if (minSt == Double.MAX_VALUE || maxSt <= minS) 0.4 else minSt
+        val effMaxSt = if (maxSt == -Double.MAX_VALUE || maxSt <= minS) 1.2 else maxSt
         floatArrayOf(effMinS.toFloat(), effMaxS.toFloat(), effMinSt.toFloat(), effMaxSt.toFloat())
     }
 
@@ -206,7 +205,6 @@ fun MapScreen(
     val minStride = speedAndStrideStats[2].toDouble()
     val maxStride = speedAndStrideStats[3].toDouble()
 
-    // --- FEATURE: Detect and Merge Stationary Rest Stops within 1 Minute ---
     val mergedStationaryStops = remember(validBreadcrumbs.size, breadcrumbConfig.showStationaryStops) {
         if (!breadcrumbConfig.showStationaryStops || validBreadcrumbs.size < 2) {
             emptyList<StationaryStop>()
@@ -218,7 +216,6 @@ fun MapScreen(
             var sumY = 0.0
             var stopPointCount = 0
 
-            // 1. Identify raw stops where speed is under 0.3 m/s for at least 30 seconds
             for (bc in validBreadcrumbs) {
                 val speed = bc.ekfState?.speedMps?.value ?: 0.0
                 if (speed < 0.3) {
@@ -267,7 +264,6 @@ fun MapScreen(
                 }
             }
 
-            // 2. Merge stops within 1 minute (60,000 ms) of each other
             val merged = mutableListOf<StationaryStop>()
             for (stop in rawStops) {
                 if (merged.isEmpty()) {
@@ -335,7 +331,6 @@ fun MapScreen(
             val centerX = (viewportTracker.minX + viewportTracker.maxX) / 2.0
             val centerY = (viewportTracker.minY + viewportTracker.maxY) / 2.0
 
-            // Leg View Animation Interpolated Start & Target Points
             val legStart = activeLeg?.start
             val legTarget = activeLeg?.target
             val prevStart = previousLegState?.start
@@ -396,7 +391,6 @@ fun MapScreen(
             }
 
             if (currentScale > 0.0) {
-                // Exact visible world boundaries derived directly from screen pixels and zoom
                 val leftMeters = centerX + (0f - originCx - panOffset.x) / currentScale
                 val rightMeters = centerX + (widthPx - originCx - panOffset.x) / currentScale
                 val topMeters = centerY - (0f - originCy - panOffset.y) / currentScale
@@ -407,7 +401,6 @@ fun MapScreen(
                 val minVisY = minOf(topMeters, bottomMeters)
                 val maxVisY = maxOf(topMeters, bottomMeters)
 
-                // --- Draw Offline OSM Map Background Tiles ---
                 if (mapConfig.showOsmBackground) {
                     try {
                         val autoZoom = round(kotlin.math.log2(93113.0 * currentScale)).toInt().coerceIn(8, 17)
@@ -470,11 +463,6 @@ fun MapScreen(
                     } catch (_: Exception) {}
                 }
 
-                // =========================================================================
-                // ADAPTIVE DECADE GRID SCALING (POWERS OF 10)
-                // Constraint 1: Maximum 5 major gridlines in each direction
-                // Constraint 2: Minimum 2 minor gridlines in each direction
-                // =========================================================================
                 val curSpanX = (maxVisX - minVisX).coerceAtLeast(1.0)
                 val curSpanY = (maxVisY - minVisY).coerceAtLeast(1.0)
                 val maxSpan = maxOf(curSpanX, curSpanY)
@@ -492,7 +480,6 @@ fun MapScreen(
                 val majorStep = 10.0.pow(clampedPowerK.toDouble()).toInt().coerceAtLeast(1)
                 val minorStep = (majorStep / 10).coerceAtLeast(1)
 
-                // 1) Draw Minor Gridlines (Unlabeled, 10x smaller subdivision)
                 if (show100mGrid) {
                     val minorSpacingPx = minorStep * currentScale
                     if (minorSpacingPx >= 3.0) {
@@ -500,7 +487,7 @@ fun MapScreen(
                         val endMinorX = (ceil(maxVisX / minorStep) * minorStep).toInt()
 
                         for (xM in startMinorX..endMinorX step minorStep) {
-                            if (xM % majorStep == 0) continue // Skip where major line will be drawn
+                            if (xM % majorStep == 0) continue
                             val p1 = toCanvasOffset(xM.toDouble(), minVisY)
                             val p2 = toCanvasOffset(xM.toDouble(), maxVisY)
                             drawLine(
@@ -528,7 +515,6 @@ fun MapScreen(
                     }
                 }
 
-                // 2) Draw Major Gridlines (Labeled, max 5 in each direction)
                 if (show1kmGrid) {
                     val startMajorX = (floor(minVisX / majorStep) * majorStep).toInt()
                     val endMajorX = (ceil(maxVisX / majorStep) * majorStep).toInt()
@@ -543,7 +529,6 @@ fun MapScreen(
                             strokeWidth = 2.0f
                         )
 
-                        // Easting label with on-screen boundary check (stops piling in lower-left corner)
                         val labelStr = formatGridLabel(xM, clampedPowerK)
                         val textResult = textMeasurer.measure(
                             text = labelStr,
@@ -581,7 +566,6 @@ fun MapScreen(
                             strokeWidth = 2.0f
                         )
 
-                        // Northing label with on-screen boundary check (stops piling in lower-left corner)
                         val labelStr = formatGridLabel(yM, clampedPowerK)
                         val textResult = textMeasurer.measure(
                             text = labelStr,
@@ -608,7 +592,7 @@ fun MapScreen(
                 }
             }
 
-            // Draw route legs (connected waypoints)
+            // Draw route legs
             route?.legs?.forEach { leg ->
                 val startOffset = toCanvasOffset(leg.start.x, leg.start.y)
                 val targetOffset = toCanvasOffset(leg.target.x, leg.target.y)
@@ -625,7 +609,7 @@ fun MapScreen(
                 )
             }
 
-            // Draw waypoints with outer bisector smart label placement
+            // Draw waypoints
             route?.waypoints?.forEach { wp ->
                 val center = toCanvasOffset(wp.x, wp.y)
                 val isTarget = (wp == currentTargetWaypoint)
@@ -729,7 +713,6 @@ fun MapScreen(
                 }
             }
 
-            // 1-pixel adaptive decimation filter for breadcrumb rendering
             val renderBreadcrumbs = mutableListOf<Breadcrumb>()
             var lastOffset: Offset? = null
             for (bc in validBreadcrumbs) {
@@ -740,7 +723,7 @@ fun MapScreen(
                 }
             }
 
-            // --- DRAW BREADCRUMBS ---
+            // Draw Breadcrumbs
             if (breadcrumbConfig.showBreadcrumbs && renderBreadcrumbs.isNotEmpty()) {
                 val totalCount = renderBreadcrumbs.size.toFloat()
                 val speedRange = (maxSpeed - minSpeed).toFloat().coerceAtLeast(0.001f)
@@ -754,7 +737,6 @@ fun MapScreen(
                     toCanvasOffset(renderBreadcrumbs[i].location.x, renderBreadcrumbs[i].location.y)
                 }
 
-                // 1. Line segments connecting points
                 val lineStroke = 1.2f * zoomScale.coerceIn(0.5f, 2f)
                 for (i in 1 until renderBreadcrumbs.size) {
                     val p1 = offsets[i - 1]
@@ -779,7 +761,6 @@ fun MapScreen(
                     )
                 }
 
-                // 2. Dots and accuracy circles
                 val baseDotRadius = breadcrumbConfig.dotDiameterPx * zoomScale.coerceIn(0.5f, 2.0f)
 
                 renderBreadcrumbs.forEachIndexed { i, bc ->
@@ -825,7 +806,7 @@ fun MapScreen(
                 }
             }
 
-            // --- FEATURE: Draw Combined Stationary Rest Stops within 1 Minute ---
+            // Draw Stationary Rest Stops
             if (breadcrumbConfig.showStationaryStops && mergedStationaryStops.isNotEmpty()) {
                 for (stop in mergedStationaryStops) {
                     val stopCenter = toCanvasOffset(stop.x, stop.y)
@@ -950,21 +931,17 @@ fun MapScreen(
                 )
             }
 
-            // ========================================================
-            // Zoom Indicator Gauge (Lower Right, above Fit All button)
-            // ========================================================
+            // Zoom Indicator Gauge
             if (currentScale > 0.0) {
                 val minGaugeZoom = 10.0f
                 val maxTileZoom = 17.0f
                 val maxOverzoom = 20.0f
 
-                // Continuous zoom level derived from canvas scale
                 val continuousZoom = (kotlin.math.log2(93113.0 * currentScale)).toFloat()
 
                 val gaugeHeightPx = 110f
-                val gaugeBottomY = heightPx - 58.dp.toPx() // Clears the Fit All / Gear buttons
+                val gaugeBottomY = heightPx - 58.dp.toPx()
                 val gaugeTopY = gaugeBottomY - gaugeHeightPx
-                //val gaugeX = widthPx - 28.dp.toPx()
                 val gaugeX = widthPx - 10.dp.toPx()
 
                 fun zoomToGaugeY(z: Float): Float {
@@ -978,16 +955,13 @@ fun MapScreen(
                 val y20 = zoomToGaugeY(20f)
                 val yCurrent = zoomToGaugeY(continuousZoom)
 
-                // 1. Semi-transparent dark background card
                 drawRoundRect(
                     color = Color(0xCC0F172A),
-                    // topLeft = Offset(gaugeX - 24f, gaugeTopY - 10f),
                     topLeft = Offset(gaugeX - 40f, gaugeTopY - 5f),
                     size = Size(60f, gaugeHeightPx + 20f),
                     cornerRadius = CornerRadius(6f, 6f)
                 )
 
-                // 2. Standard Tile Range Line (10..17, solid sky blue)
                 drawLine(
                     color = Color(0xFF38BDF8),
                     start = Offset(gaugeX, y10),
@@ -995,7 +969,6 @@ fun MapScreen(
                     strokeWidth = 2.5f
                 )
 
-                // 3. Space beyond max zoom for overzooming (17..20, dashed amber)
                 drawLine(
                     color = Color(0xFFFBBF24),
                     start = Offset(gaugeX, y17),
@@ -1004,7 +977,6 @@ fun MapScreen(
                     pathEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 3f), 0f)
                 )
 
-                // 4. Indicator 1: Min Zoom (10) on the left
                 drawLine(
                     color = Color(0xFF94A3B8),
                     start = Offset(gaugeX - 6f, y10),
@@ -1025,7 +997,6 @@ fun MapScreen(
                     topLeft = Offset(gaugeX - 8f - text10.size.width, y10 - text10.size.height / 2f)
                 )
 
-                // 5. Indicator 2: Max Tile Zoom (17) on the left
                 drawLine(
                     color = Color(0xFF38BDF8),
                     start = Offset(gaugeX - 6f, y17),
@@ -1046,50 +1017,23 @@ fun MapScreen(
                     topLeft = Offset(gaugeX - 8f - text17.size.width, y17 - text17.size.height / 2f)
                 )
 
-                // 6. Small arrow on the right pointing to current zoom level
                 val arrowPath = Path().apply {
-                    moveTo(gaugeX + 3f, yCurrent)        // Arrow tip pointing at the line
-                    lineTo(gaugeX + 9f, yCurrent - 4.5f) // Top right
-                    lineTo(gaugeX + 9f, yCurrent + 4.5f) // Bottom right
+                    moveTo(gaugeX + 3f, yCurrent)
+                    lineTo(gaugeX + 9f, yCurrent - 4.5f)
+                    lineTo(gaugeX + 9f, yCurrent + 4.5f)
                     close()
                 }
                 drawPath(arrowPath, color = Color(0xFFFBBF24))
 
-                /** I don't want the numeric readout.
-                // Current zoom numeric readout (right of the arrow)
-                val currentZoomStr = if (continuousZoom >= 17.0f) {
-                    String.format(Locale.US, "%.1f", continuousZoom)
-                } else {
-                    "${continuousZoom.roundToInt()}"
-                }
-                val textCurrent = textMeasurer.measure(
-                    text = currentZoomStr,
-                    style = TextStyle(
-                        color = Color(0xFFFBBF24),
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace
-                    )
-                )
-                drawText(
-                    textLayoutResult = textCurrent,
-                    topLeft = Offset(gaugeX + 11f, yCurrent - textCurrent.size.height / 2f)
-                )
-                */
-                // ========================================================
                 // Map Scale Bar (Lower Left)
-                // 1, 5, or 10 of minor grid scale, closest to 1/5th screen width
-                // ========================================================
                 if (currentScale > 0.0) {
                     val screenWidthMeters = widthPx / currentScale
-                    val targetMeters = screenWidthMeters / 5.0 // 1/5th screen width
+                    val targetMeters = screenWidthMeters / 5.0
 
-                    // Minor grid based on power of 10 decade scaling
                     val powerK = kotlin.math.ceil(kotlin.math.log10(screenWidthMeters / 5.0)).toInt()
                     val majorGridMeters = 10.0.pow(powerK)
                     val minorGridMeters = majorGridMeters / 10.0
 
-                    // The 3 candidate distances: 1, 5, or 10 of minor grid
                     val candidate1 = 1.0 * minorGridMeters
                     val candidate5 = 5.0 * minorGridMeters
                     val candidate10 = 10.0 * minorGridMeters
@@ -1099,7 +1043,6 @@ fun MapScreen(
 
                     val barWidthPx = (chosenMeters * currentScale).toFloat()
 
-                    // Format text label (e.g. "500 m", "1 km", "5 km")
                     val scaleText = if (chosenMeters >= 1000.0) {
                         val km = chosenMeters / 1000.0
                         if (km % 1.0 == 0.0) "${km.toInt()} km" else String.format(Locale.US, "%.1f km", km)
@@ -1107,10 +1050,9 @@ fun MapScreen(
                         "${chosenMeters.toInt()} m"
                     }
 
-                    // Lower-left positioning
                     val scaleLeftX = 14.dp.toPx()
                     val scaleRightX = scaleLeftX + barWidthPx
-                    val scaleBaselineY = heightPx - 46.dp.toPx() // Above bottom navigation bar
+                    val scaleBaselineY = heightPx - 46.dp.toPx()
 
                     val scaleTextResult = textMeasurer.measure(
                         text = scaleText,
@@ -1122,7 +1064,6 @@ fun MapScreen(
                         )
                     )
 
-                    // Semi-transparent dark background card
                     val bgPadding = 6.dp.toPx()
                     val bgTop = scaleBaselineY - scaleTextResult.size.height - 4f
                     val bgHeight = scaleTextResult.size.height + 12.dp.toPx()
@@ -1133,7 +1074,6 @@ fun MapScreen(
                         cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx())
                     )
 
-                    // Centered text label above the scale bar
                     val textX = scaleLeftX + (barWidthPx - scaleTextResult.size.width) / 2f
                     val textY = scaleBaselineY - scaleTextResult.size.height - 2f
                     drawText(
@@ -1141,7 +1081,6 @@ fun MapScreen(
                         topLeft = Offset(textX, textY)
                     )
 
-                    // Horizontal scale bar line
                     drawLine(
                         color = Color.White,
                         start = Offset(scaleLeftX, scaleBaselineY),
@@ -1149,7 +1088,6 @@ fun MapScreen(
                         strokeWidth = 2.0f
                     )
 
-                    // Left vertical tick mark
                     drawLine(
                         color = Color.White,
                         start = Offset(scaleLeftX, scaleBaselineY - 4.dp.toPx()),
@@ -1157,7 +1095,6 @@ fun MapScreen(
                         strokeWidth = 2.0f
                     )
 
-                    // Right vertical tick mark
                     drawLine(
                         color = Color.White,
                         start = Offset(scaleRightX, scaleBaselineY - 4.dp.toPx()),
@@ -1308,7 +1245,14 @@ fun MapScreen(
                             0 -> MapSettingsTab(mapConfig, onUpdateMapConfig)
                             1 -> BreadcrumbsSettingsTab(breadcrumbConfig, onUpdateBreadcrumbConfig)
                             2 -> AudioSettingsTab(hikeConfig, onUpdateHikeConfig)
-                            3 -> NavigationSettingsTab(context, route, mapConfig.gpsPollingIntervalMs, onIntervalSelected)
+                            3 -> NavigationSettingsTab(
+                                context = context,
+                                route = route,
+                                currentIntervalMs = mapConfig.gpsPollingIntervalMs,
+                                onIntervalSelected = onIntervalSelected,
+                                hikeConfig = hikeConfig,
+                                onUpdateHikeConfig = onUpdateHikeConfig
+                            )
                             4 -> DevSettingsTab(mapConfig, onUpdateMapConfig, onLoadTelemetryTrack)
                         }
                     }
@@ -1323,14 +1267,6 @@ fun MapScreen(
     }
 }
 
-/**
- * Formats coordinates for adaptive decade gridlines.
- * Power 0 (1m) -> 5-digit local meters (00000 to 99999)
- * Power 1 (10m) -> 4-digit (0000 to 9999)
- * Power 2 (100m) -> 3-digit (000 to 999)
- * Power 3 (1km) -> 2-digit kilometer number (00 to 99)
- * Power 4 (10km) -> 10km decade marker
- */
 private fun formatGridLabel(coordMeters: Int, power: Int): String {
     val localMeters = (coordMeters % 100000).let { if (it < 0) it + 100000 else it }
     return when (power) {
@@ -1605,9 +1541,54 @@ private fun NavigationSettingsTab(
     context: android.content.Context,
     route: Route?,
     currentIntervalMs: Long,
-    onIntervalSelected: (Long) -> Unit
+    onIntervalSelected: (Long) -> Unit,
+    hikeConfig: HikeConfig,
+    onUpdateHikeConfig: ((HikeConfig) -> HikeConfig) -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        // --- 1. Phone Mount Selection ---
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Phone Mount", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+            Text(
+                text = "Select how the phone is carried while hiking",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                FilterChip(
+                    selected = hikeConfig.phoneMount == PhoneMount.HANDHELD_OR_PACK_TOP,
+                    onClick = { onUpdateHikeConfig { cfg -> cfg.copy(phoneMount = PhoneMount.HANDHELD_OR_PACK_TOP) } },
+                    label = { Text("Handheld / Backpack Top") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                FilterChip(
+                    selected = hikeConfig.phoneMount == PhoneMount.SHOULDER_STRAP_SCREEN_FORWARD,
+                    onClick = { onUpdateHikeConfig { cfg -> cfg.copy(phoneMount = PhoneMount.SHOULDER_STRAP_SCREEN_FORWARD) } },
+                    label = { Text("Shoulder Strap (Screen Facing Forward)") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                FilterChip(
+                    selected = hikeConfig.phoneMount == PhoneMount.SHOULDER_STRAP_CAMERA_FORWARD,
+                    onClick = { onUpdateHikeConfig { cfg -> cfg.copy(phoneMount = PhoneMount.SHOULDER_STRAP_CAMERA_FORWARD) } },
+                    label = { Text("Shoulder Strap (Camera Facing Forward)") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
+        // --- 2. GPS Polling Interval ---
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("GPS Polling Interval", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(selected = currentIntervalMs == 1000L, onClick = { onIntervalSelected(1000L) }, label = { Text("1s") })
+                FilterChip(selected = currentIntervalMs == 2000L, onClick = { onIntervalSelected(2000L) }, label = { Text("2s") })
+                FilterChip(selected = currentIntervalMs == 5000L, onClick = { onIntervalSelected(5000L) }, label = { Text("5s") })
+                FilterChip(selected = currentIntervalMs == 10000L, onClick = { onIntervalSelected(10000L) }, label = { Text("10s") })
+            }
+        }
+
+        // --- 3. Offline Map Tile Downloads ---
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text("Download Offline Ireland Tiles:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
             Text("Fetch OpenStreetMap tiles for Ireland (zooms 8-14)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1685,16 +1666,6 @@ private fun NavigationSettingsTab(
                         color = Color.White
                     )
                 }
-            }
-        }
-
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("GPS Polling Interval", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(selected = currentIntervalMs == 1000L, onClick = { onIntervalSelected(1000L) }, label = { Text("1s") })
-                FilterChip(selected = currentIntervalMs == 2000L, onClick = { onIntervalSelected(2000L) }, label = { Text("2s") })
-                FilterChip(selected = currentIntervalMs == 5000L, onClick = { onIntervalSelected(5000L) }, label = { Text("5s") })
-                FilterChip(selected = currentIntervalMs == 10000L, onClick = { onIntervalSelected(10000L) }, label = { Text("10s") })
             }
         }
     }

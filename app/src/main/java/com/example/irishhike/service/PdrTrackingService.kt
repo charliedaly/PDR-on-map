@@ -8,7 +8,12 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.location.Location as AndroidLocation
+import android.location.LocationListener
+import android.location.LocationManager
 import android.os.Build
+import android.os.Bundle
+import android.os.HandlerThread
 import android.os.IBinder
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
@@ -43,16 +48,23 @@ class PdrTrackingService : Service() {
     private lateinit var ekfEngine: PdrEkfEngine
     private lateinit var stepDetector: PdrStepDetector
     private lateinit var fusedLocationClient: FusedLocationProviderClient
+    private lateinit var locationManager: LocationManager
+
     private var locationCallback: LocationCallback? = null
+    private var nativeGpsListener: LocationListener? = null
+    private var locationHandlerThread: HandlerThread? = null
 
     private var wakeLock: PowerManager.WakeLock? = null
     private var breadcrumbIdSeq = 1L
     private var activeGpsIntervalMs = 1000L
+    private var lastProcessedGpsTimeMs = 0L
 
     override fun onCreate() {
         super.onCreate()
         ekfEngine = PdrEkfEngine()
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
+        locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+
         HikeRepository.initTts(this)
 
         stepDetector = PdrStepDetector(this) { headingRawRad, timestampMs ->
@@ -66,8 +78,23 @@ class PdrTrackingService : Service() {
             }
         }
 
+        // Keep stepDetector mount in sync with settings
+        HikeRepository.hikeConfig
+            .onEach { config ->
+                stepDetector.mount = config.phoneMount
+            }
+            .launchIn(serviceScope)
+
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-        wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "IrishHike::WakeLock")
+        wakeLock = powerManager.newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK,
+            "IrishHike::BackgroundGpsWakeLock"
+        ).apply {
+            setReferenceCounted(false)
+        }
+
+        // Dedicated background thread for location callbacks (prevents main-thread sleep throttle on Samsung S21)
+        locationHandlerThread = HandlerThread("IrishHikeLocationThread").apply { start() }
 
         observeGpsPollingInterval()
     }
@@ -89,9 +116,10 @@ class PdrTrackingService : Service() {
         HikeRepository.telemetryRecorder.clear()
         ekfEngine.reset()
         breadcrumbIdSeq = 1L
+        lastProcessedGpsTimeMs = 0L
 
         createNotificationChannel()
-        val notification = buildNotification("PDR Tracking Active (1 Hz EKF)")
+        val notification = buildNotification("PDR Tracking Active (1 Hz Background GPS)")
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(
@@ -103,12 +131,17 @@ class PdrTrackingService : Service() {
             startForeground(NOTIFICATION_ID, notification)
         }
 
-        // wakeLock?.acquire(10 * 60 * 1000L /* 10 minutes timeout */) gemini 3.8 says to get rid of it, cos will stop.
-        wakeLock?.acquire()
+        // Hold partial wake lock while tracking is active
+        try {
+            wakeLock?.acquire()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
 
         stepDetector.start()
         startLocationUpdates(activeGpsIntervalMs)
         start1HzPredictionTicker()
+
         HikeRepository.startHike(HikeRepository.activeRoute.value)
         HikeRepository.setTracking(true)
     }
@@ -117,9 +150,15 @@ class PdrTrackingService : Service() {
         tickerJob?.cancel()
         stepDetector.stop()
         stopLocationUpdates()
+
         if (wakeLock?.isHeld == true) {
-            wakeLock?.release()
+            try {
+                wakeLock?.release()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
+
         HikeRepository.stopHike()
         HikeRepository.setTracking(false)
         stopForeground(STOP_FOREGROUND_REMOVE)
@@ -141,58 +180,19 @@ class PdrTrackingService : Service() {
     private fun startLocationUpdates(intervalMs: Long) {
         stopLocationUpdates()
 
+        val looper = locationHandlerThread?.looper ?: mainLooper
+
+        // 1. Google Play Services Fused Location Provider with zero batching delay
         val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, intervalMs)
             .setMinUpdateIntervalMillis((intervalMs / 2).coerceAtLeast(200L))
+            .setMaxUpdateDelayMillis(0) // Crucial: zero batching delay when screen is off
+            .setWaitForAccurateLocation(false)
             .build()
 
         locationCallback = object : LocationCallback() {
             override fun onLocationResult(locationResult: LocationResult) {
                 for (location in locationResult.locations) {
-                    val nowMs = System.currentTimeMillis()
-                    val validation = GpsValidationUtils.validateFix(
-                        lat = location.latitude,
-                        lon = location.longitude,
-                        accuracyMeters = location.accuracy,
-                        timestampMs = nowMs
-                    )
-
-                    if (validation != GpsValidationResult.VALID && validation != GpsValidationResult.WARN_HIGH_SPEED) {
-                        GpsValidationUtils.playBeep()
-                        continue
-                    }
-
-                    if (validation == GpsValidationResult.WARN_HIGH_SPEED) {
-                        GpsValidationUtils.playBeep()
-                    }
-
-                    val ekfState = ekfEngine.onGpsFix(
-                        lat = location.latitude,
-                        lon = location.longitude,
-                        accuracyMeters = location.accuracy,
-                        activeIntervalMs = activeGpsIntervalMs
-                    )
-                    if (HikeRepository.isTracking.value) {
-                        HikeRepository.telemetryRecorder.recordGpsFix(
-                            latitude = location.latitude,
-                            longitude = location.longitude,
-                            accuracyMeters = location.accuracy,
-                            activeIntervalMs = activeGpsIntervalMs,
-                            timestampMs = ekfState.timestampMs,
-                            recordedEkfState = ekfState
-                        )
-                    }
-                    HikeRepository.updateEkfState(ekfState)
-
-                    serviceScope.launch {
-                        val gpsBreadcrumb = Breadcrumb(
-                            id = breadcrumbIdSeq++,
-                            location = Location(ekfState.position.value.x, ekfState.position.value.y),
-                            timestampMs = ekfState.timestampMs,
-                            isGpsFix = true,
-                            ekfState = ekfState
-                        )
-                        HikeRepository.emitBreadcrumb(gpsBreadcrumb)
-                    }
+                    processIncomingFix(location)
                 }
             }
         }
@@ -201,10 +201,92 @@ class PdrTrackingService : Service() {
             fusedLocationClient.requestLocationUpdates(
                 locationRequest,
                 locationCallback!!,
-                mainLooper
+                looper
             )
         } catch (e: Exception) {
             e.printStackTrace()
+        }
+
+        // 2. Native Android GPS_PROVIDER: bypasses Google Play Services battery idling on Samsung One UI
+        try {
+            if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                nativeGpsListener = object : LocationListener {
+                    override fun onLocationChanged(location: AndroidLocation) {
+                        processIncomingFix(location)
+                    }
+                    @Deprecated("Deprecated in Java")
+                    override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
+                    override fun onProviderEnabled(provider: String) {}
+                    override fun onProviderDisabled(provider: String) {}
+                }
+
+                locationManager.requestLocationUpdates(
+                    LocationManager.GPS_PROVIDER,
+                    intervalMs,
+                    0f,
+                    nativeGpsListener!!,
+                    looper
+                )
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun processIncomingFix(location: AndroidLocation) {
+        val nowMs = System.currentTimeMillis()
+
+        // Deduplicate fixes between FusedLocationProvider and native GPS_PROVIDER
+        if (Math.abs(nowMs - lastProcessedGpsTimeMs) < (activeGpsIntervalMs / 3).coerceAtLeast(200L)) {
+            return
+        }
+        lastProcessedGpsTimeMs = nowMs
+
+        val validation = GpsValidationUtils.validateFix(
+            lat = location.latitude,
+            lon = location.longitude,
+            accuracyMeters = location.accuracy,
+            timestampMs = nowMs
+        )
+
+        if (validation != GpsValidationResult.VALID && validation != GpsValidationResult.WARN_HIGH_SPEED) {
+            GpsValidationUtils.playBeep()
+            return
+        }
+
+        if (validation == GpsValidationResult.WARN_HIGH_SPEED) {
+            GpsValidationUtils.playBeep()
+        }
+
+        val ekfState = ekfEngine.onGpsFix(
+            lat = location.latitude,
+            lon = location.longitude,
+            accuracyMeters = location.accuracy,
+            activeIntervalMs = activeGpsIntervalMs
+        )
+
+        if (HikeRepository.isTracking.value) {
+            HikeRepository.telemetryRecorder.recordGpsFix(
+                latitude = location.latitude,
+                longitude = location.longitude,
+                accuracyMeters = location.accuracy,
+                activeIntervalMs = activeGpsIntervalMs,
+                timestampMs = ekfState.timestampMs,
+                recordedEkfState = ekfState
+            )
+        }
+
+        HikeRepository.updateEkfState(ekfState)
+
+        serviceScope.launch {
+            val gpsBreadcrumb = Breadcrumb(
+                id = breadcrumbIdSeq++,
+                location = Location(ekfState.position.value.x, ekfState.position.value.y),
+                timestampMs = ekfState.timestampMs,
+                isGpsFix = true,
+                ekfState = ekfState
+            )
+            HikeRepository.emitBreadcrumb(gpsBreadcrumb)
         }
     }
 
@@ -218,6 +300,14 @@ class PdrTrackingService : Service() {
         locationCallback?.let {
             fusedLocationClient.removeLocationUpdates(it)
             locationCallback = null
+        }
+        nativeGpsListener?.let {
+            try {
+                locationManager.removeUpdates(it)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            nativeGpsListener = null
         }
     }
 
@@ -236,7 +326,6 @@ class PdrTrackingService : Service() {
                         )
                     }
                     HikeRepository.updateEkfState(ekfState)
-
                     val breadcrumb = Breadcrumb(
                         id = breadcrumbIdSeq++,
                         location = Location(ekfState.position.value.x, ekfState.position.value.y),
@@ -274,12 +363,18 @@ class PdrTrackingService : Service() {
             .build()
     }
 
+    override fun onDestroy() {
+        stopLocationUpdates()
+        locationHandlerThread?.quitSafely()
+        locationHandlerThread = null
+        super.onDestroy()
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     companion object {
         const val CHANNEL_ID = "irish_hike_channel"
         const val NOTIFICATION_ID = 1001
-
         const val ACTION_START = "com.example.irishhike.action.START"
         const val ACTION_STOP = "com.example.irishhike.action.STOP"
         const val ACTION_UPDATE_INTERVAL = "com.example.irishhike.action.UPDATE_INTERVAL"

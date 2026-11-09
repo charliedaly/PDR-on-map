@@ -1,10 +1,15 @@
 package com.example.irishhike
 
 import android.Manifest
+import android.annotation.SuppressLint
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -61,10 +66,16 @@ class MainActivity : ComponentActivity() {
     ) { permissions ->
         val fineLocationGranted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] ?: false
         if (fineLocationGranted) {
-            viewModel.startTracking(this)
+            checkBackgroundLocationAndStart()
         } else {
             Toast.makeText(this, "Location permission required for PDR tracking", Toast.LENGTH_LONG).show()
         }
+    }
+
+    private val backgroundLocationLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { _ ->
+        checkBatteryOptimizationAndStart()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -111,10 +122,46 @@ class MainActivity : ComponentActivity() {
         }
 
         if (missingPermissions.isEmpty()) {
-            viewModel.startTracking(this)
+            checkBackgroundLocationAndStart()
         } else {
             permissionLauncher.launch(missingPermissions.toTypedArray())
         }
+    }
+
+    private fun checkBackgroundLocationAndStart() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val backgroundGranted = ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.ACCESS_BACKGROUND_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+
+            if (!backgroundGranted) {
+                backgroundLocationLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+                return
+            }
+        }
+        checkBatteryOptimizationAndStart()
+    }
+
+    @SuppressLint("BatteryLife")
+    private fun checkBatteryOptimizationAndStart() {
+        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+        if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {
+            try {
+                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                    data = Uri.parse("package:$packageName")
+                }
+                startActivity(intent)
+            } catch (e: Exception) {
+                try {
+                    val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                    startActivity(intent)
+                } catch (e2: Exception) {
+                    e2.printStackTrace()
+                }
+            }
+        }
+        viewModel.startTracking(this)
     }
 }
 

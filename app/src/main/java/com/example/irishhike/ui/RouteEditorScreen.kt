@@ -58,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.irishhike.model.Route
 import com.example.irishhike.model.Waypoint
+import com.example.irishhike.util.CoordinateUtils
 import com.example.irishhike.util.OsmTileManager
 import kotlin.math.hypot
 import kotlin.math.round
@@ -65,6 +66,30 @@ import kotlin.math.round
 enum class RouteEditorViewMode {
     MAP,
     SPREADSHEET
+}
+
+/**
+ * Converts metric Irish National Grid (x, y) into a 10-figure alphanumeric reference (e.g. W5783271142).
+ */
+fun toIrishGridRef(x: Double, y: Double): String {
+    val gridLetters = arrayOf(
+        arrayOf('A', 'B', 'C', 'D', 'E'),
+        arrayOf('F', 'G', 'H', 'J', 'K'),
+        arrayOf('L', 'M', 'N', 'O', 'P'),
+        arrayOf('Q', 'R', 'S', 'T', 'U'),
+        arrayOf('V', 'W', 'X', 'Y', 'Z')
+    )
+    val col = (x / 100000.0).toInt().coerceIn(0, 4)
+    val row = (4 - (y / 100000.0).toInt()).coerceIn(0, 4)
+    val letter = gridLetters[row][col]
+
+    val localE = ((x % 100000.0).toInt().let { if (it < 0) it + 100000 else it })
+    val localN = ((y % 100000.0).toInt().let { if (it < 0) it + 100000 else it })
+
+    val eastingStr = localE.toString().padStart(5, '0')
+    val northingStr = localN.toString().padStart(5, '0')
+
+    return "$letter$eastingStr$northingStr"
 }
 
 @Composable
@@ -172,9 +197,13 @@ fun RouteEditorScreen(
             rawWaypoints = waypoints,
             sourceUri = initialRoute?.sourceUri
         )
-        val csv = waypoints.joinToString("\n") { wp ->
-            "${wp.name},${wp.x.toInt()},${wp.y.toInt()},${wp.altitude.toInt()}"
+
+        // Save with alphanumeric Irish Grid reference in one column
+        val header = "name,grid_ref,altitude"
+        val rows = waypoints.map { wp ->
+            "${wp.name},${toIrishGridRef(wp.x, wp.y)},${wp.altitude.toInt()}"
         }
+        val csv = (listOf(header) + rows).joinToString("\n")
 
         val sourceUri = initialRoute?.sourceUri
         var directSaveSuccess = false
@@ -189,8 +218,6 @@ fun RouteEditorScreen(
                 }
                 directSaveSuccess = true
             } catch (_: Exception) {
-                // When files are opened via GetContent(), Android grants read-only access.
-                // Catch the SecurityException and proceed to createDocumentLauncher
                 directSaveSuccess = false
             }
         }
@@ -200,7 +227,6 @@ fun RouteEditorScreen(
             onSaveRoute(csv, newRoute)
             onBack()
         } else {
-            // Prompt user with Android system file-save dialog to pick save location with granted write permissions
             pendingCsvToSave = csv
             pendingRouteToSave = newRoute
             try {
@@ -239,12 +265,10 @@ fun RouteEditorScreen(
                     }
                 },
                 actions = {
-                    // Save As / Export to new file
                     IconButton(onClick = { handleSave(forceSaveAs = true) }) {
                         Text("💾+", fontSize = 16.sp, color = Color.White)
                     }
 
-                    // Toggle between Map & Spreadsheet views
                     IconButton(onClick = {
                         viewMode = if (viewMode == RouteEditorViewMode.MAP) {
                             RouteEditorViewMode.SPREADSHEET
@@ -258,7 +282,6 @@ fun RouteEditorScreen(
                         )
                     }
 
-                    // Reverse Waypoint Direction (↕)
                     IconButton(onClick = {
                         waypoints = waypoints.reversed()
                     }) {
@@ -373,9 +396,6 @@ fun RouteEditorScreen(
     }
 }
 
-/**
- * Backward compatibility overload in case callers invoke RouteEditorScreen with (Route, (Route) -> Unit, () -> Unit)
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RouteEditorScreen(
@@ -408,7 +428,6 @@ fun MapRouteEditor(
     val context = LocalContext.current
     var draggingIndex by remember { mutableStateOf<Int?>(null) }
 
-    // Reusable paint and matrix objects for OpenTopoMap tile rendering
     val sharedTilePaint = remember {
         android.graphics.Paint().apply {
             isAntiAlias = true
@@ -426,7 +445,6 @@ fun MapRouteEditor(
     val sharedDstPoly = remember { FloatArray(8) }
     val sharedPolyMatrix = remember { android.graphics.Matrix() }
 
-    // Android native text paint for '+' and waypoint numbering
     val textPaint = remember {
         android.graphics.Paint().apply {
             color = android.graphics.Color.WHITE
@@ -446,7 +464,6 @@ fun MapRouteEditor(
         }
     }
 
-    // Compute bounding box for auto-centering
     var minX = Double.MAX_VALUE
     var maxX = -Double.MAX_VALUE
     var minY = Double.MAX_VALUE
@@ -463,7 +480,6 @@ fun MapRouteEditor(
     val centerX = (minX + maxX) / 2.0
     val centerY = (minY + maxY) / 2.0
 
-    // Capture state references without restarting the gesture coroutine loop
     val currentWaypoints by rememberUpdatedState(waypoints)
     val currentZoomScale by rememberUpdatedState(zoomScale)
     val currentPanOffset by rememberUpdatedState(panOffset)
@@ -490,7 +506,6 @@ fun MapRouteEditor(
                             val activePointers = event.changes.filter { it.pressed }
 
                             if (activePointers.isEmpty()) {
-                                // All fingers released
                                 if (!hasMoved) {
                                     if (touchedWaypointIdx != null) {
                                         onSelectWaypoint(touchedWaypointIdx)
@@ -529,7 +544,6 @@ fun MapRouteEditor(
                                     touchedWaypointIdx = null
                                     touchedPlusIdx = null
 
-                                    // 1. Check if user touched down on a waypoint marker
                                     for (i in currentWaypoints.indices.reversed()) {
                                         val p = toOffset(currentWaypoints[i].x, currentWaypoints[i].y)
                                         if (hypot((pointer.position.x - p.x).toDouble(), (pointer.position.y - p.y).toDouble()) <= 44.0) {
@@ -539,7 +553,6 @@ fun MapRouteEditor(
                                         }
                                     }
 
-                                    // 2. Check if user touched down on a '+' segment midpoint
                                     if (touchedWaypointIdx == null) {
                                         for (i in 0 until currentWaypoints.size - 1) {
                                             val p1 = toOffset(currentWaypoints[i].x, currentWaypoints[i].y)
@@ -628,7 +641,6 @@ fun MapRouteEditor(
                 return Offset(sx, sy)
             }
 
-            // --- 1. Draw Offline OSM Map Background Tiles ---
             try {
                 if (OsmTileManager.tileCacheVersion.intValue < 0) return@Canvas
 
@@ -684,7 +696,7 @@ fun MapRouteEditor(
                 // Graceful fallback
             }
 
-            // --- 2. Draw Route Segments ---
+            // Draw Route Segments
             for (i in 0 until waypoints.size - 1) {
                 val p1 = toOffset(waypoints[i].x, waypoints[i].y)
                 val p2 = toOffset(waypoints[i + 1].x, waypoints[i + 1].y)
@@ -711,7 +723,7 @@ fun MapRouteEditor(
                 drawContext.canvas.nativeCanvas.drawText("+", mid.x, mid.y + 10f, plusTextPaint)
             }
 
-            // --- 3. Draw Waypoint Markers ---
+            // Draw Waypoint Markers
             waypoints.forEachIndexed { index, wp ->
                 val pos = toOffset(wp.x, wp.y)
                 val isSelected = selectedWaypointIndex == index
@@ -738,7 +750,7 @@ fun MapRouteEditor(
             }
         }
 
-        // --- 4. Floating On-Screen Zoom Controls (+ / - / Fit) ---
+        // Floating On-Screen Zoom Controls
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
@@ -789,7 +801,7 @@ fun MapRouteEditor(
             }
         }
 
-        // --- 5. Selected Waypoint Info / Delete Card ---
+        // Selected Waypoint Info / Delete Card
         if (selectedWaypointIndex != null && selectedWaypointIndex in waypoints.indices) {
             val wp = waypoints[selectedWaypointIndex]
             Surface(
@@ -812,7 +824,7 @@ fun MapRouteEditor(
                         fontSize = 12.sp
                     )
                     Text(
-                        text = "E: ${wp.x.toInt()}  N: ${wp.y.toInt()}",
+                        text = toIrishGridRef(wp.x, wp.y),
                         color = Color.White,
                         fontFamily = FontFamily.Monospace,
                         fontSize = 11.sp
@@ -858,8 +870,7 @@ fun SpreadsheetRouteEditor(
             ) {
                 Text("#", style = MaterialTheme.typography.labelSmall, color = Color(0xFF9FB3C8), modifier = Modifier.width(20.dp))
                 Text("Name", style = MaterialTheme.typography.labelSmall, color = Color(0xFF9FB3C8), modifier = Modifier.weight(1.0f))
-                Text("Easting (X)", style = MaterialTheme.typography.labelSmall, color = Color(0xFF9FB3C8), modifier = Modifier.weight(1.0f))
-                Text("Northing (Y)", style = MaterialTheme.typography.labelSmall, color = Color(0xFF9FB3C8), modifier = Modifier.weight(1.0f))
+                Text("Grid Ref", style = MaterialTheme.typography.labelSmall, color = Color(0xFF9FB3C8), modifier = Modifier.weight(1.4f))
                 Text("Alt", style = MaterialTheme.typography.labelSmall, color = Color(0xFF9FB3C8), modifier = Modifier.weight(0.5f))
                 Text("Actions", style = MaterialTheme.typography.labelSmall, color = Color(0xFF9FB3C8), modifier = Modifier.weight(1.2f))
             }
@@ -902,33 +913,26 @@ fun SpreadsheetRouteEditor(
                             modifier = Modifier.weight(1.0f)
                         )
 
-                        // 2. Easting (X) cell
+                        // 2. Alphanumeric Grid Ref cell (e.g. W5783271142)
                         SpreadsheetCell(
-                            value = wp.x.toInt().toString(),
-                            onValueChange = { newXStr ->
-                                val newX = newXStr.toDoubleOrNull() ?: wp.x
-                                val list = waypoints.toMutableList()
-                                list[index] = Waypoint.fromMetric(wp.name, newX, wp.y, wp.altitude)
-                                onWaypointsChange(list)
+                            value = toIrishGridRef(wp.x, wp.y),
+                            onValueChange = { newRef ->
+                                val cleaned = newRef.trim().uppercase()
+                                if (cleaned.length >= 7) {
+                                    try {
+                                        val loc = CoordinateUtils.parseGridRefToLocation(cleaned, wp.altitude)
+                                        if (loc.x > 0.0 && loc.y > 0.0) {
+                                            val list = waypoints.toMutableList()
+                                            list[index] = Waypoint.fromMetric(wp.name, loc.x, loc.y, wp.altitude)
+                                            onWaypointsChange(list)
+                                        }
+                                    } catch (_: Exception) {}
+                                }
                             },
-                            modifier = Modifier.weight(1.0f),
-                            keyboardType = KeyboardType.Number
+                            modifier = Modifier.weight(1.4f)
                         )
 
-                        // 3. Northing (Y) cell
-                        SpreadsheetCell(
-                            value = wp.y.toInt().toString(),
-                            onValueChange = { newYStr ->
-                                val newY = newYStr.toDoubleOrNull() ?: wp.y
-                                val list = waypoints.toMutableList()
-                                list[index] = Waypoint.fromMetric(wp.name, wp.x, newY, wp.altitude)
-                                onWaypointsChange(list)
-                            },
-                            modifier = Modifier.weight(1.0f),
-                            keyboardType = KeyboardType.Number
-                        )
-
-                        // 4. Altitude cell
+                        // 3. Altitude cell
                         SpreadsheetCell(
                             value = wp.altitude.toInt().toString(),
                             onValueChange = { newAltStr ->
@@ -941,13 +945,12 @@ fun SpreadsheetRouteEditor(
                             keyboardType = KeyboardType.Number
                         )
 
-                        // 5. In-place action buttons (Up, Down, Plus, Delete)
+                        // 4. In-place action buttons (Up, Down, Plus, Delete)
                         Row(
                             modifier = Modifier.weight(1.2f),
                             horizontalArrangement = Arrangement.SpaceEvenly,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Up arrow (↑)
                             IconButton(
                                 onClick = {
                                     if (index > 0) {
@@ -963,7 +966,6 @@ fun SpreadsheetRouteEditor(
                                 Text("↑", color = if (index > 0) Color.White else Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                             }
 
-                            // Down arrow (↓)
                             IconButton(
                                 onClick = {
                                     if (index < waypoints.size - 1) {
@@ -979,7 +981,6 @@ fun SpreadsheetRouteEditor(
                                 Text("↓", color = if (index < waypoints.size - 1) Color.White else Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                             }
 
-                            // Plus (+)
                             IconButton(
                                 onClick = {
                                     val list = waypoints.toMutableList()
@@ -997,7 +998,6 @@ fun SpreadsheetRouteEditor(
                                 Text("+", color = Color(0xFF4CAF50), fontSize = 13.sp, fontWeight = FontWeight.Bold)
                             }
 
-                            // Delete (🗑)
                             IconButton(
                                 onClick = {
                                     if (waypoints.size > 2) {

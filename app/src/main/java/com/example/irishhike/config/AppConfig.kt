@@ -1,5 +1,25 @@
 package com.example.irishhike.config
 
+enum class PhoneMount {
+    /**
+     * Phone top edge (+Y) points forward along the trail.
+     * Use for: Hand-held testing or lying flat/tilted on top of your backpack.
+     */
+    HANDHELD_OR_PACK_TOP,
+
+    /**
+     * Phone mounted upright on a shoulder strap or chest harness,
+     * screen facing outward forward (+Z).
+     */
+    SHOULDER_STRAP_SCREEN_FORWARD,
+
+    /**
+     * Phone mounted upright on a shoulder strap or chest harness,
+     * camera facing outward forward (-Z).
+     */
+    SHOULDER_STRAP_CAMERA_FORWARD
+}
+
 enum class BreadcrumbColorMode {
     GPS_PDR,
     SPEED,
@@ -27,7 +47,8 @@ data class HikeConfig(
     val offCourseMinSpeedMps: Double = 0.4,
     val driftCoolOffSec: Long = 4L,
     val steadyCoolOffSec: Long = 6L,
-    val speechRate: Float = 1.0f
+    val speechRate: Float = 1.0f,
+    val phoneMount: PhoneMount = PhoneMount.HANDHELD_OR_PACK_TOP
 )
 
 data class MapConfig(

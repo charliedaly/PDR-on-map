@@ -81,10 +81,19 @@ class AppPreferences(context: Context) {
             .putLong("drift_cooloff_sec", config.driftCoolOffSec)
             .putLong("steady_cooloff_sec", config.steadyCoolOffSec)
             .putFloat("speech_rate", config.speechRate)
+            .putString("phone_mount", config.phoneMount.name)
             .apply()
     }
 
     fun loadHikeConfig(): HikeConfig {
+        val mountName = prefs.getString("phone_mount", PhoneMount.HANDHELD_OR_PACK_TOP.name)
+            ?: PhoneMount.HANDHELD_OR_PACK_TOP.name
+        val phoneMount = try {
+            PhoneMount.valueOf(mountName)
+        } catch (_: Exception) {
+            PhoneMount.HANDHELD_OR_PACK_TOP
+        }
+
         return HikeConfig(
             audioEnabled = prefs.getBoolean("audio_enabled", true),
             arriveThresholdMeters = prefs.getFloat("arrive_threshold", 10.0f).toDouble(),
@@ -93,7 +102,8 @@ class AppPreferences(context: Context) {
             offCourseMinSpeedMps = prefs.getFloat("offcourse_min_speed", 0.4f).toDouble(),
             driftCoolOffSec = prefs.getLong("drift_cooloff_sec", 4L),
             steadyCoolOffSec = prefs.getLong("steady_cooloff_sec", 6L),
-            speechRate = prefs.getFloat("speech_rate", 1.0f)
+            speechRate = prefs.getFloat("speech_rate", 1.0f),
+            phoneMount = phoneMount
         )
     }
 
