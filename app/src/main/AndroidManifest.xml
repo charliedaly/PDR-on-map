@@ -43,6 +43,15 @@
             android:exported="false"
             android:foregroundServiceType="location" />
 
+        <!-- Intercepts Bluetooth handset buttons before any podcast/music player -->
+        <receiver
+            android:name=".service.HikeMediaButtonReceiver"
+            android:exported="true">
+            <intent-filter android:priority="10000">
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </receiver>
+
     </application>
 
 </manifest>

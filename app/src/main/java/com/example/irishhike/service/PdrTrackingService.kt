@@ -4,19 +4,26 @@ import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
-import android.location.Location as AndroidLocation
-import android.location.LocationListener
-import android.location.LocationManager
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioFormat
+import android.media.AudioManager
+import android.media.AudioTrack
+import android.media.session.MediaSession
+import android.media.session.PlaybackState
 import android.os.Build
-import android.os.Bundle
 import android.os.HandlerThread
 import android.os.IBinder
 import android.os.PowerManager
+import android.view.KeyEvent
 import androidx.core.app.NotificationCompat
+import com.example.irishhike.config.PhoneMount
 import com.example.irishhike.ekf.PdrEkfEngine
 import com.example.irishhike.model.Breadcrumb
 import com.example.irishhike.model.Location
@@ -48,22 +55,26 @@ class PdrTrackingService : Service() {
     private lateinit var ekfEngine: PdrEkfEngine
     private lateinit var stepDetector: PdrStepDetector
     private lateinit var fusedLocationClient: FusedLocationProviderClient
-    private lateinit var locationManager: LocationManager
-
     private var locationCallback: LocationCallback? = null
-    private var nativeGpsListener: LocationListener? = null
-    private var locationHandlerThread: HandlerThread? = null
+    private var gpsHandlerThread: HandlerThread? = null
 
     private var wakeLock: PowerManager.WakeLock? = null
+    private var mediaSession: MediaSession? = null
+    private var audioManager: AudioManager? = null
+    private var audioFocusRequest: AudioFocusRequest? = null
+
+    private var silentAudioTrack: AudioTrack? = null
+    @Volatile
+    private var isSilentAudioRunning = false
+
     private var breadcrumbIdSeq = 1L
     private var activeGpsIntervalMs = 1000L
-    private var lastProcessedGpsTimeMs = 0L
 
     override fun onCreate() {
         super.onCreate()
         ekfEngine = PdrEkfEngine()
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
-        locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
 
         HikeRepository.initTts(this)
 
@@ -78,28 +89,204 @@ class PdrTrackingService : Service() {
             }
         }
 
-        // Keep stepDetector mount in sync with settings
-        HikeRepository.hikeConfig
-            .onEach { config ->
-                stepDetector.mount = config.phoneMount
-            }
-            .launchIn(serviceScope)
+        // Connect the chest-mount orientation from settings
+        stepDetector.mount = HikeRepository.hikeConfig.value.phoneMount
 
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-        wakeLock = powerManager.newWakeLock(
-            PowerManager.PARTIAL_WAKE_LOCK,
-            "IrishHike::BackgroundGpsWakeLock"
-        ).apply {
-            setReferenceCounted(false)
+        wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "IrishHike::WakeLock")
+
+        initMediaSession()
+        observeConfigurationChanges()
+    }
+
+    private fun initMediaSession() {
+        val mediaButtonReceiverComponent = ComponentName(this, HikeMediaButtonReceiver::class.java)
+        val mediaButtonIntent = Intent(Intent.ACTION_MEDIA_BUTTON).apply {
+            component = mediaButtonReceiverComponent
         }
+        val mediaButtonPendingIntent = PendingIntent.getBroadcast(
+            this,
+            0,
+            mediaButtonIntent,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+        )
 
-        // Dedicated background thread for location callbacks (prevents main-thread sleep throttle on Samsung S21)
-        locationHandlerThread = HandlerThread("IrishHikeLocationThread").apply { start() }
+        mediaSession = MediaSession(this, "IrishHikeMediaSession").apply {
+            setFlags(
+                MediaSession.FLAG_HANDLES_MEDIA_BUTTONS or
+                        MediaSession.FLAG_HANDLES_TRANSPORT_CONTROLS
+            )
 
-        observeGpsPollingInterval()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                setMediaButtonReceiver(mediaButtonPendingIntent)
+            }
+
+            val state = PlaybackState.Builder()
+                .setActions(
+                    PlaybackState.ACTION_PLAY_PAUSE or
+                            PlaybackState.ACTION_PLAY or
+                            PlaybackState.ACTION_PAUSE or
+                            PlaybackState.ACTION_SKIP_TO_NEXT or
+                            PlaybackState.ACTION_SKIP_TO_PREVIOUS
+                )
+                .setState(PlaybackState.STATE_PLAYING, PlaybackState.PLAYBACK_POSITION_UNKNOWN, 1.0f)
+                .build()
+            setPlaybackState(state)
+
+            setCallback(object : MediaSession.Callback() {
+                override fun onMediaButtonEvent(mediaButtonIntent: Intent): Boolean {
+                    val keyEvent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        mediaButtonIntent.getParcelableExtra(Intent.EXTRA_KEY_EVENT, KeyEvent::class.java)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        mediaButtonIntent.getParcelableExtra(Intent.EXTRA_KEY_EVENT)
+                    }
+                    if (keyEvent != null && keyEvent.action == KeyEvent.ACTION_DOWN) {
+                        when (keyEvent.keyCode) {
+                            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
+                            KeyEvent.KEYCODE_HEADSETHOOK,
+                            KeyEvent.KEYCODE_MEDIA_PLAY,
+                            KeyEvent.KEYCODE_MEDIA_PAUSE -> {
+                                HikeRepository.announceBearingAndDistance()
+                                return true
+                            }
+                            KeyEvent.KEYCODE_MEDIA_NEXT,
+                            KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> {
+                                HikeRepository.advanceToNextLeg()
+                                return true
+                            }
+                            KeyEvent.KEYCODE_MEDIA_PREVIOUS,
+                            KeyEvent.KEYCODE_MEDIA_REWIND -> {
+                                HikeRepository.goToPreviousLeg()
+                                return true
+                            }
+                        }
+                    }
+                    return super.onMediaButtonEvent(mediaButtonIntent)
+                }
+
+                override fun onPlay() {
+                    HikeRepository.announceBearingAndDistance()
+                }
+
+                override fun onPause() {
+                    HikeRepository.announceBearingAndDistance()
+                }
+
+                override fun onSkipToNext() {
+                    HikeRepository.advanceToNextLeg()
+                }
+
+                override fun onSkipToPrevious() {
+                    HikeRepository.goToPreviousLeg()
+                }
+            })
+        }
+    }
+
+    private fun startSilentAudioStream() {
+        if (isSilentAudioRunning) return
+        isSilentAudioRunning = true
+
+        Thread {
+            try {
+                val sampleRate = 44100
+                val minBufferSize = AudioTrack.getMinBufferSize(
+                    sampleRate,
+                    AudioFormat.CHANNEL_OUT_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT
+                )
+
+                silentAudioTrack = AudioTrack.Builder()
+                    .setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_MEDIA)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                            .build()
+                    )
+                    .setAudioFormat(
+                        AudioFormat.Builder()
+                            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                            .setSampleRate(sampleRate)
+                            .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                            .build()
+                    )
+                    .setBufferSizeInBytes(minBufferSize)
+                    .setTransferMode(AudioTrack.MODE_STREAM)
+                    .build()
+
+                val silentBuffer = ByteArray(minBufferSize)
+                silentAudioTrack?.play()
+
+                while (isSilentAudioRunning) {
+                    silentAudioTrack?.write(silentBuffer, 0, silentBuffer.size)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }.start()
+    }
+
+    private fun stopSilentAudioStream() {
+        isSilentAudioRunning = false
+        try {
+            silentAudioTrack?.stop()
+            silentAudioTrack?.release()
+        } catch (_: Exception) {}
+        silentAudioTrack = null
+    }
+
+    private fun requestHeadsetAudioFocus() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val playbackAttributes = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                .build()
+            audioFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(playbackAttributes)
+                .build()
+            audioFocusRequest?.let { audioManager?.requestAudioFocus(it) }
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager?.requestAudioFocus(
+                null,
+                AudioManager.STREAM_MUSIC,
+                AudioManager.AUDIOFOCUS_GAIN
+            )
+        }
+    }
+
+    private fun abandonHeadsetAudioFocus() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            audioFocusRequest?.let { audioManager?.abandonAudioFocusRequest(it) }
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager?.abandonAudioFocus(null)
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == Intent.ACTION_MEDIA_BUTTON) {
+            val keyEvent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                intent.getParcelableExtra(Intent.EXTRA_KEY_EVENT, KeyEvent::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                intent.getParcelableExtra(Intent.EXTRA_KEY_EVENT)
+            }
+            if (keyEvent != null && keyEvent.action == KeyEvent.ACTION_DOWN) {
+                when (keyEvent.keyCode) {
+                    KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
+                    KeyEvent.KEYCODE_HEADSETHOOK,
+                    KeyEvent.KEYCODE_MEDIA_PLAY,
+                    KeyEvent.KEYCODE_MEDIA_PAUSE -> HikeRepository.announceBearingAndDistance()
+                    KeyEvent.KEYCODE_MEDIA_NEXT,
+                    KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> HikeRepository.advanceToNextLeg()
+                    KeyEvent.KEYCODE_MEDIA_PREVIOUS,
+                    KeyEvent.KEYCODE_MEDIA_REWIND -> HikeRepository.goToPreviousLeg()
+                }
+            }
+        }
+
         when (intent?.action) {
             ACTION_START -> startTrackingService()
             ACTION_STOP -> stopTrackingService()
@@ -116,10 +303,9 @@ class PdrTrackingService : Service() {
         HikeRepository.telemetryRecorder.clear()
         ekfEngine.reset()
         breadcrumbIdSeq = 1L
-        lastProcessedGpsTimeMs = 0L
 
         createNotificationChannel()
-        val notification = buildNotification("PDR Tracking Active (1 Hz Background GPS)")
+        val notification = buildNotification("PDR Tracking Active (1 Hz EKF)")
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(
@@ -131,17 +317,20 @@ class PdrTrackingService : Service() {
             startForeground(NOTIFICATION_ID, notification)
         }
 
-        // Hold partial wake lock while tracking is active
-        try {
-            wakeLock?.acquire()
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        wakeLock?.acquire()
 
+        requestHeadsetAudioFocus()
+        startSilentAudioStream()
+        mediaSession?.isActive = true
+
+        gpsHandlerThread = HandlerThread("GpsLocationThread").apply { start() }
+
+        // Ensure mount is loaded before starting sensor listener
+        stepDetector.mount = HikeRepository.hikeConfig.value.phoneMount
         stepDetector.start()
+
         startLocationUpdates(activeGpsIntervalMs)
         start1HzPredictionTicker()
-
         HikeRepository.startHike(HikeRepository.activeRoute.value)
         HikeRepository.setTracking(true)
     }
@@ -151,13 +340,15 @@ class PdrTrackingService : Service() {
         stepDetector.stop()
         stopLocationUpdates()
 
+        stopSilentAudioStream()
+        abandonHeadsetAudioFocus()
+        mediaSession?.isActive = false
+
         if (wakeLock?.isHeld == true) {
-            try {
-                wakeLock?.release()
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
+            wakeLock?.release()
         }
+        gpsHandlerThread?.quitSafely()
+        gpsHandlerThread = null
 
         HikeRepository.stopHike()
         HikeRepository.setTracking(false)
@@ -165,7 +356,7 @@ class PdrTrackingService : Service() {
         stopSelf()
     }
 
-    private fun observeGpsPollingInterval() {
+    private fun observeConfigurationChanges() {
         HikeRepository.gpsPollingIntervalMs
             .onEach { intervalMs ->
                 if (intervalMs != activeGpsIntervalMs) {
@@ -174,29 +365,32 @@ class PdrTrackingService : Service() {
                 }
             }
             .launchIn(serviceScope)
+
+        HikeRepository.hikeConfig
+            .onEach { config ->
+                stepDetector.mount = config.phoneMount
+            }
+            .launchIn(serviceScope)
     }
 
     @SuppressLint("MissingPermission")
     private fun startLocationUpdates(intervalMs: Long) {
         stopLocationUpdates()
 
-        val looper = locationHandlerThread?.looper ?: mainLooper
-
-        // 1. Google Play Services Fused Location Provider with zero batching delay
         val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, intervalMs)
             .setMinUpdateIntervalMillis((intervalMs / 2).coerceAtLeast(200L))
-            .setMaxUpdateDelayMillis(0) // Crucial: zero batching delay when screen is off
-            .setWaitForAccurateLocation(false)
+            .setMaxUpdateDelayMillis(0)
             .build()
 
         locationCallback = object : LocationCallback() {
             override fun onLocationResult(locationResult: LocationResult) {
                 for (location in locationResult.locations) {
-                    processIncomingFix(location)
+                    processIncomingLocation(location)
                 }
             }
         }
 
+        val looper = gpsHandlerThread?.looper ?: mainLooper
         try {
             fusedLocationClient.requestLocationUpdates(
                 locationRequest,
@@ -206,42 +400,10 @@ class PdrTrackingService : Service() {
         } catch (e: Exception) {
             e.printStackTrace()
         }
-
-        // 2. Native Android GPS_PROVIDER: bypasses Google Play Services battery idling on Samsung One UI
-        try {
-            if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
-                nativeGpsListener = object : LocationListener {
-                    override fun onLocationChanged(location: AndroidLocation) {
-                        processIncomingFix(location)
-                    }
-                    @Deprecated("Deprecated in Java")
-                    override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
-                    override fun onProviderEnabled(provider: String) {}
-                    override fun onProviderDisabled(provider: String) {}
-                }
-
-                locationManager.requestLocationUpdates(
-                    LocationManager.GPS_PROVIDER,
-                    intervalMs,
-                    0f,
-                    nativeGpsListener!!,
-                    looper
-                )
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
     }
 
-    private fun processIncomingFix(location: AndroidLocation) {
+    private fun processIncomingLocation(location: android.location.Location) {
         val nowMs = System.currentTimeMillis()
-
-        // Deduplicate fixes between FusedLocationProvider and native GPS_PROVIDER
-        if (Math.abs(nowMs - lastProcessedGpsTimeMs) < (activeGpsIntervalMs / 3).coerceAtLeast(200L)) {
-            return
-        }
-        lastProcessedGpsTimeMs = nowMs
-
         val validation = GpsValidationUtils.validateFix(
             lat = location.latitude,
             lon = location.longitude,
@@ -250,19 +412,20 @@ class PdrTrackingService : Service() {
         )
 
         if (validation != GpsValidationResult.VALID && validation != GpsValidationResult.WARN_HIGH_SPEED) {
-            GpsValidationUtils.playBeep()
             return
         }
 
-        if (validation == GpsValidationResult.WARN_HIGH_SPEED) {
-            GpsValidationUtils.playBeep()
+        // Calibrate chest compass bias against GPS trajectory when walking forward
+        if (location.hasSpeed() && location.speed > 0.8f && location.hasBearing()) {
+            ekfEngine.onGpsHeadingUpdate(Math.toRadians(location.bearing.toDouble()))
         }
 
         val ekfState = ekfEngine.onGpsFix(
             lat = location.latitude,
             lon = location.longitude,
             accuracyMeters = location.accuracy,
-            activeIntervalMs = activeGpsIntervalMs
+            activeIntervalMs = activeGpsIntervalMs,
+            timestampMs = nowMs
         )
 
         if (HikeRepository.isTracking.value) {
@@ -275,7 +438,6 @@ class PdrTrackingService : Service() {
                 recordedEkfState = ekfState
             )
         }
-
         HikeRepository.updateEkfState(ekfState)
 
         serviceScope.launch {
@@ -301,14 +463,6 @@ class PdrTrackingService : Service() {
             fusedLocationClient.removeLocationUpdates(it)
             locationCallback = null
         }
-        nativeGpsListener?.let {
-            try {
-                locationManager.removeUpdates(it)
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-            nativeGpsListener = null
-        }
     }
 
     private fun start1HzPredictionTicker() {
@@ -326,6 +480,7 @@ class PdrTrackingService : Service() {
                         )
                     }
                     HikeRepository.updateEkfState(ekfState)
+
                     val breadcrumb = Breadcrumb(
                         id = breadcrumbIdSeq++,
                         location = Location(ekfState.position.value.x, ekfState.position.value.y),
@@ -364,9 +519,8 @@ class PdrTrackingService : Service() {
     }
 
     override fun onDestroy() {
-        stopLocationUpdates()
-        locationHandlerThread?.quitSafely()
-        locationHandlerThread = null
+        stopSilentAudioStream()
+        mediaSession?.release()
         super.onDestroy()
     }
 
@@ -375,9 +529,10 @@ class PdrTrackingService : Service() {
     companion object {
         const val CHANNEL_ID = "irish_hike_channel"
         const val NOTIFICATION_ID = 1001
+
         const val ACTION_START = "com.example.irishhike.action.START"
         const val ACTION_STOP = "com.example.irishhike.action.STOP"
         const val ACTION_UPDATE_INTERVAL = "com.example.irishhike.action.UPDATE_INTERVAL"
-        const val EXTRA_INTERVAL_MS = "com.example.irishhike.extra.INTERVAL_MS"
+        const val EXTRA_INTERVAL_MS = "extra_interval_ms"
     }
 }

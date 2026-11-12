@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
+import android.view.KeyEvent
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -105,6 +106,29 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        when (keyCode) {
+            KeyEvent.KEYCODE_MEDIA_NEXT,
+            KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> {
+                HikeRepository.advanceToNextLeg()
+                return true
+            }
+            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
+            KeyEvent.KEYCODE_HEADSETHOOK,
+            KeyEvent.KEYCODE_MEDIA_PLAY,
+            KeyEvent.KEYCODE_MEDIA_PAUSE -> {
+                HikeRepository.announceBearingAndDistance()
+                return true
+            }
+            KeyEvent.KEYCODE_MEDIA_PREVIOUS,
+            KeyEvent.KEYCODE_MEDIA_REWIND -> {
+                HikeRepository.goToPreviousLeg()
+                return true
+            }
+        }
+        return super.onKeyDown(keyCode, event)
     }
 
     private fun checkAndRequestPermissions() {
