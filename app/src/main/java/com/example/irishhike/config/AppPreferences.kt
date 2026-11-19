@@ -74,6 +74,7 @@ class AppPreferences(context: Context) {
     fun saveHikeConfig(config: HikeConfig) {
         prefs.edit()
             .putBoolean("audio_enabled", config.audioEnabled)
+            .putBoolean("show_audio_messages", config.showAudioMessages)
             .putFloat("arrive_threshold", config.arriveThresholdMeters.toFloat())
             .putFloat("approach_threshold", config.approachThresholdMeters.toFloat())
             .putFloat("offcourse_dev_deg", config.offCourseHeadingDevDeg.toFloat())
@@ -96,6 +97,7 @@ class AppPreferences(context: Context) {
 
         return HikeConfig(
             audioEnabled = prefs.getBoolean("audio_enabled", true),
+            showAudioMessages = prefs.getBoolean("show_audio_messages", false),
             arriveThresholdMeters = prefs.getFloat("arrive_threshold", 10.0f).toDouble(),
             approachThresholdMeters = prefs.getFloat("approach_threshold", 40.0f).toDouble(),
             offCourseHeadingDevDeg = prefs.getFloat("offcourse_dev_deg", 10.0f).toDouble(),

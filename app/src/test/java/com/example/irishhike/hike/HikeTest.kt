@@ -22,6 +22,18 @@ class HikeTest {
         return Route.createFromWaypoints("Test Route", listOf(wp1, wp2, wp3))
     }
 
+    /**
+     * Creates a circular loop: Start(0,0) -> Summit(0, 500) -> Return(100, 100) -> Start(0,0)
+     * Here, Return(100, 100) is physically only ~141m from Start, whereas Summit is 500m away.
+     */
+    private fun createLoopedSampleRoute(): Route {
+        val start = Waypoint.fromMetric("Start", 0.0, 0.0)
+        val summit = Waypoint.fromMetric("Summit", 0.0, 500.0)
+        val returnWp = Waypoint.fromMetric("ReturnWP", 100.0, 100.0)
+        val finish = Waypoint.fromMetric("Finish", 0.0, 0.0)
+        return Route.createFromWaypoints("Looped Route", listOf(start, summit, returnWp, finish))
+    }
+
     @Test
     fun `evaluateLegState checks states in strict priority order`() {
         val route = create300mSampleRoute()
@@ -46,6 +58,131 @@ class HikeTest {
         // 3. TARGET_REACHED: arriving at target (< 15m from wp2 at 300m, e.g. at 295m)
         val stateReached = hike.evaluateLegState(Location(0.0, 295.0), currentTimeMs = 5000L)
         assertEquals(LegState.TARGET_REACHED, stateReached)
+    }
+
+    @Test
+    fun `testLoopedWalkDoesNotPrematurelySkipCurrentWaypointWhenFutureWaypointIsPhysicallyCloser`() {
+        val route = createLoopedSampleRoute()
+        val hike = Hike(route)
+
+        // Hiker starts at (0, 30m) walking towards Summit (0, 500m).
+        // Distance to current target (Summit) = 470m.
+        // Distance to next target (ReturnWP at 100, 100) = sqrt(100^2 + 70^2) ~= 122m.
+        // Even though ReturnWP is much closer (122m < 470m), hiker has NOT passed Summit (t = 30/500 = 0.06 < 1.0).
+        val result = hike.update(Location(0.0, 30.0))
+
+        // Must NOT skip to Leg 1 (ReturnWP); must stay on Leg 0 targeting Summit!
+        assertEquals(0, hike.currentLegIndex)
+        assertEquals("Summit", hike.currentLeg?.target?.name)
+        assertFalse("Must not trigger MISSED_WAYPOINT before passing current target", result?.state == LegState.MISSED_WAYPOINT)
+    }
+
+    @Test
+    fun `testLoopedWalkAdvancesToNextLegOncePastCurrentTargetAndCloserToNext`() {
+        val route = createLoopedSampleRoute()
+        val hike = Hike(route)
+
+        // Hiker starts walking
+        hike.update(Location(0.0, 30.0))
+        assertEquals(0, hike.currentLegIndex)
+
+        // Hiker walks to (0, 520m), having bypassed Summit (at 500m) by 20m, and is now descending towards ReturnWP(100, 100).
+        // Projection t = 520/500 = 1.04 >= 1.0 (past current target).
+        // Distance to Summit = 20m.
+        // Distance to ReturnWP(100, 100) = sqrt(100^2 + 420^2) ~= 431m.
+        // At 520m, distance to Summit (20m) is still less than distance to ReturnWP (431m), so it should not advance yet:
+        val resultAt520 = hike.update(Location(0.0, 520.0))
+        assertEquals(0, hike.currentLegIndex)
+
+        // Hiker continues descending to (50, 250m):
+        // Projection t along Leg 1 (0,0)->(0,500) is (50*0 + 250*500)/250000 = 0.5 (not past target on this axis).
+        // Now hiker walks directly down along trail past summit to (10.0, 550.0):
+        // t = 550/500 = 1.1 >= 1.0 (past target).
+        // If hiker bypasses to (80, 200):
+        // Distance to Summit (0, 500) = sqrt(80^2 + 300^2) ~= 310m.
+        // Distance to ReturnWP (100, 100) = sqrt(20^2 + 100^2) ~= 102m.
+        // If hiker is past summit along path at (0, 560):
+        // Distance to Summit = 60m, Distance to ReturnWP(0, 580) would be closer.
+        // Let's test a clean bypass:
+        // Leg: Start(0,0) -> WP1(0, 100) -> WP2(0, 200)
+        val simpleLoop = Route.createFromWaypoints(
+            "Loop",
+            listOf(
+                Waypoint.fromMetric("A", 0.0, 0.0),
+                Waypoint.fromMetric("B", 0.0, 100.0),
+                Waypoint.fromMetric("C", 0.0, 200.0)
+            )
+        )
+        val loopHike = Hike(simpleLoop)
+        loopHike.update(Location(0.0, 10.0))
+        assertEquals(0, loopHike.currentLegIndex)
+
+        // At (0, 160), t = 1.6 >= 1.0 (past B), dist to B = 60m, dist to C = 40m (closer to C):
+        val bypassResult = loopHike.update(Location(0.0, 160.0))
+        assertEquals(LegState.MISSED_WAYPOINT, bypassResult?.state)
+        assertEquals(1, loopHike.currentLegIndex)
+        assertEquals("C", loopHike.currentLeg?.target?.name)
+    }
+
+    @Test
+    fun `testNormalArrivalTriggersTargetReachedEvenIfSlightlyPastTargetMarker`() {
+        val wp1 = Waypoint.fromMetric("Start", 0.0, 0.0)
+        val wp2 = Waypoint.fromMetric("WP2", 0.0, 100.0, arrive = 15.0)
+        val wp3 = Waypoint.fromMetric("Finish", 0.0, 300.0)
+        val route = Route.createFromWaypoints("Route", listOf(wp1, wp2, wp3))
+        val hike = Hike(route)
+
+        // Hiker walks to (0, 103m) - exactly 3 meters past the waypoint marker center,
+        // well within the 15m arrival threshold (dist = 3m < 15m).
+        // t = 103/100 = 1.03 >= 1.0.
+        // Even though t >= 1.0, TARGET_REACHED must take precedence over MISSED_WAYPOINT!
+        val result = hike.update(Location(0.0, 103.0))
+
+        assertEquals(LegState.TARGET_REACHED, result?.state)
+        assertTrue("Message should announce reached waypoint", result?.message?.contains("Reached waypoint") == true)
+        assertEquals(1, hike.currentLegIndex)
+    }
+
+    @Test
+    fun `testPassingTargetInWrongDirectionTriggersTooFarInsteadOfMissedWaypoint`() {
+        // Start(0,0) -> WP1(0, 100) -> NextWP(100, 100) (turns East at WP1)
+        val wp1 = Waypoint.fromMetric("Start", 0.0, 0.0)
+        val wp2 = Waypoint.fromMetric("WP1", 0.0, 100.0, arrive = 15.0)
+        val wp3 = Waypoint.fromMetric("NextWP", 100.0, 100.0)
+        val route = Route.createFromWaypoints("Turn Route", listOf(wp1, wp2, wp3))
+        val hike = Hike(route)
+
+        // Hiker misses the turn and keeps walking straight North to (0, 130m).
+        // t = 130/100 = 1.3 >= 1.0 (past WP1).
+        // Distance to WP1 = 30m.
+        // Distance to NextWP(100, 100) = sqrt(100^2 + 30^2) ~= 104m.
+        // Since nextTargetDist (104m) is NOT less than currentTargetDist (30m),
+        // it must NOT advance to NextWP; it must trigger TOO_FAR!
+        val result = hike.update(Location(0.0, 130.0))
+
+        assertEquals(LegState.TOO_FAR, result?.state)
+        assertEquals(0, hike.currentLegIndex) // Remains on Leg 0 so off-course guidance can steer them back
+    }
+
+    @Test
+    fun `testLateralBypassPastTargetTriggersMissedWaypoint`() {
+        // Hiker walks parallel to trail 25 meters to the right: Start(0,0) -> WP1(0,100) -> WP2(0,200)
+        val wp1 = Waypoint.fromMetric("Start", 0.0, 0.0)
+        val wp2 = Waypoint.fromMetric("WP1", 0.0, 100.0, arrive = 15.0)
+        val wp3 = Waypoint.fromMetric("WP2", 0.0, 200.0)
+        val route = Route.createFromWaypoints("Parallel Route", listOf(wp1, wp2, wp3))
+        val hike = Hike(route)
+
+        // At (25m, 160m):
+        // Projection along leg (0,0)->(0,100): t = (25*0 + 160*100) / 10000 = 1.6 >= 1.0 (past WP1).
+        // Distance to WP1 = sqrt(25^2 + 60^2) = 65.0m.
+        // Distance to WP2 = sqrt(25^2 + 40^2) = 47.1m.
+        // Closer to WP2 than WP1!
+        val result = hike.update(Location(25.0, 160.0))
+
+        assertEquals(LegState.MISSED_WAYPOINT, result?.state)
+        assertEquals(1, hike.currentLegIndex)
+        assertEquals("WP2", hike.currentLeg?.target?.name)
     }
 
     @Test
@@ -146,7 +283,7 @@ class HikeTest {
         assertTrue(msgReached!!.contains("Reached waypoint"))
 
         val msgTooFar = hike.stringify(LegState.TOO_FAR, leg, null)
-        assertTrue(msgTooFar!!.contains("Warning"))
+        assertTrue(msgTooFar!!.contains("past"))
 
         val msgHikeEnded = hike.stringify(LegState.HIKE_ENDED, leg, null)
         assertTrue(msgHikeEnded!!.contains("Congratulations"))
@@ -196,5 +333,26 @@ class HikeTest {
         val res = hike.update(Location(0.0, 60.0), 2000L, true)
         assertNull(res)
         assertEquals(1, hike.breadcrumbs.size)
+    }
+
+    @Test
+    fun `testMissedWaypointAutoAdvancesToNextLeg`() {
+        val wp1 = Waypoint.fromMetric("Start", 0.0, 0.0)
+        val wp2 = Waypoint.fromMetric("WP2", 0.0, 100.0)
+        val wp3 = Waypoint.fromMetric("WP3", 0.0, 200.0)
+        val route = Route.createFromWaypoints("Bypass Test Route", listOf(wp1, wp2, wp3))
+        val hike = Hike(route)
+
+        // Hiker starts near WP1 (distance to WP2 = 90m, distance to WP3 = 190m)
+        hike.update(Location(0.0, 10.0))
+        assertEquals(0, hike.currentLegIndex)
+
+        // Hiker bypasses WP2 and walks directly towards WP3 at (0.0, 160.0)
+        // t = 160/100 = 1.6 >= 1.0 (past WP2).
+        // Distance to WP2 = 60m, Distance to WP3 = 40m -> WP3 is closer than WP2!
+        val result2 = hike.update(Location(0.0, 160.0))
+        assertEquals(LegState.MISSED_WAYPOINT, result2?.state)
+        assertEquals(1, hike.currentLegIndex)
+        assertEquals("WP3", hike.currentLeg?.target?.name)
     }
 }

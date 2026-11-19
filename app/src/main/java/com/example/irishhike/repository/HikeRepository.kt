@@ -14,7 +14,6 @@ import com.example.irishhike.model.Leg
 import com.example.irishhike.model.Location
 import com.example.irishhike.model.Route
 import com.example.irishhike.model.Waypoint
-import com.example.irishhike.telemetry.TelemetryPlaybackEngine
 import com.example.irishhike.telemetry.TelemetryRecorder
 import com.example.irishhike.util.TtsManager
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -122,12 +121,10 @@ object HikeRepository {
         if (message.isBlank()) return
         if (!_hikeConfig.value.audioEnabled) return
 
-        // Always remove old off-course messages so they never pile up
         if (state == LegState.OFFCOURSE) {
             pendingTtsQueue.removeAll { it.state == LegState.OFFCOURSE }
         }
 
-        // Keep queue capped at 2 items max so old messages can never cause a backlog
         while (pendingTtsQueue.size >= 2) {
             pendingTtsQueue.removeAt(0)
         }
@@ -147,7 +144,6 @@ object HikeRepository {
         if (isTtsSpeaking) return
         if (pendingTtsQueue.isEmpty()) return
 
-        // Discard any message that has been waiting for more than 6 seconds (stale navigation)
         val now = System.currentTimeMillis()
         while (pendingTtsQueue.isNotEmpty()) {
             val candidate = pendingTtsQueue.first()
@@ -183,9 +179,6 @@ object HikeRepository {
         _currentTargetWaypoint.value = currentHike?.currentLeg?.target ?: _activeRoute.value?.legs?.firstOrNull()?.target
     }
 
-    /**
-     * Handset Control 1: Advance to next leg on button press
-     */
     fun advanceToNextLeg() {
         val hike = currentHike ?: return
         val routeLegs = _activeRoute.value?.legs ?: return
@@ -204,9 +197,6 @@ object HikeRepository {
         }
     }
 
-    /**
-     * Handset Control: Return to previous leg
-     */
     fun goToPreviousLeg() {
         val hike = currentHike ?: return
         val routeLegs = _activeRoute.value?.legs ?: return
@@ -219,9 +209,6 @@ object HikeRepository {
         enqueueTtsMessage(LegState.LEG_START, msg)
     }
 
-    /**
-     * Handset Control 2: Speak current bearing, distance, and turn direction on button press
-     */
     fun announceBearingAndDistance() {
         val hike = currentHike ?: return
         val leg = hike.currentLeg ?: return
@@ -241,9 +228,8 @@ object HikeRepository {
         enqueueTtsMessage(LegState.OK, msg)
     }
 
-    suspend fun emitBreadcrumb(breadcrumb: Breadcrumb) {
+    suspend fun emitBreadcrumb(breadcrumb: Breadcrumb, notifyUi: Boolean = true) {
         breadcrumbHistory.add(breadcrumb)
-        _breadcrumbsFlow.emit(breadcrumb)
 
         currentHike?.let { hike ->
             val result = hike.update(
@@ -262,14 +248,21 @@ object HikeRepository {
                     text = msg,
                     timestampMs = breadcrumb.timestampMs
                 )
-                enqueueTtsMessage(state, msg)
+                if (notifyUi) {
+                    enqueueTtsMessage(state, msg)
+                }
             }
-            _relativeBearingCorrection.value = hike.relativeBearingCorrection(breadcrumb.location, breadcrumb.ekfState)
-            _currentLegIndex.value = hike.currentLegIndex
+            if (notifyUi) {
+                _relativeBearingCorrection.value = hike.relativeBearingCorrection(breadcrumb.location, breadcrumb.ekfState)
+                _currentLegIndex.value = hike.currentLegIndex
+            }
         }
 
-        _currentTargetWaypoint.value = currentHike?.currentLeg?.target ?: _activeRoute.value?.legs?.firstOrNull()?.target
-        _activeLeg.value = currentHike?.currentLeg ?: _activeRoute.value?.legs?.firstOrNull()
+        if (notifyUi) {
+            _breadcrumbsFlow.emit(breadcrumb)
+            _currentTargetWaypoint.value = currentHike?.currentLeg?.target ?: _activeRoute.value?.legs?.firstOrNull()?.target
+            _activeLeg.value = currentHike?.currentLeg ?: _activeRoute.value?.legs?.firstOrNull()
+        }
     }
 
     fun startHike(route: Route?) {

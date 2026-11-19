@@ -96,15 +96,15 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
     }
 
     @Synchronized
-    fun predict(dtSec: Double = 1.0): EkfState {
-        if (!isInitializedWithGps) {
-            return getEkfState()
-        }
+    fun predict(dtSec: Double = 1.0, currentEventTimeMs: Long = 0L): EkfState {
+        if (!isInitializedWithGps) return getEkfState()
 
-        val clampedDt = dtSec.coerceIn(0.1, 2.0)
-        val now = System.currentTimeMillis()
+        val clampedDt = dtSec.coerceIn(0.01, 2.0)
+
+        // Use the event's simulated time if replaying, or real time if live
+        val now = if (currentEventTimeMs > 0L) currentEventTimeMs else System.currentTimeMillis()
         val timeSinceStepSec = if (lastStepTimestampMs > 0L) {
-            (now - lastStepTimestampMs) / 1000.0
+            ((now - lastStepTimestampMs) / 1000.0).coerceAtLeast(0.0)
         } else {
             2.0
         }

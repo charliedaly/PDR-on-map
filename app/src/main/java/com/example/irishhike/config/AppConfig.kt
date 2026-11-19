@@ -41,6 +41,7 @@ data class BreadcrumbConfig(
 
 data class HikeConfig(
     val audioEnabled: Boolean = true,
+    val showAudioMessages: Boolean = false,
     val arriveThresholdMeters: Double = 10.0,
     val approachThresholdMeters: Double = 40.0,
     val offCourseHeadingDevDeg: Double = 10.0,

@@ -77,7 +77,7 @@ class ControlPanelTest {
             )
         }
 
-        composeTestRule.onNodeWithText("Track Playback:").assertIsDisplayed()
+        // removed cos takes up too much space. //composeTestRule.onNodeWithText("Track Playback:").assertIsDisplayed()
         composeTestRule.onNodeWithText("Event 0 / 10").assertIsDisplayed()
 
         // At index 0, Step Back (⏮) should be disabled, Step Forward (⏭) enabled

@@ -9,11 +9,28 @@ import org.w3c.dom.Element
 
 object GpxTrackParser {
 
+    private fun parseIsoTimestamp(timeStr: String): Long? {
+        val patterns = arrayOf(
+            "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+            "yyyy-MM-dd'T'HH:mm:ss'Z'",
+            "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
+            "yyyy-MM-dd'T'HH:mm:ssXXX",
+            "yyyy-MM-dd'T'HH:mm:ss"
+        )
+        for (pattern in patterns) {
+            try {
+                val sdf = SimpleDateFormat(pattern, Locale.US).apply {
+                    timeZone = TimeZone.getTimeZone("UTC")
+                }
+                val date = sdf.parse(timeStr)
+                if (date != null) return date.time
+            } catch (_: Exception) {}
+        }
+        return null
+    }
+
     fun parseGpxToPlaybackEvents(inputStream: InputStream): List<TrackPlaybackEvent> {
         val events = mutableListOf<TrackPlaybackEvent>()
-        val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
-            timeZone = TimeZone.getTimeZone("UTC")
-        }
 
         try {
             val dbFactory = DocumentBuilderFactory.newInstance()
@@ -33,17 +50,18 @@ object GpxTrackParser {
                     val lat = latStr.toDoubleOrNull() ?: continue
                     val lon = lonStr.toDoubleOrNull() ?: continue
 
-                    var timeMs = System.currentTimeMillis()
+                    var timeMs: Long? = null
                     var accuracy = 5.0f
                     var isGpsFix = true
 
                     val timeNodes = node.getElementsByTagName("time")
                     if (timeNodes.length > 0) {
                         val timeStr = timeNodes.item(0).textContent.trim()
-                        try {
-                            timeMs = isoFormat.parse(timeStr)?.time ?: timeMs
-                        } catch (_: Exception) {}
+                        timeMs = parseIsoTimestamp(timeStr)
                     }
+
+                    // Fallback: If timestamp is missing or unparseable, simulate 1 Hz interval
+                    val effectiveTimeMs = timeMs ?: if (lastTimeMs > 0L) lastTimeMs + 1000L else System.currentTimeMillis()
 
                     val accuracyNodes = node.getElementsByTagName("accuracy")
                     if (accuracyNodes.length > 0) {
@@ -60,15 +78,15 @@ object GpxTrackParser {
                         }
                     }
 
-                    if (lastTimeMs > 0 && timeMs > lastTimeMs) {
-                        val dtSec = (timeMs - lastTimeMs) / 1000.0
-                        events.add(TrackPlaybackEvent.TimeTickEvent(timeMs, dtSec))
+                    if (lastTimeMs > 0 && effectiveTimeMs > lastTimeMs) {
+                        val dtSec = (effectiveTimeMs - lastTimeMs) / 1000.0
+                        events.add(TrackPlaybackEvent.TimeTickEvent(effectiveTimeMs, dtSec))
                     }
-                    lastTimeMs = timeMs
+                    lastTimeMs = effectiveTimeMs
 
                     events.add(
                         TrackPlaybackEvent.GpsPointEvent(
-                            timestampMs = timeMs,
+                            timestampMs = effectiveTimeMs,
                             latitude = lat,
                             longitude = lon,
                             accuracyMeters = accuracy,

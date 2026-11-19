@@ -155,6 +155,254 @@ class ControlPanelTest {
 }
 
 
+// --- FILE: app/src/test/java/com/example/irishhike/regression/FullHikeRegressionTest.kt ---
+
+package com.example.irishhike.regression
+
+import com.example.irishhike.data.EkfState
+import com.example.irishhike.ekf.PdrEkfEngine
+import com.example.irishhike.hike.Hike
+import com.example.irishhike.hike.LegState
+import com.example.irishhike.model.Location
+import com.example.irishhike.model.Route
+import com.example.irishhike.model.Waypoint
+import com.example.irishhike.telemetry.TelemetryEvent
+import com.example.irishhike.telemetry.TelemetryRecorder
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+class FullHikeRegressionTest {
+
+    // File names inside app/src/test/resources/
+    private val telemetryFileName = "telemetry/gouganbarra/telemetry_20261115_160033.csv"
+    private val routeFileName = "telemetry/gouganbarra/adapted_to_test.csv"
+
+    /**
+     * Formats Irish Grid metric (x, y) into the standard alphanumeric reference.
+     * Example: x=178174.0, y=73999.0 -> "W7817473999" (10-figure, 1-meter precision)
+     */
+    private fun toAlphanumericGrid(x: Double, y: Double): String {
+        val gridLetters = arrayOf(
+            arrayOf('A', 'B', 'C', 'D', 'E'),
+            arrayOf('F', 'G', 'H', 'J', 'K'),
+            arrayOf('L', 'M', 'N', 'O', 'P'),
+            arrayOf('Q', 'R', 'S', 'T', 'U'),
+            arrayOf('V', 'W', 'X', 'Y', 'Z')
+        )
+        val col = (x / 100000.0).toInt().coerceIn(0, 4)
+        val row = (4 - (y / 100000.0).toInt()).coerceIn(0, 4)
+        val letter = gridLetters[row][col]
+
+        val localE = ((x % 100000.0).toInt().let { if (it < 0) it + 100000 else it })
+        val localN = ((y % 100000.0).toInt().let { if (it < 0) it + 100000 else it })
+
+        val eastingStr = localE.toString().padStart(5, '0')
+        val northingStr = localN.toString().padStart(5, '0')
+
+        return "$letter$eastingStr$northingStr"
+    }
+
+    private fun loadResourceText(fileName: String): String? {
+        val stream = javaClass.classLoader?.getResourceAsStream(fileName)
+            ?: javaClass.getResourceAsStream("/$fileName")
+            ?: File("src/test/resources/$fileName").takeIf { it.exists() }?.inputStream()
+            ?: File(fileName).takeIf { it.exists() }?.inputStream()
+
+        return stream?.bufferedReader()?.use { it.readText() }
+    }
+
+    private data class WaypointApproachTracker(
+        val waypoint: Waypoint,
+        var closestDistanceMeters: Double = Double.MAX_VALUE,
+        var closestHikerLocation: Location? = null,
+        var closestTimestampMs: Long = 0L,
+        var wasReached: Boolean = false
+    )
+
+    @Test
+    fun `replaying recorded walk analyzes waypoint arrivals and grid references`() {
+        val telemetryCsv = loadResourceText(telemetryFileName)
+        val routeCsv = loadResourceText(routeFileName)
+
+        if (telemetryCsv == null || routeCsv == null) {
+            println("SKIPPED: Telemetry file '$telemetryFileName' or Route '$routeFileName' not found.")
+            println("Place your .csv files in 'app/src/test/resources/' to run this test.")
+            return
+        }
+
+        val route = Route.parseFromCsvContent("Regression Route", routeCsv)
+        val hike = Hike(route)
+        val ekf = PdrEkfEngine()
+
+        val events = TelemetryRecorder.fromCsvString(telemetryCsv)
+        assertTrue("Telemetry file must contain events", events.isNotEmpty())
+        assertTrue("Route must contain waypoints", route.waypoints.isNotEmpty())
+
+        val timeFormatter = SimpleDateFormat("HH:mm:ss", Locale.US)
+
+        // 1. Print Waypoint Table with Alphanumeric Irish Grid Reference
+        println("\n==========================================================================")
+        println("ROUTE WAYPOINTS (ALPHANUMERIC IRISH GRID):")
+        println("==========================================================================")
+        println("%-4s | %-16s | %-14s | %s".format("#", "Name", "Alphanumeric", "Altitude"))
+        println("--------------------------------------------------------------------------")
+        route.waypoints.forEachIndexed { i, wp ->
+            val gridAlpha = toAlphanumericGrid(wp.x, wp.y)
+            println("%-4d | %-16s | %-14s | %.0fm".format(i + 1, wp.name, gridAlpha, wp.altitude))
+        }
+        println("==========================================================================\n")
+
+        val approachTrackers = route.waypoints.map { WaypointApproachTracker(it) }
+
+        var maxPosVariance = 0.0
+        var maxSpeedMps = 0.0
+
+        println("=== REPLAYING RECORDED WALK EVENTS ===")
+
+        val sortedEvents = events.sortedBy { it.timestampMs }
+
+        for (event in sortedEvents) {
+            val ekfState: EkfState = when (event) {
+                is TelemetryEvent.GpsFixEvent -> {
+                    if (event.recordedEkfState != null && event.recordedEkfState.speedMps.value > 0.8) {
+                        ekf.setHeadingRad(event.recordedEkfState.bearingRad.value)
+                    }
+                    ekf.onGpsFix(
+                        lat = event.latitude,
+                        lon = event.longitude,
+                        accuracyMeters = event.accuracyMeters,
+                        activeIntervalMs = event.activeIntervalMs,
+                        timestampMs = event.timestampMs
+                    )
+                }
+                is TelemetryEvent.StepDetectedEvent -> {
+                    ekf.onStepDetected(event.headingRawRad, event.timestampMs)
+                    ekf.getEkfState()
+                }
+                is TelemetryEvent.PredictionTickEvent -> {
+                    ekf.predict(event.dtSec)
+                }
+            }
+
+            if (ekfState.position.variance > maxPosVariance) {
+                maxPosVariance = ekfState.position.variance
+            }
+            if (ekfState.speedMps.value > maxSpeedMps) {
+                maxSpeedMps = ekfState.speedMps.value
+            }
+
+            if (ekfState.isInitializedWithGps) {
+                val hikerPos = ekfState.position.value
+                val hikerLoc = Location(hikerPos.x, hikerPos.y)
+
+                // Track closest approach to every waypoint
+                for (tracker in approachTrackers) {
+                    val dist = hikerLoc.distanceTo(tracker.waypoint)
+                    if (dist < tracker.closestDistanceMeters) {
+                        tracker.closestDistanceMeters = dist
+                        tracker.closestHikerLocation = hikerLoc
+                        tracker.closestTimestampMs = event.timestampMs
+                    }
+                }
+
+                val hikeResult = hike.update(
+                    location = hikerLoc,
+                    timestampMs = event.timestampMs,
+                    isGpsFix = (event is TelemetryEvent.GpsFixEvent),
+                    ekfState = ekfState
+                )
+
+                if (hikeResult != null && hikeResult.state != LegState.OK) {
+                    val timeStr = timeFormatter.format(Date(event.timestampMs))
+                    val hikerGrid = toAlphanumericGrid(hikerPos.x, hikerPos.y)
+
+                    when (hikeResult.state) {
+                        LegState.TARGET_REACHED -> {
+                            val targetWp = hike.currentLeg?.start
+                            val targetGrid = targetWp?.let { toAlphanumericGrid(it.x, it.y) } ?: ""
+                            println("  [$timeStr] REACHED: '${targetWp?.name}' ($targetGrid) | Hiker at: $hikerGrid")
+                        }
+                        LegState.HIKE_ENDED -> {
+                            val finalWp = route.waypoints.lastOrNull()
+                            val finalGrid = finalWp?.let { toAlphanumericGrid(it.x, it.y) } ?: ""
+                            println("  [$timeStr] HIKE COMPLETED at final waypoint: '${finalWp?.name}' ($finalGrid)")
+                        }
+                        LegState.APPROACHING_TARGET -> {
+                            val target = hike.currentLeg?.target
+                            val targetGrid = target?.let { toAlphanumericGrid(it.x, it.y) } ?: ""
+                            println("  [$timeStr] Approaching '${target?.name}' ($targetGrid)")
+                        }
+                        LegState.LEG_START -> {
+                            val target = hike.currentLeg?.target
+                            val targetGrid = target?.let { toAlphanumericGrid(it.x, it.y) } ?: ""
+                            println("  [$timeStr] Leg Start towards '${target?.name}' ($targetGrid)")
+                        }
+                        else -> {}
+                    }
+                }
+            }
+        }
+
+        // Mark waypoints reached within 15 meters
+        approachTrackers.forEach { tracker ->
+            tracker.wasReached = tracker.closestDistanceMeters <= 15.0
+        }
+
+        // 2. Waypoint Status & Bypass Summary
+        println("\n==========================================================================")
+        println("WAYPOINT ANALYSIS (STATUS & BYPASS COORDINATES):")
+        println("==========================================================================")
+        approachTrackers.forEachIndexed { i, t ->
+            val targetGrid = toAlphanumericGrid(t.waypoint.x, t.waypoint.y)
+            val status = if (t.wasReached) {
+                "REACHED (%.1fm)".format(t.closestDistanceMeters)
+            } else {
+                "BYPASSED (Closest: %.1fm)".format(t.closestDistanceMeters)
+            }
+            val timeStr = if (t.closestTimestampMs > 0) timeFormatter.format(Date(t.closestTimestampMs)) else "--:--:--"
+
+            println("#%d %-16s | Target: %s | %s at %s".format(i + 1, "'${t.waypoint.name}'", targetGrid, status, timeStr))
+
+            // If bypassed, print the exact alphanumeric reference where you walked closest
+            if (!t.wasReached && t.closestHikerLocation != null) {
+                val bypassGrid = toAlphanumericGrid(t.closestHikerLocation!!.x, t.closestHikerLocation!!.y)
+                println("   └── Walked Bypass Coordinate: $bypassGrid")
+            }
+        }
+
+        // 3. Ready-to-Copy CSV Output with Alphanumeric Grid References
+        println("\n==========================================================================")
+        println("UPDATED ROUTE CSV (Alphanumeric grid references ready to copy):")
+        println("==========================================================================")
+        println("name,grid_ref,altitude")
+        approachTrackers.forEach { t ->
+            val actualLoc = if (t.wasReached || t.closestHikerLocation == null) {
+                Location(t.waypoint.x, t.waypoint.y)
+            } else {
+                t.closestHikerLocation!!
+            }
+            val alphaRef = toAlphanumericGrid(actualLoc.x, actualLoc.y)
+            println("${t.waypoint.name},$alphaRef,${t.waypoint.altitude.toInt()}")
+        }
+        println("==========================================================================\n")
+
+        // Sanity assertions
+        assertTrue("EKF must be initialized", ekf.isInitialized)
+        assertFalse("Position X must not be NaN", ekf.stateX.isNaN())
+        assertFalse("Position Y must not be NaN", ekf.stateY.isNaN())
+        // Allow up to 150m² (covers the initial pre-GPS lock uncertainty of ~141m²)
+        assertTrue(
+            "Position variance must stay bounded under 150m² (actual peak was: %.2f m²)".format(maxPosVariance),
+            maxPosVariance <= 150.0
+        )
+    }
+}
+
 // --- FILE: app/src/test/java/com/example/irishhike/ExampleUnitTest.kt ---
 
 package com.example.irishhike
@@ -370,6 +618,26 @@ class HikeTest {
         val res = hike.update(Location(0.0, 60.0), 2000L, true)
         assertNull(res)
         assertEquals(1, hike.breadcrumbs.size)
+    }
+
+    @Test
+    fun `testMissedWaypointAutoAdvancesToNextLeg`() {
+        val wp1 = Waypoint.fromMetric("Start", 0.0, 0.0)
+        val wp2 = Waypoint.fromMetric("WP2", 0.0, 100.0)
+        val wp3 = Waypoint.fromMetric("WP3", 0.0, 200.0)
+        val route = Route.createFromWaypoints("Bypass Test Route", listOf(wp1, wp2, wp3))
+        val hike = Hike(route)
+
+        // Hiker starts near WP1 (distance to WP2 = 90m, distance to WP3 = 190m)
+        hike.update(Location(0.0, 10.0))
+        assertEquals(0, hike.currentLegIndex)
+
+        // Hiker bypasses WP2 and walks directly towards WP3 at (0.0, 160.0)
+        // Distance to WP2 = 60m, Distance to WP3 = 40m -> WP3 is closer than WP2!
+        val result2 = hike.update(Location(0.0, 160.0))
+        assertEquals(LegState.MISSED_WAYPOINT, result2?.state)
+        assertEquals(1, hike.currentLegIndex)
+        assertEquals("WP3", hike.currentLeg?.target?.name)
     }
 }
 
@@ -2104,6 +2372,7 @@ enum class LegState {
     OFFCOURSE,
     VEHICLE_SPEED_DETECTED,
     HIKE_SPEED_RESUMED,
+    MISSED_WAYPOINT,
     OK
 }
 
@@ -2210,6 +2479,17 @@ class Hike(var route: Route?, val config: HikeConfig = HikeConfig()) {
 
         val arriveRadius = if (leg.target.arrive != 10.0) leg.target.arrive else config.arriveThresholdMeters
         val approachRadius = if (leg.target.approach != 40.0) leg.target.approach else config.approachThresholdMeters
+
+        // 0. MISSED WAYPOINT CHECK: If closer to the next waypoint target than the current target
+        val nextLeg = leg.next ?: route?.legs?.getOrNull(currentLegIndex + 1)
+        if (nextLeg != null) {
+            val currentTargetDist = location.distanceTo(leg.target)
+            val nextTargetDist = location.distanceTo(nextLeg.target)
+
+            if (nextTargetDist < currentTargetDist) {
+                return LegState.MISSED_WAYPOINT
+            }
+        }
 
         // 1. TARGET_REACHED & 2. HIKE_ENDED
         if (!tracker.announcedReached) {
@@ -2346,7 +2626,7 @@ class Hike(var route: Route?, val config: HikeConfig = HikeConfig()) {
                 "Reached waypoint $targetName. Congratulations! You have completed the hike."
             }
             LegState.TOO_FAR -> {
-                "Warning! You have gone past waypoint $targetName."
+                "You have gone past waypoint $targetName."
             }
             LegState.APPROACHING_TARGET -> {
                 "Approaching waypoint $targetName. $targetDesc"
@@ -2363,6 +2643,9 @@ class Hike(var route: Route?, val config: HikeConfig = HikeConfig()) {
             }
             LegState.HIKE_SPEED_RESUMED -> {
                 "Hike speed resumed. Step tracking active."
+            }
+            LegState.MISSED_WAYPOINT -> {
+                "Waypoint $targetName passed. Moving to next waypoint."
             }
             LegState.OK -> {
                 null
@@ -2451,8 +2734,8 @@ class Hike(var route: Route?, val config: HikeConfig = HikeConfig()) {
 
         val state = evaluateLegState(location, ekfState, timestampMs)
 
-        if (state == LegState.TARGET_REACHED) {
-            val nextLeg = leg.next
+        if (state == LegState.TARGET_REACHED || state == LegState.MISSED_WAYPOINT) {
+            val nextLeg = leg.next ?: route?.legs?.getOrNull(currentLegIndex + 1)
             if (nextLeg != null) {
                 currentLeg = nextLeg
                 currentLegIndex++
@@ -2482,7 +2765,241 @@ data class NavigationMessage(
 )
 
 
-// --- FILE: app/src/main/java/com/example/irishhike/telemetry/TelemetryPlaybackEngine.kt ---
+// --- FILE: app/src/main/java/com/example/irishhike/telemetry/TelemetryEvent.kt ---
+
+package com.example.irishhike.telemetry
+
+import com.example.irishhike.data.EkfState
+import java.io.Serializable
+
+sealed class TelemetryEvent : Serializable {
+    abstract val timestampMs: Long
+    abstract val recordedEkfState: EkfState?
+
+    data class GpsFixEvent(
+        override val timestampMs: Long,
+        val latitude: Double,
+        val longitude: Double,
+        val accuracyMeters: Float,
+        val activeIntervalMs: Long,
+        override val recordedEkfState: EkfState? = null
+    ) : TelemetryEvent()
+
+    data class StepDetectedEvent(
+        override val timestampMs: Long,
+        val headingRawRad: Double,
+        override val recordedEkfState: EkfState? = null
+    ) : TelemetryEvent()
+
+    data class PredictionTickEvent(
+        override val timestampMs: Long,
+        val dtSec: Double = 1.0,
+        override val recordedEkfState: EkfState? = null
+    ) : TelemetryEvent()
+}
+
+
+// --- FILE: app/src/main/java/com/example/irishhike/telemetry/TelemetryRecorder.kt ---
+
+package com.example.irishhike.telemetry
+
+import com.example.irishhike.data.EkfState
+import com.example.irishhike.data.Estimate
+import com.example.irishhike.data.Vector2D
+import java.io.File
+
+class TelemetryRecorder {
+    private val events = mutableListOf<TelemetryEvent>()
+
+    @Synchronized
+    fun recordGpsFix(
+        latitude: Double,
+        longitude: Double,
+        accuracyMeters: Float,
+        activeIntervalMs: Long,
+        timestampMs: Long = System.currentTimeMillis(),
+        recordedEkfState: EkfState? = null
+    ) {
+        events.add(
+            TelemetryEvent.GpsFixEvent(
+                timestampMs = timestampMs,
+                latitude = latitude,
+                longitude = longitude,
+                accuracyMeters = accuracyMeters,
+                activeIntervalMs = activeIntervalMs,
+                recordedEkfState = recordedEkfState
+            )
+        )
+    }
+
+    @Synchronized
+    fun recordStep(
+        headingRawRad: Double,
+        timestampMs: Long = System.currentTimeMillis(),
+        recordedEkfState: EkfState? = null
+    ) {
+        events.add(
+            TelemetryEvent.StepDetectedEvent(
+                timestampMs = timestampMs,
+                headingRawRad = headingRawRad,
+                recordedEkfState = recordedEkfState
+            )
+        )
+    }
+
+    @Synchronized
+    fun recordTick(
+        dtSec: Double = 1.0,
+        timestampMs: Long = System.currentTimeMillis(),
+        recordedEkfState: EkfState? = null
+    ) {
+        events.add(
+            TelemetryEvent.PredictionTickEvent(
+                timestampMs = timestampMs,
+                dtSec = dtSec,
+                recordedEkfState = recordedEkfState
+            )
+        )
+    }
+
+    @Synchronized
+    fun getEvents(): List<TelemetryEvent> {
+        return events.toList()
+    }
+
+    @Synchronized
+    fun clear() {
+        events.clear()
+    }
+
+    @Synchronized
+    fun toCsvString(): String {
+        val sb = StringBuilder()
+        sb.append("# TELEMETRY_FORMAT_V2\n")
+        events.forEach { event ->
+            val ekf = event.recordedEkfState
+            val ekfSuffix = if (ekf != null) {
+                ",${ekf.position.value.x},${ekf.position.value.y},${ekf.velocity.value.x},${ekf.velocity.value.y},${ekf.strideLengthMeters.value},${ekf.compassBiasRad.value},${ekf.position.variance}"
+            } else ""
+
+            when (event) {
+                is TelemetryEvent.GpsFixEvent -> {
+                    sb.append("GPS,${event.timestampMs},${event.latitude},${event.longitude},${event.accuracyMeters},${event.activeIntervalMs}$ekfSuffix\n")
+                }
+                is TelemetryEvent.StepDetectedEvent -> {
+                    sb.append("STEP,${event.timestampMs},${event.headingRawRad}$ekfSuffix\n")
+                }
+                is TelemetryEvent.PredictionTickEvent -> {
+                    sb.append("TICK,${event.timestampMs},${event.dtSec}$ekfSuffix\n")
+                }
+            }
+        }
+        return sb.toString()
+    }
+
+    @Synchronized
+    fun saveToFile(file: File) {
+        file.writeText(toCsvString())
+    }
+
+    @Synchronized
+    fun saveToTimestampedFile(dir: File): File? {
+        if (events.isEmpty()) return null
+        if (!dir.exists()) {
+            dir.mkdirs()
+        }
+        val timestamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).format(java.util.Date())
+        val file = File(dir, "telemetry_$timestamp.csv")
+        saveToFile(file)
+        return file
+    }
+
+    companion object {
+        fun fromCsvString(csvString: String): List<TelemetryEvent> {
+            val list = mutableListOf<TelemetryEvent>()
+            csvString.lines().forEach { rawLine ->
+                val line = rawLine.trim()
+                if (line.isEmpty() || line.startsWith("#")) return@forEach
+
+                val tokens = line.split(",").map { it.trim() }
+                if (tokens.size > 1) {
+                    when (tokens[0]) {
+                        "GPS" -> {
+                            if (tokens.size >= 6) {
+                                val ekfState = parseEkfStateFromTokens(tokens, startIndex = 6)
+                                list.add(
+                                    TelemetryEvent.GpsFixEvent(
+                                        timestampMs = tokens[1].toLong(),
+                                        latitude = tokens[2].toDouble(),
+                                        longitude = tokens[3].toDouble(),
+                                        accuracyMeters = tokens[4].toFloat(),
+                                        activeIntervalMs = tokens[5].toLong(),
+                                        recordedEkfState = ekfState
+                                    )
+                                )
+                            }
+                        }
+                        "STEP" -> {
+                            if (tokens.size >= 3) {
+                                val ekfState = parseEkfStateFromTokens(tokens, startIndex = 3)
+                                list.add(
+                                    TelemetryEvent.StepDetectedEvent(
+                                        timestampMs = tokens[1].toLong(),
+                                        headingRawRad = tokens[2].toDouble(),
+                                        recordedEkfState = ekfState
+                                    )
+                                )
+                            }
+                        }
+                        "TICK" -> {
+                            if (tokens.size >= 3) {
+                                val ekfState = parseEkfStateFromTokens(tokens, startIndex = 3)
+                                list.add(
+                                    TelemetryEvent.PredictionTickEvent(
+                                        timestampMs = tokens[1].toLong(),
+                                        dtSec = tokens[2].toDouble(),
+                                        recordedEkfState = ekfState
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            return list
+        }
+
+        private fun parseEkfStateFromTokens(tokens: List<String>, startIndex: Int): EkfState? {
+            if (tokens.size < startIndex + 7) return null
+            return try {
+                val posX = tokens[startIndex].toDouble()
+                val posY = tokens[startIndex + 1].toDouble()
+                val velX = tokens[startIndex + 2].toDouble()
+                val velY = tokens[startIndex + 3].toDouble()
+                val stride = tokens[startIndex + 4].toDouble()
+                val bias = tokens[startIndex + 5].toDouble()
+                val posVar = tokens[startIndex + 6].toDouble()
+
+                EkfState(
+                    position = Estimate(Vector2D(posX, posY), posVar),
+                    velocity = Estimate(Vector2D(velX, velY), 0.1),
+                    strideLengthMeters = Estimate(stride, 0.01),
+                    compassBiasRad = Estimate(bias, 0.05),
+                    isInitializedWithGps = true
+                )
+            } catch (e: Exception) {
+                null
+            }
+        }
+
+        fun loadFromFile(file: File): List<TelemetryEvent> {
+            return fromCsvString(file.readText())
+        }
+    }
+}
+
+
+// --- FILE: app/src/main/java/com/example/irishhike/telemetry/ToBeDeletedTelemetryPlaybackEngine.kt ---
 
 package com.example.irishhike.telemetry
 
@@ -2736,240 +3253,6 @@ class TelemetryPlaybackEngine {
 }
 
 
-// --- FILE: app/src/main/java/com/example/irishhike/telemetry/TelemetryEvent.kt ---
-
-package com.example.irishhike.telemetry
-
-import com.example.irishhike.data.EkfState
-import java.io.Serializable
-
-sealed class TelemetryEvent : Serializable {
-    abstract val timestampMs: Long
-    abstract val recordedEkfState: EkfState?
-
-    data class GpsFixEvent(
-        override val timestampMs: Long,
-        val latitude: Double,
-        val longitude: Double,
-        val accuracyMeters: Float,
-        val activeIntervalMs: Long,
-        override val recordedEkfState: EkfState? = null
-    ) : TelemetryEvent()
-
-    data class StepDetectedEvent(
-        override val timestampMs: Long,
-        val headingRawRad: Double,
-        override val recordedEkfState: EkfState? = null
-    ) : TelemetryEvent()
-
-    data class PredictionTickEvent(
-        override val timestampMs: Long,
-        val dtSec: Double = 1.0,
-        override val recordedEkfState: EkfState? = null
-    ) : TelemetryEvent()
-}
-
-
-// --- FILE: app/src/main/java/com/example/irishhike/telemetry/TelemetryRecorder.kt ---
-
-package com.example.irishhike.telemetry
-
-import com.example.irishhike.data.EkfState
-import com.example.irishhike.data.Estimate
-import com.example.irishhike.data.Vector2D
-import java.io.File
-
-class TelemetryRecorder {
-    private val events = mutableListOf<TelemetryEvent>()
-
-    @Synchronized
-    fun recordGpsFix(
-        latitude: Double,
-        longitude: Double,
-        accuracyMeters: Float,
-        activeIntervalMs: Long,
-        timestampMs: Long = System.currentTimeMillis(),
-        recordedEkfState: EkfState? = null
-    ) {
-        events.add(
-            TelemetryEvent.GpsFixEvent(
-                timestampMs = timestampMs,
-                latitude = latitude,
-                longitude = longitude,
-                accuracyMeters = accuracyMeters,
-                activeIntervalMs = activeIntervalMs,
-                recordedEkfState = recordedEkfState
-            )
-        )
-    }
-
-    @Synchronized
-    fun recordStep(
-        headingRawRad: Double,
-        timestampMs: Long = System.currentTimeMillis(),
-        recordedEkfState: EkfState? = null
-    ) {
-        events.add(
-            TelemetryEvent.StepDetectedEvent(
-                timestampMs = timestampMs,
-                headingRawRad = headingRawRad,
-                recordedEkfState = recordedEkfState
-            )
-        )
-    }
-
-    @Synchronized
-    fun recordTick(
-        dtSec: Double = 1.0,
-        timestampMs: Long = System.currentTimeMillis(),
-        recordedEkfState: EkfState? = null
-    ) {
-        events.add(
-            TelemetryEvent.PredictionTickEvent(
-                timestampMs = timestampMs,
-                dtSec = dtSec,
-                recordedEkfState = recordedEkfState
-            )
-        )
-    }
-
-    @Synchronized
-    fun getEvents(): List<TelemetryEvent> {
-        return events.toList()
-    }
-
-    @Synchronized
-    fun clear() {
-        events.clear()
-    }
-
-    @Synchronized
-    fun toCsvString(): String {
-        val sb = StringBuilder()
-        sb.append("# TELEMETRY_FORMAT_V2\n")
-        events.forEach { event ->
-            val ekf = event.recordedEkfState
-            val ekfSuffix = if (ekf != null) {
-                ",${ekf.position.value.x},${ekf.position.value.y},${ekf.velocity.value.x},${ekf.velocity.value.y},${ekf.strideLengthMeters.value},${ekf.compassBiasRad.value},${ekf.position.variance}"
-            } else ""
-
-            when (event) {
-                is TelemetryEvent.GpsFixEvent -> {
-                    sb.append("GPS,${event.timestampMs},${event.latitude},${event.longitude},${event.accuracyMeters},${event.activeIntervalMs}$ekfSuffix\n")
-                }
-                is TelemetryEvent.StepDetectedEvent -> {
-                    sb.append("STEP,${event.timestampMs},${event.headingRawRad}$ekfSuffix\n")
-                }
-                is TelemetryEvent.PredictionTickEvent -> {
-                    sb.append("TICK,${event.timestampMs},${event.dtSec}$ekfSuffix\n")
-                }
-            }
-        }
-        return sb.toString()
-    }
-
-    @Synchronized
-    fun saveToFile(file: File) {
-        file.writeText(toCsvString())
-    }
-
-    @Synchronized
-    fun saveToTimestampedFile(dir: File): File? {
-        if (events.isEmpty()) return null
-        if (!dir.exists()) {
-            dir.mkdirs()
-        }
-        val timestamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).format(java.util.Date())
-        val file = File(dir, "telemetry_$timestamp.csv")
-        saveToFile(file)
-        return file
-    }
-
-    companion object {
-        fun fromCsvString(csvString: String): List<TelemetryEvent> {
-            val list = mutableListOf<TelemetryEvent>()
-            csvString.lines().forEach { rawLine ->
-                val line = rawLine.trim()
-                if (line.isEmpty() || line.startsWith("#")) return@forEach
-
-                val tokens = line.split(",").map { it.trim() }
-                if (tokens.size > 1) {
-                    when (tokens[0]) {
-                        "GPS" -> {
-                            if (tokens.size >= 6) {
-                                val ekfState = parseEkfStateFromTokens(tokens, startIndex = 6)
-                                list.add(
-                                    TelemetryEvent.GpsFixEvent(
-                                        timestampMs = tokens[1].toLong(),
-                                        latitude = tokens[2].toDouble(),
-                                        longitude = tokens[3].toDouble(),
-                                        accuracyMeters = tokens[4].toFloat(),
-                                        activeIntervalMs = tokens[5].toLong(),
-                                        recordedEkfState = ekfState
-                                    )
-                                )
-                            }
-                        }
-                        "STEP" -> {
-                            if (tokens.size >= 3) {
-                                val ekfState = parseEkfStateFromTokens(tokens, startIndex = 3)
-                                list.add(
-                                    TelemetryEvent.StepDetectedEvent(
-                                        timestampMs = tokens[1].toLong(),
-                                        headingRawRad = tokens[2].toDouble(),
-                                        recordedEkfState = ekfState
-                                    )
-                                )
-                            }
-                        }
-                        "TICK" -> {
-                            if (tokens.size >= 3) {
-                                val ekfState = parseEkfStateFromTokens(tokens, startIndex = 3)
-                                list.add(
-                                    TelemetryEvent.PredictionTickEvent(
-                                        timestampMs = tokens[1].toLong(),
-                                        dtSec = tokens[2].toDouble(),
-                                        recordedEkfState = ekfState
-                                    )
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-            return list
-        }
-
-        private fun parseEkfStateFromTokens(tokens: List<String>, startIndex: Int): EkfState? {
-            if (tokens.size < startIndex + 7) return null
-            return try {
-                val posX = tokens[startIndex].toDouble()
-                val posY = tokens[startIndex + 1].toDouble()
-                val velX = tokens[startIndex + 2].toDouble()
-                val velY = tokens[startIndex + 3].toDouble()
-                val stride = tokens[startIndex + 4].toDouble()
-                val bias = tokens[startIndex + 5].toDouble()
-                val posVar = tokens[startIndex + 6].toDouble()
-
-                EkfState(
-                    position = Estimate(Vector2D(posX, posY), posVar),
-                    velocity = Estimate(Vector2D(velX, velY), 0.1),
-                    strideLengthMeters = Estimate(stride, 0.01),
-                    compassBiasRad = Estimate(bias, 0.05),
-                    isInitializedWithGps = true
-                )
-            } catch (e: Exception) {
-                null
-            }
-        }
-
-        fun loadFromFile(file: File): List<TelemetryEvent> {
-            return fromCsvString(file.readText())
-        }
-    }
-}
-
-
 // --- FILE: app/src/main/java/com/example/irishhike/sensor/PdrStepDetector.kt ---
 
 package com.example.irishhike.sensor
@@ -3147,13 +3430,6 @@ data class EkfConfig(
     val defaultStrideMeters: Double = 0.75
 )
 
-/**
- * Standard, textbook GNSS/PDR Fusion Engine.
- *
- * - Eliminates ad-hoc GPS position differencing and fake compass bias corruption.
- * - Integrates PDR steps strictly along the true smoothed device heading.
- * - Updates position via textbook Kalman innovation weighting based on real GPS accuracy variance.
- */
 class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
 
     // State: [x (Easting m), y (Northing m), vx (m/s), vy (m/s)]
@@ -3175,7 +3451,11 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
     private var lastStepTimestampMs: Long = 0L
     private var lastGpsTimestampMs: Long = 0L
     private var currentHeadingRad: Double = 0.0
+    private var lastRawSensorHeadingRad: Double = 0.0
     private var isHeadingInitialized = false
+
+    // Learned offset between chest camera normal and true motion
+    private var compassBiasRad: Double = 0.0
 
     private var stepCount: Int = 0
     private var gpsFixCount: Int = 0
@@ -3185,7 +3465,7 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
     val stateVx: Double get() = velX
     val stateVy: Double get() = velY
     val strideLength: Double get() = strideMeters
-    val compassBias: Double get() = 0.0
+    val compassBias: Double get() = compassBiasRad
 
     init {
         reset()
@@ -3204,7 +3484,9 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
         lastStepTimestampMs = 0L
         lastGpsTimestampMs = 0L
         currentHeadingRad = 0.0
+        lastRawSensorHeadingRad = 0.0
         isHeadingInitialized = false
+        compassBiasRad = 0.0
         stepCount = 0
         gpsFixCount = 0
     }
@@ -3218,21 +3500,21 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
             currentHeadingRad = normalized
         } else {
             val diff = normalizeAngleRad(normalized - currentHeadingRad)
-            // Circular exponential moving average: smooths out arm sway while tracking real turns
-            currentHeadingRad = normalizeAngleRad(currentHeadingRad + 0.20 * diff)
+            // Circular exponential moving average: smooths chest bobbing while tracking turns
+            currentHeadingRad = normalizeAngleRad(currentHeadingRad + 0.25 * diff)
         }
     }
 
     @Synchronized
-    fun predict(dtSec: Double = 1.0): EkfState {
-        if (!isInitializedWithGps) {
-            return getEkfState()
-        }
+    fun predict(dtSec: Double = 1.0, currentEventTimeMs: Long = 0L): EkfState {
+        if (!isInitializedWithGps) return getEkfState()
 
-        val clampedDt = dtSec.coerceIn(0.1, 2.0)
-        val now = System.currentTimeMillis()
+        val clampedDt = dtSec.coerceIn(0.01, 2.0)
+
+        // Use the event's simulated time if replaying, or real time if live
+        val now = if (currentEventTimeMs > 0L) currentEventTimeMs else System.currentTimeMillis()
         val timeSinceStepSec = if (lastStepTimestampMs > 0L) {
-            (now - lastStepTimestampMs) / 1000.0
+            ((now - lastStepTimestampMs) / 1000.0).coerceAtLeast(0.0)
         } else {
             2.0
         }
@@ -3244,7 +3526,6 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
             velY *= decay
         }
 
-        // PDR variance growth over time when no fixes arrive
         varPosX += 0.05 * clampedDt
         varPosY += 0.05 * clampedDt
 
@@ -3252,9 +3533,9 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
     }
 
     /**
-     * Standard PDR Step Propagation.
-     * Advances position strictly along the current smoothed heading.
-     * Guaranteed straight trajectory when walking straight.
+     * PDR Step Propagation.
+     * Uses chest-mount camera orientation corrected by learned bias.
+     * Accurately tracks turns as your torso rotates along the trail.
      */
     @Synchronized
     fun onStepDetected(headingRawRad: Double, timestampMs: Long) {
@@ -3262,7 +3543,11 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
         if (headingRawRad.isNaN() || headingRawRad.isInfinite()) return
 
         stepCount++
-        setHeadingRad(headingRawRad)
+        lastRawSensorHeadingRad = headingRawRad
+
+        // Subtract learned mount/declination bias so turns are followed cleanly
+        val effectiveHeading = normalizeAngleRad(headingRawRad - compassBiasRad)
+        setHeadingRad(effectiveHeading)
 
         val dtStepSec = if (lastStepTimestampMs > 0L) {
             ((timestampMs - lastStepTimestampMs) / 1000.0).coerceIn(0.25, 2.0)
@@ -3274,23 +3559,36 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
         val dX = strideMeters * sin(currentHeadingRad)
         val dY = strideMeters * cos(currentHeadingRad)
 
-        // Update position dead-reckoning
+        // Advance position along torso orientation
         posX += dX
         posY += dY
 
-        // Instantaneous pedestrian velocity
         velX = dX / dtStepSec
         velY = dY / dtStepSec
 
-        // Covariance growth per step
         varPosX += 0.04
         varPosY += 0.04
     }
 
     /**
-     * Standard Linear Kalman Measurement Update for GPS position.
-     * Uses real measurement variance R = accuracy^2.
-     * High accuracy pulls smoothly; canopy noise is rejected by high R.
+     * Calibrate mount bias against GPS trajectory when walking forward.
+     */
+    @Synchronized
+    fun onGpsHeadingUpdate(gpsBearingRad: Double) {
+        if (!isHeadingInitialized) {
+            currentHeadingRad = gpsBearingRad
+            isHeadingInitialized = true
+            return
+        }
+
+        // Observed difference between chest camera vector and true GPS path
+        val observedBias = normalizeAngleRad(lastRawSensorHeadingRad - gpsBearingRad)
+        compassBiasRad = normalizeAngleRad(compassBiasRad + 0.10 * (observedBias - compassBiasRad))
+    }
+
+    /**
+     * Kalman Innovation Update for GPS Position.
+     * Smoothly fuses GPS with footsteps and prevents runaway drift.
      */
     @Synchronized
     fun onGpsFix(
@@ -3305,7 +3603,7 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
 
         val gpsLocation = CoordinateUtils.latLonToMetric(lat, lon)
 
-        // First fix initialization
+        // Initial satellite fix
         if (!isInitializedWithGps) {
             posX = gpsLocation.x
             posY = gpsLocation.y
@@ -3317,24 +3615,32 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
             return getEkfState(activeIntervalMs)
         }
 
-        // Measurement noise variance R = sigma^2
+        val deltaX = gpsLocation.x - posX
+        val deltaY = gpsLocation.y - posY
+        val distanceToGps = hypot(deltaX, deltaY)
+
+        // WATCHDOG: If PDR ever drifts > 20m from good GPS, re-anchor cleanly
+        if (distanceToGps > 20.0 && accuracyMeters <= 20.0f) {
+            posX = gpsLocation.x
+            posY = gpsLocation.y
+            varPosX = (accuracyMeters * accuracyMeters).toDouble().coerceIn(4.0, 36.0)
+            varPosY = varPosX
+            return getEkfState(activeIntervalMs)
+        }
+
+        // Standard Kalman Innovation Update
         val rVar = (accuracyMeters * accuracyMeters).toDouble().coerceAtLeast(4.0)
 
-        // Standard Kalman Innovation Update for X
-        val residualX = gpsLocation.x - posX
         val sX = varPosX + rVar
-        val kX = (varPosX / sX).coerceIn(0.0, 0.90)
-        posX += kX * residualX
+        val kX = (varPosX / sX).coerceIn(0.20, 0.75)
+        posX += kX * deltaX
         varPosX = (1.0 - kX) * varPosX
 
-        // Standard Kalman Innovation Update for Y
-        val residualY = gpsLocation.y - posY
         val sY = varPosY + rVar
-        val kY = (varPosY / sY).coerceIn(0.0, 0.90)
-        posY += kY * residualY
+        val kY = (varPosY / sY).coerceIn(0.20, 0.75)
+        posY += kY * deltaY
         varPosY = (1.0 - kY) * varPosY
 
-        // Clamp variances to reasonable bounds
         varPosX = varPosX.coerceIn(1.0, 100.0)
         varPosY = varPosY.coerceIn(1.0, 100.0)
 
@@ -3356,7 +3662,7 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
             position = Estimate(Vector2D(posX, posY), posVarCombined),
             velocity = Estimate(Vector2D(velX, velY), 0.05),
             bearingRad = Estimate(currentHeadingRad, bearingVar),
-            compassBiasRad = Estimate(0.0, 0.0),
+            compassBiasRad = Estimate(compassBiasRad, 0.02),
             strideLengthMeters = Estimate(strideMeters, 0.01),
             stepCount = stepCount,
             gpsFixCount = gpsFixCount,
@@ -5927,16 +6233,6 @@ class TrackPlaybackEngine {
     private suspend fun processEvent(event: TrackPlaybackEvent) {
         when (event) {
             is TrackPlaybackEvent.GpsPointEvent -> {
-                val currentGpsLocation = com.example.irishhike.util.CoordinateUtils.latLonToMetric(event.latitude, event.longitude)
-                lastGpsLocation?.let { prevLoc ->
-                    if (prevLoc.distanceTo(currentGpsLocation) > 0.5) {
-                        val bearingDeg = com.example.irishhike.util.CoordinateUtils.getBearing(prevLoc, currentGpsLocation)
-                        val bearingRad = Math.toRadians(bearingDeg)
-                        ekfEngine.setHeadingRad(bearingRad)
-                    }
-                }
-                lastGpsLocation = currentGpsLocation
-
                 val ekfState = ekfEngine.onGpsFix(
                     lat = event.latitude,
                     lon = event.longitude,
@@ -5955,6 +6251,7 @@ class TrackPlaybackEngine {
                 HikeRepository.emitBreadcrumb(gpsBreadcrumb)
             }
             is TrackPlaybackEvent.PdrStepEvent -> {
+                // Faithfully uses the recorded chest-mount sensor heading
                 ekfEngine.onStepDetected(event.headingRawRad, event.timestampMs)
             }
             is TrackPlaybackEvent.TimeTickEvent -> {
@@ -6197,8 +6494,11 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
-import android.location.LocationListener
-import android.location.LocationManager
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioFormat
+import android.media.AudioManager
+import android.media.AudioTrack
 import android.media.session.MediaSession
 import android.media.session.PlaybackState
 import android.os.Build
@@ -6207,6 +6507,7 @@ import android.os.IBinder
 import android.os.PowerManager
 import android.view.KeyEvent
 import androidx.core.app.NotificationCompat
+import com.example.irishhike.config.PhoneMount
 import com.example.irishhike.ekf.PdrEkfEngine
 import com.example.irishhike.model.Breadcrumb
 import com.example.irishhike.model.Location
@@ -6239,13 +6540,17 @@ class PdrTrackingService : Service() {
     private lateinit var stepDetector: PdrStepDetector
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private var locationCallback: LocationCallback? = null
-
-    private var locationManager: LocationManager? = null
-    private var rawGpsListener: LocationListener? = null
     private var gpsHandlerThread: HandlerThread? = null
 
     private var wakeLock: PowerManager.WakeLock? = null
     private var mediaSession: MediaSession? = null
+    private var audioManager: AudioManager? = null
+    private var audioFocusRequest: AudioFocusRequest? = null
+
+    private var silentAudioTrack: AudioTrack? = null
+    @Volatile
+    private var isSilentAudioRunning = false
+
     private var breadcrumbIdSeq = 1L
     private var activeGpsIntervalMs = 1000L
 
@@ -6253,7 +6558,7 @@ class PdrTrackingService : Service() {
         super.onCreate()
         ekfEngine = PdrEkfEngine()
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
-        locationManager = getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+        audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
 
         HikeRepository.initTts(this)
 
@@ -6268,11 +6573,14 @@ class PdrTrackingService : Service() {
             }
         }
 
+        // Connect the chest-mount orientation from settings
+        stepDetector.mount = HikeRepository.hikeConfig.value.phoneMount
+
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "IrishHike::WakeLock")
 
         initMediaSession()
-        observeGpsPollingInterval()
+        observeConfigurationChanges()
     }
 
     private fun initMediaSession() {
@@ -6360,6 +6668,87 @@ class PdrTrackingService : Service() {
         }
     }
 
+    private fun startSilentAudioStream() {
+        if (isSilentAudioRunning) return
+        isSilentAudioRunning = true
+
+        Thread {
+            try {
+                val sampleRate = 44100
+                val minBufferSize = AudioTrack.getMinBufferSize(
+                    sampleRate,
+                    AudioFormat.CHANNEL_OUT_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT
+                )
+
+                silentAudioTrack = AudioTrack.Builder()
+                    .setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_MEDIA)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                            .build()
+                    )
+                    .setAudioFormat(
+                        AudioFormat.Builder()
+                            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                            .setSampleRate(sampleRate)
+                            .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                            .build()
+                    )
+                    .setBufferSizeInBytes(minBufferSize)
+                    .setTransferMode(AudioTrack.MODE_STREAM)
+                    .build()
+
+                val silentBuffer = ByteArray(minBufferSize)
+                silentAudioTrack?.play()
+
+                while (isSilentAudioRunning) {
+                    silentAudioTrack?.write(silentBuffer, 0, silentBuffer.size)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }.start()
+    }
+
+    private fun stopSilentAudioStream() {
+        isSilentAudioRunning = false
+        try {
+            silentAudioTrack?.stop()
+            silentAudioTrack?.release()
+        } catch (_: Exception) {}
+        silentAudioTrack = null
+    }
+
+    private fun requestHeadsetAudioFocus() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val playbackAttributes = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                .build()
+            audioFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(playbackAttributes)
+                .build()
+            audioFocusRequest?.let { audioManager?.requestAudioFocus(it) }
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager?.requestAudioFocus(
+                null,
+                AudioManager.STREAM_MUSIC,
+                AudioManager.AUDIOFOCUS_GAIN
+            )
+        }
+    }
+
+    private fun abandonHeadsetAudioFocus() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            audioFocusRequest?.let { audioManager?.abandonAudioFocusRequest(it) }
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager?.abandonAudioFocus(null)
+        }
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == Intent.ACTION_MEDIA_BUTTON) {
             val keyEvent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -6414,11 +6803,16 @@ class PdrTrackingService : Service() {
 
         wakeLock?.acquire()
 
+        requestHeadsetAudioFocus()
+        startSilentAudioStream()
         mediaSession?.isActive = true
 
         gpsHandlerThread = HandlerThread("GpsLocationThread").apply { start() }
 
+        // Ensure mount is loaded before starting sensor listener
+        stepDetector.mount = HikeRepository.hikeConfig.value.phoneMount
         stepDetector.start()
+
         startLocationUpdates(activeGpsIntervalMs)
         start1HzPredictionTicker()
         HikeRepository.startHike(HikeRepository.activeRoute.value)
@@ -6430,6 +6824,8 @@ class PdrTrackingService : Service() {
         stepDetector.stop()
         stopLocationUpdates()
 
+        stopSilentAudioStream()
+        abandonHeadsetAudioFocus()
         mediaSession?.isActive = false
 
         if (wakeLock?.isHeld == true) {
@@ -6444,13 +6840,19 @@ class PdrTrackingService : Service() {
         stopSelf()
     }
 
-    private fun observeGpsPollingInterval() {
+    private fun observeConfigurationChanges() {
         HikeRepository.gpsPollingIntervalMs
             .onEach { intervalMs ->
                 if (intervalMs != activeGpsIntervalMs) {
                     activeGpsIntervalMs = intervalMs
                     updateLocationRequestInterval(intervalMs)
                 }
+            }
+            .launchIn(serviceScope)
+
+        HikeRepository.hikeConfig
+            .onEach { config ->
+                stepDetector.mount = config.phoneMount
             }
             .launchIn(serviceScope)
     }
@@ -6482,21 +6884,6 @@ class PdrTrackingService : Service() {
         } catch (e: Exception) {
             e.printStackTrace()
         }
-
-        try {
-            rawGpsListener = LocationListener { location ->
-                processIncomingLocation(location)
-            }
-            locationManager?.requestLocationUpdates(
-                LocationManager.GPS_PROVIDER,
-                intervalMs,
-                0f,
-                rawGpsListener!!,
-                looper
-            )
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
     }
 
     private fun processIncomingLocation(location: android.location.Location) {
@@ -6512,12 +6899,19 @@ class PdrTrackingService : Service() {
             return
         }
 
+        // Calibrate chest compass bias against GPS trajectory when walking forward
+        if (location.hasSpeed() && location.speed > 0.8f && location.hasBearing()) {
+            ekfEngine.onGpsHeadingUpdate(Math.toRadians(location.bearing.toDouble()))
+        }
+
         val ekfState = ekfEngine.onGpsFix(
             lat = location.latitude,
             lon = location.longitude,
             accuracyMeters = location.accuracy,
-            activeIntervalMs = activeGpsIntervalMs
+            activeIntervalMs = activeGpsIntervalMs,
+            timestampMs = nowMs
         )
+
         if (HikeRepository.isTracking.value) {
             HikeRepository.telemetryRecorder.recordGpsFix(
                 latitude = location.latitude,
@@ -6552,10 +6946,6 @@ class PdrTrackingService : Service() {
         locationCallback?.let {
             fusedLocationClient.removeLocationUpdates(it)
             locationCallback = null
-        }
-        rawGpsListener?.let {
-            locationManager?.removeUpdates(it)
-            rawGpsListener = null
         }
     }
 
@@ -6613,6 +7003,7 @@ class PdrTrackingService : Service() {
     }
 
     override fun onDestroy() {
+        stopSilentAudioStream()
         mediaSession?.release()
         super.onDestroy()
     }
@@ -8485,54 +8876,60 @@ class HikeViewModel : ViewModel() {
     }
 
     fun loadTrackFromUri(context: Context, uri: Uri) {
-        try {
-            val uriStr = uri.toString().lowercase(java.util.Locale.US)
-            val isGpsTrack = uriStr.endsWith(".gpx") || uriStr.contains(".gpx")
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val uriStr = uri.toString().lowercase(java.util.Locale.US)
+                val isGpsTrack = uriStr.endsWith(".gpx") || uriStr.contains(".gpx")
 
-            val events: List<com.example.irishhike.playback.TrackPlaybackEvent> = if (isGpsTrack) {
-                context.contentResolver.openInputStream(uri)?.use { stream ->
-                    com.example.irishhike.playback.GpxTrackParser.parseGpxToPlaybackEvents(stream)
-                } ?: emptyList()
-            } else {
-                val csvContent = context.contentResolver.openInputStream(uri)?.use { inputStream ->
-                    inputStream.bufferedReader().use { it.readText() }
-                } ?: ""
-                val telemetryEvents = TelemetryRecorder.fromCsvString(csvContent)
-                telemetryEvents.map { te ->
-                    when (te) {
-                        is TelemetryEvent.GpsFixEvent -> com.example.irishhike.playback.TrackPlaybackEvent.GpsPointEvent(
-                            timestampMs = te.timestampMs,
-                            latitude = te.latitude,
-                            longitude = te.longitude,
-                            accuracyMeters = te.accuracyMeters,
-                            activeIntervalMs = te.activeIntervalMs,
-                            recordedEkfState = te.recordedEkfState
-                        )
-                        is TelemetryEvent.StepDetectedEvent -> com.example.irishhike.playback.TrackPlaybackEvent.PdrStepEvent(
-                            timestampMs = te.timestampMs,
-                            headingRawRad = te.headingRawRad,
-                            recordedEkfState = te.recordedEkfState
-                        )
-                        is TelemetryEvent.PredictionTickEvent -> com.example.irishhike.playback.TrackPlaybackEvent.TimeTickEvent(
-                            timestampMs = te.timestampMs,
-                            dtSec = te.dtSec,
-                            recordedEkfState = te.recordedEkfState
-                        )
+                val events: List<com.example.irishhike.playback.TrackPlaybackEvent> = if (isGpsTrack) {
+                    context.contentResolver.openInputStream(uri)?.use { stream ->
+                        com.example.irishhike.playback.GpxTrackParser.parseGpxToPlaybackEvents(stream)
+                    } ?: emptyList()
+                } else {
+                    val csvContent = context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                        inputStream.bufferedReader().use { it.readText() }
+                    } ?: ""
+                    val telemetryEvents = TelemetryRecorder.fromCsvString(csvContent)
+                    telemetryEvents.map { te ->
+                        when (te) {
+                            is TelemetryEvent.GpsFixEvent -> com.example.irishhike.playback.TrackPlaybackEvent.GpsPointEvent(
+                                timestampMs = te.timestampMs,
+                                latitude = te.latitude,
+                                longitude = te.longitude,
+                                accuracyMeters = te.accuracyMeters,
+                                activeIntervalMs = te.activeIntervalMs,
+                                recordedEkfState = te.recordedEkfState
+                            )
+                            is TelemetryEvent.StepDetectedEvent -> com.example.irishhike.playback.TrackPlaybackEvent.PdrStepEvent(
+                                timestampMs = te.timestampMs,
+                                headingRawRad = te.headingRawRad,
+                                recordedEkfState = te.recordedEkfState
+                            )
+                            is TelemetryEvent.PredictionTickEvent -> com.example.irishhike.playback.TrackPlaybackEvent.TimeTickEvent(
+                                timestampMs = te.timestampMs,
+                                dtSec = te.dtSec,
+                                recordedEkfState = te.recordedEkfState
+                            )
+                        }
                     }
                 }
-            }
 
-            HikeRepository.setActiveRoute(null)
-            HikeRepository.trackPlaybackEngine.loadEvents(events)
-            _breadcrumbs.value = emptyList()
-            Toast.makeText(
-                context,
-                "Loaded track with ${events.size} points",
-                Toast.LENGTH_SHORT
-            ).show()
-        } catch (e: Exception) {
-            e.printStackTrace()
-            Toast.makeText(context, "Error loading track file", Toast.LENGTH_LONG).show()
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    //HikeRepository.setActiveRoute(null) // Should delete this line, but I'm leaving it in because I'm Charlie (The AI added it at some point.)
+                    HikeRepository.trackPlaybackEngine.loadEvents(events)
+                    _breadcrumbs.value = emptyList()
+                    Toast.makeText(
+                        context,
+                        "Loaded track with ${events.size} points",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "Error loading track file", Toast.LENGTH_LONG).show()
+                }
+            }
         }
     }
 
@@ -9114,6 +9511,80 @@ fun MapScreen(
         }
     }
 
+    val kmDigitTextCache = remember(textMeasurer) {
+        Array(100) { i ->
+            val str = String.format(Locale.US, "%02d", i)
+            textMeasurer.measure(
+                text = str,
+                style = TextStyle(color = Color(0xFF00E5FF), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            )
+        }
+    }
+
+    val wpLayoutCache = remember(route, mapConfig.showWaypointNames, mapConfig.showWaypointHeights) {
+        if (route == null) emptyMap<Waypoint, Pair<Pair<Float, Float>, androidx.compose.ui.text.TextLayoutResult>>()
+        else {
+            val legMap = mutableMapOf<Waypoint, MutableList<Leg>>()
+            route.legs.forEach { leg ->
+                legMap.getOrPut(leg.start) { mutableListOf() }.add(leg)
+                legMap.getOrPut(leg.target) { mutableListOf() }.add(leg)
+            }
+
+            route.waypoints.associateWith { wp ->
+                val connectedLegs = legMap[wp] ?: emptyList()
+                var normalX = 0f
+                var normalY = -1f
+
+                if (connectedLegs.isNotEmpty()) {
+                    var sumDx = 0.0
+                    var sumDy = 0.0
+                    connectedLegs.forEach { leg ->
+                        val other = if (leg.start == wp) leg.target else leg.start
+                        val dx = other.x - wp.x
+                        val dy = other.y - wp.y
+                        val len = hypot(dx, dy)
+                        if (len > 0.1) {
+                            sumDx += dx / len
+                            sumDy += dy / len
+                        }
+                    }
+                    val sumLen = hypot(sumDx, sumDy)
+                    if (sumLen > 0.01) {
+                        normalX = (-sumDx / sumLen).toFloat()
+                        normalY = (-sumDy / sumLen).toFloat()
+                    } else {
+                        val firstLeg = connectedLegs.first()
+                        val other = if (firstLeg.start == wp) firstLeg.target else firstLeg.start
+                        val dx = other.x - wp.x
+                        val dy = other.y - wp.y
+                        val len = hypot(dx, dy)
+                        if (len > 0.1) {
+                            normalX = -(dy / len).toFloat()
+                            normalY = (dx / len).toFloat()
+                        }
+                    }
+                }
+
+                val wpName = when {
+                    mapConfig.showWaypointNames && mapConfig.showWaypointHeights -> "${wp.name} (%.0fm)".format(wp.altitude)
+                    mapConfig.showWaypointNames -> wp.name
+                    else -> "%.0fm".format(wp.altitude)
+                }
+
+                val textResult = textMeasurer.measure(
+                    text = wpName,
+                    style = TextStyle(
+                        color = Color.White,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                )
+
+                Pair(Pair(normalX, normalY), textResult)
+            }
+        }
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -9210,17 +9681,23 @@ fun MapScreen(
                 }
             }
 
+            val leftMeters = centerX + (0f - originCx - panOffset.x) / currentScale
+            val rightMeters = centerX + (widthPx - originCx - panOffset.x) / currentScale
+            val topMeters = centerY - (0f - originCy - panOffset.y) / currentScale
+            val bottomMeters = centerY - (heightPx - originCy - panOffset.y) / currentScale
+
+            val minVisX = minOf(leftMeters, rightMeters)
+            val maxVisX = maxOf(leftMeters, rightMeters)
+            val minVisY = minOf(topMeters, bottomMeters)
+            val maxVisY = maxOf(topMeters, bottomMeters)
+
+            val visMargin = 50.0 / currentScale
+            val visMinX = minVisX - visMargin
+            val visMaxX = maxVisX + visMargin
+            val visMinY = minVisY - visMargin
+            val visMaxY = maxVisY + visMargin
+
             if (currentScale > 0.0) {
-                val leftMeters = centerX + (0f - originCx - panOffset.x) / currentScale
-                val rightMeters = centerX + (widthPx - originCx - panOffset.x) / currentScale
-                val topMeters = centerY - (0f - originCy - panOffset.y) / currentScale
-                val bottomMeters = centerY - (heightPx - originCy - panOffset.y) / currentScale
-
-                val minVisX = minOf(leftMeters, rightMeters)
-                val maxVisX = maxOf(leftMeters, rightMeters)
-                val minVisY = minOf(topMeters, bottomMeters)
-                val maxVisY = maxOf(topMeters, bottomMeters)
-
                 if (mapConfig.showOsmBackground) {
                     try {
                         val autoZoom = round(kotlin.math.log2(93113.0 * currentScale)).toInt().coerceIn(8, 17)
@@ -9412,8 +9889,13 @@ fun MapScreen(
                 }
             }
 
-            // Draw route legs
+            // Draw route legs (connected waypoints)
             route?.legs?.forEach { leg ->
+                if ((leg.start.x !in visMinX..visMaxX && leg.target.x !in visMinX..visMaxX) &&
+                    (leg.start.y !in visMinY..visMaxY && leg.target.y !in visMinY..visMaxY)) {
+                    return@forEach
+                }
+
                 val startOffset = toCanvasOffset(leg.start.x, leg.start.y)
                 val targetOffset = toCanvasOffset(leg.target.x, leg.target.y)
 
@@ -9431,6 +9913,10 @@ fun MapScreen(
 
             // Draw waypoints
             route?.waypoints?.forEach { wp ->
+                if (wp.x !in visMinX..visMaxX || wp.y !in visMinY..visMaxY) {
+                    return@forEach
+                }
+
                 val center = toCanvasOffset(wp.x, wp.y)
                 val isTarget = (wp == currentTargetWaypoint)
                 val wpColor = if (isTarget) Color(0xFFFF3333) else Color(0xFF38BDF8)
@@ -9443,99 +9929,61 @@ fun MapScreen(
                 )
 
                 if (mapConfig.showWaypointNames || mapConfig.showWaypointHeights) {
-                    val wpName = when {
-                        mapConfig.showWaypointNames && mapConfig.showWaypointHeights -> "${wp.name} (%.0fm)".format(wp.altitude)
-                        mapConfig.showWaypointNames -> wp.name
-                        else -> "%.0fm".format(wp.altitude)
-                    }
+                    val cachedData = wpLayoutCache[wp]
+                    if (cachedData != null) {
+                        val normalX = cachedData.first.first
+                        val normalY = cachedData.first.second
+                        val textResult = cachedData.second
 
-                    val connectedLegs = route.legs.filter { it.start == wp || it.target == wp }
-                    var normalX = 0f
-                    var normalY = -1f
+                        val radiusScaled = radiusPx * zoomScale.coerceIn(0.5f, 2.5f)
+                        val clearance = radiusScaled + 8f
 
-                    if (connectedLegs.isNotEmpty()) {
-                        var sumDx = 0.0
-                        var sumDy = 0.0
-                        connectedLegs.forEach { leg ->
-                            val other = if (leg.start == wp) leg.target else leg.start
-                            val dx = other.x - wp.x
-                            val dy = other.y - wp.y
-                            val len = hypot(dx, dy)
-                            if (len > 0.1) {
-                                sumDx += dx / len
-                                sumDy += dy / len
+                        val labelX: Float
+                        val labelY: Float
+
+                        if (abs(normalX) >= abs(normalY)) {
+                            if (normalX < 0f) {
+                                labelX = center.x - clearance - textResult.size.width
+                                labelY = center.y - (textResult.size.height / 2f)
+                            } else {
+                                labelX = center.x + clearance
+                                labelY = center.y - (textResult.size.height / 2f)
+                            }
+                        } else {
+                            if (normalY < 0f) {
+                                labelY = center.y - clearance - textResult.size.height
+                                labelX = center.x - (textResult.size.width / 2f)
+                            } else {
+                                labelY = center.y + clearance
+                                labelX = center.x - (textResult.size.width / 2f)
                             }
                         }
-                        val sumLen = hypot(sumDx, sumDy)
-                        if (sumLen > 0.01) {
-                            normalX = (-sumDx / sumLen).toFloat()
-                            normalY = (-sumDy / sumLen).toFloat()
-                        } else {
-                            val firstLeg = connectedLegs.first()
-                            val other = if (firstLeg.start == wp) firstLeg.target else firstLeg.start
-                            val dx = other.x - wp.x
-                            val dy = other.y - wp.y
-                            val len = hypot(dx, dy)
-                            if (len > 0.1) {
-                                normalX = -(dy / len).toFloat()
-                                normalY = (dx / len).toFloat()
-                            }
-                        }
-                    }
 
-                    val textResult = textMeasurer.measure(
-                        text = wpName,
-                        style = TextStyle(
-                            color = Color.White,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold
+                        val bgPadding = 3f
+                        drawRect(
+                            color = Color.Black.copy(alpha = 0.20f),
+                            topLeft = Offset(labelX - bgPadding, labelY - bgPadding),
+                            size = Size(
+                                textResult.size.width + bgPadding * 2f,
+                                textResult.size.height + bgPadding * 2f
+                            )
                         )
-                    )
 
-                    val radiusScaled = radiusPx * zoomScale.coerceIn(0.5f, 2.5f)
-                    val clearance = radiusScaled + 8f
-
-                    val labelX: Float
-                    val labelY: Float
-
-                    if (abs(normalX) >= abs(normalY)) {
-                        if (normalX < 0f) {
-                            labelX = center.x - clearance - textResult.size.width
-                            labelY = center.y - (textResult.size.height / 2f)
-                        } else {
-                            labelX = center.x + clearance
-                            labelY = center.y - (textResult.size.height / 2f)
-                        }
-                    } else {
-                        if (normalY < 0f) {
-                            labelY = center.y - clearance - textResult.size.height
-                            labelX = center.x - (textResult.size.width / 2f)
-                        } else {
-                            labelY = center.y + clearance
-                            labelX = center.x - (textResult.size.width / 2f)
-                        }
-                    }
-
-                    val bgPadding = 3f
-                    drawRect(
-                        color = Color.Black.copy(alpha = 0.20f),
-                        topLeft = Offset(labelX - bgPadding, labelY - bgPadding),
-                        size = Size(
-                            textResult.size.width + bgPadding * 2f,
-                            textResult.size.height + bgPadding * 2f
+                        drawText(
+                            textLayoutResult = textResult,
+                            topLeft = Offset(labelX, labelY)
                         )
-                    )
-
-                    drawText(
-                        textLayoutResult = textResult,
-                        topLeft = Offset(labelX, labelY)
-                    )
+                    }
                 }
             }
 
             val renderBreadcrumbs = mutableListOf<Breadcrumb>()
             var lastOffset: Offset? = null
             for (bc in validBreadcrumbs) {
+                // Fast metric viewport culling (skip off-screen points instantly)
+                if (bc.location.x !in visMinX..visMaxX || bc.location.y !in visMinY..visMaxY) {
+                    continue
+                }
                 val offset = toCanvasOffset(bc.location.x, bc.location.y)
                 if (lastOffset == null || (offset.x - lastOffset.x).let { it * it } + (offset.y - lastOffset.y).let { it * it } >= 1.0f) {
                     renderBreadcrumbs.add(bc)
@@ -9553,28 +10001,50 @@ fun MapScreen(
                 val strideColor1 = Color(breadcrumbConfig.strideStartColor)
                 val strideColor2 = Color(breadcrumbConfig.strideEndColor)
 
+                // Pre-calculate speeds and canvas offsets for O(1) render loop iteration
+                val cachedSpeeds = FloatArray(renderBreadcrumbs.size) { i ->
+                    getBreadcrumbSpeed(i, renderBreadcrumbs).toFloat()
+                }
+
                 val offsets = Array(renderBreadcrumbs.size) { i ->
                     toCanvasOffset(renderBreadcrumbs[i].location.x, renderBreadcrumbs[i].location.y)
                 }
 
-                val lineStroke = 1.2f * zoomScale.coerceIn(0.5f, 2f)
+                val baseColors = Array(renderBreadcrumbs.size) { i ->
+                    val bc = renderBreadcrumbs[i]
+                    when (breadcrumbConfig.colorMode) {
+                        BreadcrumbColorMode.GPS_PDR -> {
+                            if (bc.isGpsFix) Color(0xFFFF3333) else Color(0xFF2196F3)
+                        }
+                        BreadcrumbColorMode.SPEED -> {
+                            val t = ((cachedSpeeds[i] - minSpeed) / speedRange).toFloat().coerceIn(0.0f, 1.0f)
+                            lerp(speedColor1, speedColor2, t)
+                        }
+                        BreadcrumbColorMode.STRIDE -> {
+                            val stride = getBreadcrumbStride(i, renderBreadcrumbs)
+                            val t = ((stride - minStride) / strideRange).toFloat().coerceIn(0.0f, 1.0f)
+                            lerp(strideColor1, strideColor2, t)
+                        }
+                    }
+                }
+
+                val lineStroke = 1.0f * zoomScale.coerceIn(0.5f, 2f)
                 for (i in 1 until renderBreadcrumbs.size) {
                     val p1 = offsets[i - 1]
                     val p2 = offsets[i]
 
-                    val alpha = if (breadcrumbConfig.fadeWithAge) {
-                        0.25f + 0.75f * (i / totalCount)
-                    } else 1.0f
+                    val alpha1 = if (breadcrumbConfig.fadeWithAge) (0.2f + 0.8f * ((i - 1) / totalCount)) else 1.0f
+                    val alpha2 = if (breadcrumbConfig.fadeWithAge) (0.2f + 0.8f * (i / totalCount)) else 1.0f
 
-                    val lineColor = if (breadcrumbConfig.colorMode == BreadcrumbColorMode.GPS_PDR) {
-                        if (renderBreadcrumbs[i].isGpsFix) Color(0xFFFF5252).copy(alpha = 0.5f * alpha)
-                        else Color(0xFF00E5FF).copy(alpha = 0.7f * alpha)
-                    } else {
-                        Color(0xFF00E5FF).copy(alpha = 0.6f * alpha)
-                    }
+                    val c1 = baseColors[i - 1].copy(alpha = baseColors[i - 1].alpha * alpha1)
+                    val c2 = baseColors[i].copy(alpha = baseColors[i].alpha * alpha2)
 
                     drawLine(
-                        color = lineColor,
+                        brush = Brush.linearGradient(
+                            colors = listOf(c1, c2),
+                            start = p1,
+                            end = p2
+                        ),
                         start = p1,
                         end = p2,
                         strokeWidth = lineStroke
@@ -9585,28 +10055,8 @@ fun MapScreen(
 
                 renderBreadcrumbs.forEachIndexed { i, bc ->
                     val center = offsets[i]
-
-                    val baseColor = when (breadcrumbConfig.colorMode) {
-                        BreadcrumbColorMode.GPS_PDR -> {
-                            if (bc.isGpsFix) Color(0xFFFF3333) else Color(0xFF2196F3)
-                        }
-                        BreadcrumbColorMode.SPEED -> {
-                            val speedMps = getBreadcrumbSpeed(i, renderBreadcrumbs)
-                            val t = ((speedMps - minSpeed) / speedRange).coerceIn(0.0, 1.0).toFloat()
-                            lerp(speedColor1, speedColor2, t)
-                        }
-                        BreadcrumbColorMode.STRIDE -> {
-                            val stride = getBreadcrumbStride(i, renderBreadcrumbs)
-                            val t = ((stride - minStride) / strideRange).coerceIn(0.0, 1.0).toFloat()
-                            lerp(strideColor1, strideColor2, t)
-                        }
-                    }
-
-                    val alphaMultiplier = if (breadcrumbConfig.fadeWithAge) {
-                        0.2f + 0.8f * (i / totalCount)
-                    } else 1.0f
-
-                    val finalColor = baseColor.copy(alpha = baseColor.alpha * alphaMultiplier)
+                    val alphaMultiplier = if (breadcrumbConfig.fadeWithAge) (0.2f + 0.8f * (i / totalCount)) else 1.0f
+                    val finalColor = baseColors[i].copy(alpha = baseColors[i].alpha * alphaMultiplier)
 
                     if (breadcrumbConfig.showAccuracyCircles && bc.ekfState != null) {
                         val accRadiusPx = (sqrt(bc.ekfState.position.variance) * currentScale).toFloat().coerceIn(4f, 80f)
@@ -10567,7 +11017,6 @@ import com.example.irishhike.model.Leg
 import com.example.irishhike.model.Location
 import com.example.irishhike.model.Route
 import com.example.irishhike.model.Waypoint
-import com.example.irishhike.telemetry.TelemetryPlaybackEngine
 import com.example.irishhike.telemetry.TelemetryRecorder
 import com.example.irishhike.util.TtsManager
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -10675,8 +11124,14 @@ object HikeRepository {
         if (message.isBlank()) return
         if (!_hikeConfig.value.audioEnabled) return
 
+        // Always remove old off-course messages so they never pile up
         if (state == LegState.OFFCOURSE) {
             pendingTtsQueue.removeAll { it.state == LegState.OFFCOURSE }
+        }
+
+        // Keep queue capped at 2 items max so old messages can never cause a backlog
+        while (pendingTtsQueue.size >= 2) {
+            pendingTtsQueue.removeAt(0)
         }
 
         pendingTtsQueue.add(TtsQueueItem(state, message))
@@ -10692,6 +11147,19 @@ object HikeRepository {
     @Synchronized
     private fun processNextTtsMessage() {
         if (isTtsSpeaking) return
+        if (pendingTtsQueue.isEmpty()) return
+
+        // Discard any message that has been waiting for more than 6 seconds (stale navigation)
+        val now = System.currentTimeMillis()
+        while (pendingTtsQueue.isNotEmpty()) {
+            val candidate = pendingTtsQueue.first()
+            if (now - candidate.timestampMs > 6000L) {
+                pendingTtsQueue.removeAt(0)
+            } else {
+                break
+            }
+        }
+
         if (pendingTtsQueue.isEmpty()) return
 
         val nextItem = pendingTtsQueue.removeAt(0)

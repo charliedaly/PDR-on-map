@@ -317,8 +317,8 @@ fun MainDiagnosticScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
-                    .padding(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 HikeNavigationPanel(
                     activeRoute = activeRoute,
@@ -334,7 +334,10 @@ fun MainDiagnosticScreen(
                     TelemetryDashboard(ekfState = ekfState)
                 }
 
-                NavigationMessagePanel(messages = navigationMessages)
+                // Optional audio messages panel (controlled via Audio settings tab)
+                if (hikeConfig.showAudioMessages) {
+                    NavigationMessagePanel(messages = navigationMessages)
+                }
 
                 MapScreen(
                     route = activeRoute,

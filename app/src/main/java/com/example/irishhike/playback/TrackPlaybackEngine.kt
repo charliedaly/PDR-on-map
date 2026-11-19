@@ -84,7 +84,8 @@ class TrackPlaybackEngine {
                 0L
             }
 
-            val isHighSpeed = _speedMultiplier.value >= 10.0
+            var accumulatedDelayMs = 0.0
+            var lastUiNotifyTimeMs = 0L
 
             while (currentIndex < eventList.size) {
                 while (_isPaused.value) {
@@ -96,19 +97,33 @@ class TrackPlaybackEngine {
                         val i = currentIndex
                         val event = eventList[i]
 
-                        if (!isHighSpeed && i > 0 && lastEventTimeMs > 0) {
+                        if (i > 0 && lastEventTimeMs > 0) {
+                            // Real-world pauses are faithfully preserved and scaled by playback speed
                             val rawDtMs = (event.timestampMs - lastEventTimeMs).coerceAtLeast(0L)
-                            val scaledDelayMs = (rawDtMs / _speedMultiplier.value).toLong().coerceIn(1L, 5000L)
-                            delay(scaledDelayMs)
-                        } else if (isHighSpeed && i % 20 == 0) {
-                            delay(1L)
+                            val speed = _speedMultiplier.value.coerceIn(0.1, 500.0)
+                            accumulatedDelayMs += (rawDtMs.toDouble() / speed)
+
+                            if (accumulatedDelayMs >= 16.0) {
+                                val delayTime = accumulatedDelayMs.toLong()
+                                delay(delayTime)
+                                accumulatedDelayMs -= delayTime
+                            }
                         }
                         lastEventTimeMs = event.timestampMs
 
-                        processEvent(event)
+                        // Pace UI recomposition to ~33 fps (every 30ms) to prevent Compose pipeline overload
+                        val now = System.currentTimeMillis()
+                        val isLastEvent = (currentIndex == eventList.size - 1)
+                        val shouldNotifyUi = isLastEvent || (now - lastUiNotifyTimeMs >= 30L)
+
+                        if (shouldNotifyUi) {
+                            lastUiNotifyTimeMs = now
+                        }
+
+                        processEvent(event, notifyUi = shouldNotifyUi)
                         currentIndex++
 
-                        if (!isHighSpeed || currentIndex % 10 == 0 || currentIndex == eventList.size) {
+                        if (shouldNotifyUi) {
                             _progress.value = PlaybackProgress(
                                 currentIndex = currentIndex,
                                 totalEvents = eventList.size,
@@ -119,6 +134,11 @@ class TrackPlaybackEngine {
                 }
             }
 
+            _progress.value = PlaybackProgress(
+                currentIndex = currentIndex,
+                totalEvents = eventList.size,
+                currentTimestampMs = if (eventList.isNotEmpty()) eventList.last().timestampMs else 0L
+            )
             _isPlaying.value = false
             _isPaused.value = false
         }
@@ -169,7 +189,7 @@ class TrackPlaybackEngine {
         _isPaused.value = true
 
         val event = eventList[currentIndex]
-        processEvent(event)
+        processEvent(event, notifyUi = true)
         currentIndex++
 
         _progress.value = PlaybackProgress(
@@ -198,7 +218,7 @@ class TrackPlaybackEngine {
         currentIndex = 0
 
         for (k in 0 until targetIndex) {
-            processEvent(eventList[k])
+            processEvent(eventList[k], notifyUi = (k == targetIndex - 1))
             currentIndex++
         }
 
@@ -209,28 +229,18 @@ class TrackPlaybackEngine {
         )
     }
 
-    private var lastGpsLocation: Location? = null
-
-    private suspend fun processEvent(event: TrackPlaybackEvent) {
+    private suspend fun processEvent(event: TrackPlaybackEvent, notifyUi: Boolean = true) {
         when (event) {
             is TrackPlaybackEvent.GpsPointEvent -> {
-                val currentGpsLocation = com.example.irishhike.util.CoordinateUtils.latLonToMetric(event.latitude, event.longitude)
-                lastGpsLocation?.let { prevLoc ->
-                    if (prevLoc.distanceTo(currentGpsLocation) > 0.5) {
-                        val bearingDeg = com.example.irishhike.util.CoordinateUtils.getBearing(prevLoc, currentGpsLocation)
-                        val bearingRad = Math.toRadians(bearingDeg)
-                        ekfEngine.setHeadingRad(bearingRad)
-                    }
-                }
-                lastGpsLocation = currentGpsLocation
-
                 val ekfState = ekfEngine.onGpsFix(
                     lat = event.latitude,
                     lon = event.longitude,
                     accuracyMeters = event.accuracyMeters,
                     activeIntervalMs = event.activeIntervalMs
                 )
-                HikeRepository.updateEkfState(ekfState)
+                if (notifyUi) {
+                    HikeRepository.updateEkfState(ekfState)
+                }
 
                 val gpsBreadcrumb = Breadcrumb(
                     id = breadcrumbIdSeq++,
@@ -239,7 +249,7 @@ class TrackPlaybackEngine {
                     isGpsFix = event.isGpsFix,
                     ekfState = ekfState
                 )
-                HikeRepository.emitBreadcrumb(gpsBreadcrumb)
+                HikeRepository.emitBreadcrumb(gpsBreadcrumb, notifyUi)
             }
             is TrackPlaybackEvent.PdrStepEvent -> {
                 ekfEngine.onStepDetected(event.headingRawRad, event.timestampMs)
@@ -247,7 +257,9 @@ class TrackPlaybackEngine {
             is TrackPlaybackEvent.TimeTickEvent -> {
                 if (ekfEngine.isInitialized) {
                     val ekfState = ekfEngine.predict(event.dtSec)
-                    HikeRepository.updateEkfState(ekfState)
+                    if (notifyUi) {
+                        HikeRepository.updateEkfState(ekfState)
+                    }
 
                     val pdrBreadcrumb = Breadcrumb(
                         id = breadcrumbIdSeq++,
@@ -256,13 +268,13 @@ class TrackPlaybackEngine {
                         isGpsFix = false,
                         ekfState = ekfState
                     )
-                    HikeRepository.emitBreadcrumb(pdrBreadcrumb)
+                    HikeRepository.emitBreadcrumb(pdrBreadcrumb, notifyUi)
                 }
             }
         }
     }
 
     fun setSpeedMultiplier(multiplier: Double) {
-        _speedMultiplier.value = multiplier.coerceAtLeast(0.1)
+        _speedMultiplier.value = multiplier.coerceIn(0.1, 500.0)
     }
 }

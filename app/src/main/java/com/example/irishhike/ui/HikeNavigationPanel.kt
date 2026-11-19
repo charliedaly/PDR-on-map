@@ -40,17 +40,17 @@ fun HikeNavigationPanel(
 
     Surface(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(10.dp),
+        shape = RoundedCornerShape(8.dp),
         color = Color(0xFF1E293B),
         tonalElevation = 2.dp
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(10.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
-            // Line 1: "Leg" label + 3 icon-only buttons further apart (Left Arrow, Right Arrow, Pencil)
+            // Line 1: Leg number + Prev / Next / Edit buttons
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -64,53 +64,50 @@ fun HikeNavigationPanel(
                 )
 
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Left Arrow Button (icons only, no text)
                     IconButton(
                         onClick = onPrevLeg,
                         enabled = canGoPrev,
-                        modifier = Modifier.size(32.dp)
+                        modifier = Modifier.size(28.dp)
                     ) {
                         Text(
                             text = "◀",
                             color = if (canGoPrev) Color.White else Color.Gray,
-                            fontSize = 14.sp,
+                            fontSize = 13.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
 
-                    // Right Arrow Button (icons only, no text)
                     IconButton(
                         onClick = onNextLeg,
                         enabled = canGoNext,
-                        modifier = Modifier.size(32.dp)
+                        modifier = Modifier.size(28.dp)
                     ) {
                         Text(
                             text = "▶",
                             color = if (canGoNext) Color.White else Color.Gray,
-                            fontSize = 14.sp,
+                            fontSize = 13.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
 
-                    // Pencil Button (opens route editor screen)
                     IconButton(
                         onClick = onEditRoute,
-                        modifier = Modifier.size(32.dp)
+                        modifier = Modifier.size(28.dp)
                     ) {
                         Text(
                             text = "✎",
                             color = Color(0xFFFFB300),
-                            fontSize = 16.sp,
+                            fontSize = 15.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
                 }
             }
 
-            // Line 2: Current leg, start name, bearing to target, length to target, target name
+            // Line 2: Start waypoint, bearing, distance, target waypoint
             val startName = activeLeg?.start?.name?.ifBlank { "Start" } ?: "Start"
             val targetName = activeLeg?.target?.name?.ifBlank { "Target" } ?: "Target"
             val legBearing = if (activeLeg != null) activeLeg.start.bearingTo(activeLeg.target) else 0.0
@@ -123,7 +120,7 @@ fun HikeNavigationPanel(
                 fontWeight = FontWeight.SemiBold
             )
 
-            // Line 3: Hiker: (000 000) 000° 10000m 0.0m/s
+            // Line 3: Hiker current coordinates, bearing, distance to target, speed
             val hikerLoc = activeEkfState.position.value
             val gridRefStr = if (activeEkfState.isInitializedWithGps) {
                 val easting6 = ((hikerLoc.x.toInt() % 100000) / 100).coerceIn(0, 999)
