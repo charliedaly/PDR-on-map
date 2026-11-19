@@ -1,22 +1,8 @@
 package com.example.irishhike.config
 
 enum class PhoneMount {
-    /**
-     * Phone top edge (+Y) points forward along the trail.
-     * Use for: Hand-held testing or lying flat/tilted on top of your backpack.
-     */
     HANDHELD_OR_PACK_TOP,
-
-    /**
-     * Phone mounted upright on a shoulder strap or chest harness,
-     * screen facing outward forward (+Z).
-     */
     SHOULDER_STRAP_SCREEN_FORWARD,
-
-    /**
-     * Phone mounted upright on a shoulder strap or chest harness,
-     * camera facing outward forward (-Z).
-     */
     SHOULDER_STRAP_CAMERA_FORWARD
 }
 
@@ -45,7 +31,7 @@ data class HikeConfig(
     val arriveThresholdMeters: Double = 10.0,
     val approachThresholdMeters: Double = 40.0,
     val offCourseHeadingDevDeg: Double = 10.0,
-    val offCourseMinSpeedMps: Double = 0.4,
+    val offCourseMinSpeedMps: Double = 0.6, // Low-speed gate: silenced below 0.6 m/s
     val driftCoolOffSec: Long = 4L,
     val steadyCoolOffSec: Long = 6L,
     val speechRate: Float = 1.0f,

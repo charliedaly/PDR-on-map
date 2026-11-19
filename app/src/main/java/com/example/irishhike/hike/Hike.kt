@@ -95,6 +95,7 @@ class Hike(var route: Route?, val config: HikeConfig = HikeConfig()) {
     fun relativeBearingCorrection(location: Location, ekfState: EkfState? = null): Double {
         val leg = currentLeg ?: return 0.0
         val requiredBearing = location.bearingTo(leg.target)
+        // Uses the bias-corrected EKF bearing
         val hikerBearing = ekfState?.let { Math.toDegrees(it.bearingRad.value) }
             ?: previousLocation?.bearingTo(location)
             ?: requiredBearing
@@ -127,7 +128,7 @@ class Hike(var route: Route?, val config: HikeConfig = HikeConfig()) {
         val arriveRadius = if (leg.target.arrive != 10.0) leg.target.arrive else config.arriveThresholdMeters
         val approachRadius = if (leg.target.approach != 40.0) leg.target.approach else config.approachThresholdMeters
 
-        // 1. TARGET_REACHED & HIKE_ENDED (Prioritize reaching current waypoint arrival zone)
+        // 1. TARGET_REACHED & HIKE_ENDED
         if (!tracker.announcedReached) {
             val distanceToTarget = location.distanceTo(leg.target)
             if (distanceToTarget < arriveRadius) {
@@ -146,10 +147,7 @@ class Hike(var route: Route?, val config: HikeConfig = HikeConfig()) {
             return LegState.HIKE_ENDED
         }
 
-        // 2. MISSED WAYPOINT CHECK:
-        // Only advance if the hiker has already passed beyond the current target waypoint (t >= 1.0)
-        // AND is closer to the next waypoint than to the current target.
-        // Prevents premature skipping on looped routes where future waypoints start close to the path.
+        // 2. MISSED WAYPOINT CHECK: Only advance if past current target AND closer to next waypoint
         val nextLeg = leg.next ?: route?.legs?.getOrNull(currentLegIndex + 1)
         if (nextLeg != null) {
             val currentTargetDist = location.distanceTo(leg.target)
@@ -160,7 +158,7 @@ class Hike(var route: Route?, val config: HikeConfig = HikeConfig()) {
             }
         }
 
-        // 3. TOO_FAR (Warn if hiker passed target beyond arrival radius and hasn't auto-advanced)
+        // 3. TOO_FAR
         if (!tracker.announcedTooFar) {
             if (isPastTarget(location, leg, arriveRadius)) {
                 tracker.announcedTooFar = true
@@ -192,35 +190,44 @@ class Hike(var route: Route?, val config: HikeConfig = HikeConfig()) {
 
         // 6. OFFCOURSE CHECK
         val currentSpeed = ekfState?.speedMps?.value ?: 0.0
+        val posVariance = ekfState?.position?.variance ?: 0.0
+
+        // GATE 1: Minimum speed gate (completely silenced when slow, paused, or opening fences)
         if (currentSpeed >= config.offCourseMinSpeedMps) {
-            val bearingVariance = ekfState?.bearingRad?.variance ?: 0.0
-            val bearingStdDevDeg = Math.toDegrees(sqrt(bearingVariance))
 
-            if (bearingStdDevDeg <= 12.0) {
-                val requiredBearing = location.bearingTo(leg.target)
-                val hikerBearing = ekfState?.let { Math.toDegrees(it.bearingRad.value) }
-                    ?: previousLocation?.bearingTo(location)
-                    ?: requiredBearing
+            // GATE 2: GPS / Position Accuracy Gate
+            // If satellite position uncertainty is high (> 64m², > 8m std dev), silence off-course prompts
+            if (posVariance <= 64.0) {
+                val bearingVariance = ekfState?.bearingRad?.variance ?: 0.0
+                val bearingStdDevDeg = Math.toDegrees(sqrt(bearingVariance))
 
-                val bearingOffset = angleDifference(hikerBearing, requiredBearing)
-                val twoSigmaUncertaintyDeg = 2.0 * bearingStdDevDeg
-                val dynamicThreshold = config.offCourseHeadingDevDeg + twoSigmaUncertaintyDeg
+                // GATE 3: Confidence Gate (only announce when bearing estimate is reliable)
+                if (bearingStdDevDeg <= 12.0) {
+                    val requiredBearing = location.bearingTo(leg.target)
+                    val hikerBearing = ekfState?.let { Math.toDegrees(it.bearingRad.value) }
+                        ?: previousLocation?.bearingTo(location)
+                        ?: requiredBearing
 
-                if (bearingOffset > dynamicThreshold) {
-                    val isDriftingFurther = bearingOffset > (lastOffCourseOffset + 2.0)
-                    val coolOffMs = if (isDriftingFurther) {
-                        config.driftCoolOffSec * 1000L
-                    } else {
-                        config.steadyCoolOffSec * 1000L
+                    val bearingOffset = angleDifference(hikerBearing, requiredBearing)
+                    val twoSigmaUncertaintyDeg = 2.0 * bearingStdDevDeg
+                    val dynamicThreshold = config.offCourseHeadingDevDeg + twoSigmaUncertaintyDeg
+
+                    if (bearingOffset > dynamicThreshold) {
+                        val isDriftingFurther = bearingOffset > (lastOffCourseOffset + 2.0)
+                        val coolOffMs = if (isDriftingFurther) {
+                            config.driftCoolOffSec * 1000L
+                        } else {
+                            config.steadyCoolOffSec * 1000L
+                        }
+
+                        if (currentTimeMs - lastOffCourseTimeMs >= coolOffMs) {
+                            lastOffCourseTimeMs = currentTimeMs
+                            lastOffCourseOffset = bearingOffset
+                            return LegState.OFFCOURSE
+                        }
+                    } else if (bearingOffset <= config.offCourseHeadingDevDeg) {
+                        lastOffCourseOffset = 0.0
                     }
-
-                    if (currentTimeMs - lastOffCourseTimeMs >= coolOffMs) {
-                        lastOffCourseTimeMs = currentTimeMs
-                        lastOffCourseOffset = bearingOffset
-                        return LegState.OFFCOURSE
-                    }
-                } else if (bearingOffset <= config.offCourseHeadingDevDeg) {
-                    lastOffCourseOffset = 0.0
                 }
             }
         }
@@ -229,9 +236,6 @@ class Hike(var route: Route?, val config: HikeConfig = HikeConfig()) {
         return LegState.OK
     }
 
-    /**
-     * Checks if the hiker's projection along the leg vector has passed beyond the target waypoint (t >= 1.0).
-     */
     private fun isPastTargetWaypoint(p: Location, leg: Leg): Boolean {
         val abx = leg.target.x - leg.start.x
         val aby = leg.target.y - leg.start.y
@@ -274,37 +278,19 @@ class Hike(var route: Route?, val config: HikeConfig = HikeConfig()) {
         val targetDesc = leg.target.description ?: ""
 
         return when (state) {
-            LegState.TARGET_REACHED -> {
-                "Reached waypoint $targetName. Proceeding to next leg."
-            }
-            LegState.HIKE_ENDED -> {
-                "Reached waypoint $targetName. Congratulations! You have completed the hike."
-            }
-            LegState.TOO_FAR -> {
-                "You have gone past waypoint $targetName."
-            }
-            LegState.APPROACHING_TARGET -> {
-                "Approaching waypoint $targetName. $targetDesc"
-            }
-            LegState.LEG_START -> {
-                "Starting leg towards $targetName. $legDesc"
-            }
+            LegState.TARGET_REACHED -> "Reached waypoint $targetName. Proceeding to next leg."
+            LegState.HIKE_ENDED -> "Reached waypoint $targetName. Congratulations! You have completed the hike."
+            LegState.TOO_FAR -> "You have gone past waypoint $targetName."
+            LegState.APPROACHING_TARGET -> "Approaching waypoint $targetName. $targetDesc"
+            LegState.LEG_START -> "Starting leg towards $targetName. $legDesc"
             LegState.OFFCOURSE -> {
                 val loc = location ?: previousLocation ?: leg.start
                 bearingCorrectionString(loc, ekfState)
             }
-            LegState.VEHICLE_SPEED_DETECTED -> {
-                "Vehicle speed detected. Step tracking paused."
-            }
-            LegState.HIKE_SPEED_RESUMED -> {
-                "Hike speed resumed. Step tracking active."
-            }
-            LegState.MISSED_WAYPOINT -> {
-                "Waypoint $targetName passed. Moving to next waypoint."
-            }
-            LegState.OK -> {
-                null
-            }
+            LegState.VEHICLE_SPEED_DETECTED -> "Vehicle speed detected. Step tracking paused."
+            LegState.HIKE_SPEED_RESUMED -> "Hike speed resumed. Step tracking active."
+            LegState.MISSED_WAYPOINT -> "Waypoint $targetName passed. Moving to next waypoint."
+            LegState.OK -> null
         }
     }
 
