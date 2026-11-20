@@ -77,6 +77,7 @@ class Hike(var route: Route?, val config: HikeConfig = HikeConfig()) {
 
     private var lastOffCourseTimeMs: Long = 0L
     private var lastOffCourseOffset: Double = 0.0
+    private var consecutiveOffCourseTicks: Int = 0
 
     fun stop() {
         isActive = false
@@ -95,7 +96,6 @@ class Hike(var route: Route?, val config: HikeConfig = HikeConfig()) {
     fun relativeBearingCorrection(location: Location, ekfState: EkfState? = null): Double {
         val leg = currentLeg ?: return 0.0
         val requiredBearing = location.bearingTo(leg.target)
-        // Uses the bias-corrected EKF bearing
         val hikerBearing = ekfState?.let { Math.toDegrees(it.bearingRad.value) }
             ?: previousLocation?.bearingTo(location)
             ?: requiredBearing
@@ -147,7 +147,7 @@ class Hike(var route: Route?, val config: HikeConfig = HikeConfig()) {
             return LegState.HIKE_ENDED
         }
 
-        // 2. MISSED WAYPOINT CHECK: Only advance if past current target AND closer to next waypoint
+        // 2. MISSED WAYPOINT CHECK: Must have moved past current target (t >= 1.0) AND be closer to next waypoint
         val nextLeg = leg.next ?: route?.legs?.getOrNull(currentLegIndex + 1)
         if (nextLeg != null) {
             val currentTargetDist = location.distanceTo(leg.target)
@@ -188,20 +188,19 @@ class Hike(var route: Route?, val config: HikeConfig = HikeConfig()) {
             }
         }
 
-        // 6. OFFCOURSE CHECK
+        // 6. OFFCOURSE CHECK WITH PROPORTIONATE COOLDOWN & TWO-TICK DEBOUNCE
         val currentSpeed = ekfState?.speedMps?.value ?: 0.0
         val posVariance = ekfState?.position?.variance ?: 0.0
 
-        // GATE 1: Minimum speed gate (completely silenced when slow, paused, or opening fences)
+        // Gate 1: Silenced when speed is low (< 0.6 m/s)
         if (currentSpeed >= config.offCourseMinSpeedMps) {
 
-            // GATE 2: GPS / Position Accuracy Gate
-            // If satellite position uncertainty is high (> 64m², > 8m std dev), silence off-course prompts
+            // Gate 2: Silenced when GPS position accuracy is poor (> 64 m² uncertainty)
             if (posVariance <= 64.0) {
                 val bearingVariance = ekfState?.bearingRad?.variance ?: 0.0
                 val bearingStdDevDeg = Math.toDegrees(sqrt(bearingVariance))
 
-                // GATE 3: Confidence Gate (only announce when bearing estimate is reliable)
+                // Gate 3: Bearing estimate must be confident (std dev <= 12°)
                 if (bearingStdDevDeg <= 12.0) {
                     val requiredBearing = location.bearingTo(leg.target)
                     val hikerBearing = ekfState?.let { Math.toDegrees(it.bearingRad.value) }
@@ -209,27 +208,37 @@ class Hike(var route: Route?, val config: HikeConfig = HikeConfig()) {
                         ?: requiredBearing
 
                     val bearingOffset = angleDifference(hikerBearing, requiredBearing)
-                    val twoSigmaUncertaintyDeg = 2.0 * bearingStdDevDeg
-                    val dynamicThreshold = config.offCourseHeadingDevDeg + twoSigmaUncertaintyDeg
+                    val minAngle = config.offCourseMinAngleDeg
 
-                    if (bearingOffset > dynamicThreshold) {
-                        val isDriftingFurther = bearingOffset > (lastOffCourseOffset + 2.0)
-                        val coolOffMs = if (isDriftingFurther) {
-                            config.driftCoolOffSec * 1000L
-                        } else {
-                            config.steadyCoolOffSec * 1000L
-                        }
+                    if (bearingOffset >= minAngle) {
+                        consecutiveOffCourseTicks++
 
-                        if (currentTimeMs - lastOffCourseTimeMs >= coolOffMs) {
-                            lastOffCourseTimeMs = currentTimeMs
-                            lastOffCourseOffset = bearingOffset
-                            return LegState.OFFCOURSE
+                        // Debounce: Require at least 2 consecutive ticks before speaking
+                        if (consecutiveOffCourseTicks >= 2) {
+                            // Proportionate cooldown interpolation:
+                            // minAngle (e.g. 20°) -> maxCooldown (e.g. 25s)
+                            // severeAngle (e.g. 90°) -> minCooldown (e.g. 4s)
+                            val severeAngle = config.offCourseSevereAngleDeg
+                            val range = (severeAngle - minAngle).coerceAtLeast(1.0)
+                            val t = ((bearingOffset - minAngle) / range).coerceIn(0.0, 1.0)
+                            val coolOffSec = config.offCourseMaxCooldownSec - t * (config.offCourseMaxCooldownSec - config.offCourseMinCooldownSec)
+                            val coolOffMs = (coolOffSec * 1000.0).toLong()
+
+                            if (currentTimeMs - lastOffCourseTimeMs >= coolOffMs) {
+                                lastOffCourseTimeMs = currentTimeMs
+                                lastOffCourseOffset = bearingOffset
+                                return LegState.OFFCOURSE
+                            }
                         }
-                    } else if (bearingOffset <= config.offCourseHeadingDevDeg) {
+                    } else if (bearingOffset <= (minAngle - 3.0)) {
+                        // Reset when hiker returns comfortably inside the corridor
+                        consecutiveOffCourseTicks = 0
                         lastOffCourseOffset = 0.0
                     }
                 }
             }
+        } else {
+            consecutiveOffCourseTicks = 0
         }
 
         // 7. OK

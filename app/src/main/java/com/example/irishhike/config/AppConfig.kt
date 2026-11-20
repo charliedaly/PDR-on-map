@@ -30,10 +30,16 @@ data class HikeConfig(
     val showAudioMessages: Boolean = false,
     val arriveThresholdMeters: Double = 10.0,
     val approachThresholdMeters: Double = 40.0,
-    val offCourseHeadingDevDeg: Double = 10.0,
-    val offCourseMinSpeedMps: Double = 0.6, // Low-speed gate: silenced below 0.6 m/s
+    val offCourseMinSpeedMps: Double = 0.6,
+    // Dynamic Angle & Cooldown configuration:
+    val offCourseMinAngleDeg: Double = 20.0,      // Minimum angle to trigger off-course (e.g. 20°)
+    val offCourseMaxCooldownSec: Long = 25L,      // Long cooldown at mild angle (e.g. 25s)
+    val offCourseSevereAngleDeg: Double = 90.0,   // Severe angle threshold (e.g. 90°)
+    val offCourseMinCooldownSec: Long = 4L,       // Short cooldown at severe angle (e.g. 4s)
+    // Legacy aliases for backward compatibility:
+    val offCourseHeadingDevDeg: Double = 20.0,
     val driftCoolOffSec: Long = 4L,
-    val steadyCoolOffSec: Long = 6L,
+    val steadyCoolOffSec: Long = 25L,
     val speechRate: Float = 1.0f,
     val phoneMount: PhoneMount = PhoneMount.HANDHELD_OR_PACK_TOP
 )

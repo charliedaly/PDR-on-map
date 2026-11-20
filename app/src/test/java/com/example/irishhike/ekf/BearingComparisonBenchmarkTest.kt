@@ -61,7 +61,7 @@ class BearingComparisonBenchmarkTest {
                     ekf.getEkfState()
                 }
                 is TelemetryEvent.PredictionTickEvent -> {
-                    ekf.predict(event.dtSec) // Single argument
+                    ekf.predict(event.dtSec)
                 }
             }
 

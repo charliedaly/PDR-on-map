@@ -175,28 +175,37 @@ fun MapScreen(
         )
     }
 
+    // Filters out spurious GPS glitches (> 15 km/h) and caps speed to a realistic hiking range
     val speedAndStrideStats = remember(validBreadcrumbs.size, breadcrumbConfig.colorMode) {
-        var minS = Double.MAX_VALUE
-        var maxS = -Double.MAX_VALUE
-        var minSt = Double.MAX_VALUE
-        var maxSt = -Double.MAX_VALUE
+        if (breadcrumbConfig.colorMode == BreadcrumbColorMode.GPS_PDR || validBreadcrumbs.isEmpty()) {
+            floatArrayOf(0.0f, 2.0f, 0.4f, 1.2f)
+        } else {
+            var minS = Double.MAX_VALUE
+            var maxS = -Double.MAX_VALUE
+            var minSt = Double.MAX_VALUE
+            var maxSt = -Double.MAX_VALUE
 
-        if (validBreadcrumbs.isNotEmpty()) {
+            // Step 1: Collect valid hiking speeds (ignoring GPS multipath spikes > 4.2 m/s / 15 km/h)
             for (i in validBreadcrumbs.indices) {
                 val s = getBreadcrumbSpeed(i, validBreadcrumbs)
-                if (s < minS) minS = s
-                if (s > maxS) maxS = s
+                if (s in 0.1..4.2) {
+                    if (s < minS) minS = s
+                    if (s > maxS) maxS = s
+                }
 
                 val st = getBreadcrumbStride(i, validBreadcrumbs)
                 if (st < minSt) minSt = st
                 if (st > maxSt) maxSt = st
             }
+
+            // Cap the upper range to realistic brisk hiking (~2.2 m/s / 8.0 km/h)
+            val effMinS = if (minS == Double.MAX_VALUE) 0.0 else minS.coerceAtLeast(0.0)
+            val effMaxS = if (maxS <= effMinS) 2.2 else maxS.coerceIn(1.5, 2.8)
+            val effMinSt = if (minSt == Double.MAX_VALUE) 0.45 else minSt.coerceIn(0.40, 0.70)
+            val effMaxSt = if (maxSt <= effMinSt) 1.1 else maxSt.coerceIn(0.80, 1.25)
+
+            floatArrayOf(effMinS.toFloat(), effMaxS.toFloat(), effMinSt.toFloat(), effMaxSt.toFloat())
         }
-        val effMinS = if (minS == Double.MAX_VALUE || maxS <= minS) 0.0 else minS
-        val effMaxS = if (maxS == -Double.MAX_VALUE || maxS <= minS) 2.5 else maxS
-        val effMinSt = if (minSt == Double.MAX_VALUE || maxSt <= minS) 0.4 else minSt
-        val effMaxSt = if (maxSt == -Double.MAX_VALUE || maxSt <= minS) 1.2 else maxSt
-        floatArrayOf(effMinS.toFloat(), effMaxS.toFloat(), effMinSt.toFloat(), effMaxSt.toFloat())
     }
 
     val minSpeed = speedAndStrideStats[0].toDouble()
@@ -749,16 +758,24 @@ fun MapScreen(
                 }
             }
 
+            // Screen-pixel downsampling (2px threshold)
             val renderBreadcrumbs = mutableListOf<Breadcrumb>()
-            var lastOffset: Offset? = null
+            val offsetsList = mutableListOf<Offset>()
+            var lastPx = -9999f
+            var lastPy = -9999f
+
             for (bc in validBreadcrumbs) {
                 if (bc.location.x !in visMinX..visMaxX || bc.location.y !in visMinY..visMaxY) {
                     continue
                 }
                 val offset = toCanvasOffset(bc.location.x, bc.location.y)
-                if (lastOffset == null || (offset.x - lastOffset.x).let { it * it } + (offset.y - lastOffset.y).let { it * it } >= 1.0f) {
+                val dx = offset.x - lastPx
+                val dy = offset.y - lastPy
+                if (dx * dx + dy * dy >= 4.0f) {
                     renderBreadcrumbs.add(bc)
-                    lastOffset = offset
+                    offsetsList.add(offset)
+                    lastPx = offset.x
+                    lastPy = offset.y
                 }
             }
 
@@ -772,56 +789,56 @@ fun MapScreen(
                 val strideColor1 = Color(breadcrumbConfig.strideStartColor)
                 val strideColor2 = Color(breadcrumbConfig.strideEndColor)
 
-                val cachedSpeeds = FloatArray(renderBreadcrumbs.size) { i ->
-                    getBreadcrumbSpeed(i, renderBreadcrumbs).toFloat()
-                }
+                val lineStroke = 1.0f * zoomScale.coerceIn(0.5f, 2f)
+                val baseDotRadius = breadcrumbConfig.dotDiameterPx * zoomScale.coerceIn(0.5f, 2.0f)
 
-                val offsets = Array(renderBreadcrumbs.size) { i ->
-                    toCanvasOffset(renderBreadcrumbs[i].location.x, renderBreadcrumbs[i].location.y)
-                }
-
-                val baseColors = Array(renderBreadcrumbs.size) { i ->
+                for (i in 1 until renderBreadcrumbs.size) {
+                    val p1 = offsetsList[i - 1]
+                    val p2 = offsetsList[i]
                     val bc = renderBreadcrumbs[i]
-                    when (breadcrumbConfig.colorMode) {
-                        BreadcrumbColorMode.GPS_PDR -> {
-                            if (bc.isGpsFix) Color(0xFFFF3333) else Color(0xFF2196F3)
-                        }
+
+                    val color = when (breadcrumbConfig.colorMode) {
+                        BreadcrumbColorMode.GPS_PDR -> if (bc.isGpsFix) Color(0xFFFF3333) else Color(0xFF2196F3)
                         BreadcrumbColorMode.SPEED -> {
-                            val t = ((cachedSpeeds[i] - minSpeed) / speedRange).toFloat().coerceIn(0.0f, 1.0f)
+                            val spd = (bc.ekfState?.speedMps?.value ?: 0.0).coerceIn(0.0, 4.2)
+                            val t = ((spd - minSpeed) / speedRange).toFloat().coerceIn(0.0f, 1.0f)
                             lerp(speedColor1, speedColor2, t)
                         }
                         BreadcrumbColorMode.STRIDE -> {
-                            val stride = getBreadcrumbStride(i, renderBreadcrumbs)
+                            val stride = bc.ekfState?.strideLengthMeters?.value ?: 0.75
                             val t = ((stride - minStride) / strideRange).toFloat().coerceIn(0.0f, 1.0f)
                             lerp(strideColor1, strideColor2, t)
                         }
                     }
-                }
-
-                val lineStroke = 1.0f * zoomScale.coerceIn(0.5f, 2f)
-
-                // High performance solid color line drawing (NO Brush.linearGradient allocation per step)
-                for (i in 1 until renderBreadcrumbs.size) {
-                    val p1 = offsets[i - 1]
-                    val p2 = offsets[i]
 
                     val alpha = if (breadcrumbConfig.fadeWithAge) (0.2f + 0.8f * (i / totalCount)) else 1.0f
-                    val color = baseColors[i].copy(alpha = baseColors[i].alpha * alpha)
+                    val finalColor = color.copy(alpha = color.alpha * alpha)
 
                     drawLine(
-                        color = color,
+                        color = finalColor,
                         start = p1,
                         end = p2,
                         strokeWidth = lineStroke
                     )
                 }
 
-                val baseDotRadius = breadcrumbConfig.dotDiameterPx * zoomScale.coerceIn(0.5f, 2.0f)
-
                 renderBreadcrumbs.forEachIndexed { i, bc ->
-                    val center = offsets[i]
+                    val center = offsetsList[i]
+                    val color = when (breadcrumbConfig.colorMode) {
+                        BreadcrumbColorMode.GPS_PDR -> if (bc.isGpsFix) Color(0xFFFF3333) else Color(0xFF2196F3)
+                        BreadcrumbColorMode.SPEED -> {
+                            val spd = (bc.ekfState?.speedMps?.value ?: 0.0).coerceIn(0.0, 4.2)
+                            val t = ((spd - minSpeed) / speedRange).toFloat().coerceIn(0.0f, 1.0f)
+                            lerp(speedColor1, speedColor2, t)
+                        }
+                        BreadcrumbColorMode.STRIDE -> {
+                            val stride = bc.ekfState?.strideLengthMeters?.value ?: 0.75
+                            val t = ((stride - minStride) / strideRange).toFloat().coerceIn(0.0f, 1.0f)
+                            lerp(strideColor1, strideColor2, t)
+                        }
+                    }
                     val alphaMultiplier = if (breadcrumbConfig.fadeWithAge) (0.2f + 0.8f * (i / totalCount)) else 1.0f
-                    val finalColor = baseColors[i].copy(alpha = baseColors[i].alpha * alphaMultiplier)
+                    val finalColor = color.copy(alpha = color.alpha * alphaMultiplier)
 
                     if (breadcrumbConfig.showAccuracyCircles && bc.ekfState != null) {
                         val accRadiusPx = (sqrt(bc.ekfState.position.variance) * currentScale).toFloat().coerceIn(4f, 80f)
@@ -1140,7 +1157,7 @@ fun MapScreen(
             }
         }
 
-        // Color Legend Overlay Card
+        // Color Legend Overlay Card (Displaying clean realistic speeds like 0.5 to 7.2 km/h)
         if (breadcrumbConfig.showBreadcrumbs && validBreadcrumbs.isNotEmpty() && (breadcrumbConfig.colorMode == BreadcrumbColorMode.SPEED || breadcrumbConfig.colorMode == BreadcrumbColorMode.STRIDE)) {
             val isSpeed = breadcrumbConfig.colorMode == BreadcrumbColorMode.SPEED
             val minVal = if (isSpeed) minSpeed * 3.6 else minStride
@@ -1162,7 +1179,7 @@ fun MapScreen(
                 ) {
                     Text(titleStr, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color.White)
                     if (isSameVal) {
-                        Text("Value: %.2f $unitStr".format(minVal), style = MaterialTheme.typography.labelSmall, color = Color.White)
+                        Text("Value: %.1f $unitStr".format(minVal), style = MaterialTheme.typography.labelSmall, color = Color.White)
                     } else {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -1305,7 +1322,6 @@ private fun MapSettingsTab(
     onUpdateHikeConfig: ((HikeConfig) -> HikeConfig) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        // Toggle for audio messages panel also present in Map tab for direct convenience
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -1503,7 +1519,6 @@ private fun AudioSettingsTab(
     onUpdateHikeConfig: ((HikeConfig) -> HikeConfig) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        // Toggle for audio messages panel in Audio tab
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -1534,45 +1549,59 @@ private fun AudioSettingsTab(
             )
         }
 
-        var arriveText by remember(hikeConfig) { mutableStateOf("%.0f".format(hikeConfig.arriveThresholdMeters)) }
+        var minAngleText by remember(hikeConfig) { mutableStateOf("%.0f".format(hikeConfig.offCourseMinAngleDeg)) }
         OutlinedTextField(
-            value = arriveText,
+            value = minAngleText,
             onValueChange = {
-                arriveText = it
-                it.toDoubleOrNull()?.let { newMeters ->
-                    onUpdateHikeConfig { cfg -> cfg.copy(arriveThresholdMeters = newMeters) }
+                minAngleText = it
+                it.toDoubleOrNull()?.let { newAngle ->
+                    onUpdateHikeConfig { cfg -> cfg.copy(offCourseMinAngleDeg = newAngle, offCourseHeadingDevDeg = newAngle) }
                 }
             },
             singleLine = true,
-            label = { Text("Target Arrival Radius (meters)") },
+            label = { Text("Mild Off-Course Threshold Angle (degrees)") },
             modifier = Modifier.fillMaxWidth()
         )
 
-        var approachText by remember(hikeConfig) { mutableStateOf("%.0f".format(hikeConfig.approachThresholdMeters)) }
+        var maxCooldownText by remember(hikeConfig) { mutableStateOf("%d".format(hikeConfig.offCourseMaxCooldownSec)) }
         OutlinedTextField(
-            value = approachText,
+            value = maxCooldownText,
             onValueChange = {
-                approachText = it
-                it.toDoubleOrNull()?.let { newMeters ->
-                    onUpdateHikeConfig { cfg -> cfg.copy(approachThresholdMeters = newMeters) }
+                maxCooldownText = it
+                it.toLongOrNull()?.let { newSec ->
+                    onUpdateHikeConfig { cfg -> cfg.copy(offCourseMaxCooldownSec = newSec, steadyCoolOffSec = newSec) }
                 }
             },
             singleLine = true,
-            label = { Text("Target Approach Radius (meters)") },
+            label = { Text("Mild Off-Course Cooldown (seconds)") },
             modifier = Modifier.fillMaxWidth()
         )
 
-        var offCourseText by remember(hikeConfig) { mutableStateOf("%.0f".format(hikeConfig.offCourseHeadingDevDeg)) }
+        var severeAngleText by remember(hikeConfig) { mutableStateOf("%.0f".format(hikeConfig.offCourseSevereAngleDeg)) }
         OutlinedTextField(
-            value = offCourseText,
+            value = severeAngleText,
             onValueChange = {
-                offCourseText = it
-                it.toDoubleOrNull()?.let { newDeg ->
-                    onUpdateHikeConfig { cfg -> cfg.copy(offCourseHeadingDevDeg = newDeg) }
+                severeAngleText = it
+                it.toDoubleOrNull()?.let { newAngle ->
+                    onUpdateHikeConfig { cfg -> cfg.copy(offCourseSevereAngleDeg = newAngle) }
                 }
             },
             singleLine = true,
-            label = { Text("Off-Course Heading Deviation (degrees)") },
+            label = { Text("Severe Off-Course Threshold Angle (degrees)") },
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        var minCooldownText by remember(hikeConfig) { mutableStateOf("%d".format(hikeConfig.offCourseMinCooldownSec)) }
+        OutlinedTextField(
+            value = minCooldownText,
+            onValueChange = {
+                minCooldownText = it
+                it.toLongOrNull()?.let { newSec ->
+                    onUpdateHikeConfig { cfg -> cfg.copy(offCourseMinCooldownSec = newSec, driftCoolOffSec = newSec) }
+                }
+            },
+            singleLine = true,
+            label = { Text("Severe Off-Course Cooldown (seconds)") },
             modifier = Modifier.fillMaxWidth()
         )
 
@@ -1733,8 +1762,16 @@ private fun DevSettingsTab(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text("Telemetry Dashboard Viewport", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                Text("Display live EKF state telemetry dashboard", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    text = "Telemetry Dashboard Viewport",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = "Display live EKF state telemetry dashboard",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
             Switch(
                 checked = mapConfig.showTelemetryViewport,

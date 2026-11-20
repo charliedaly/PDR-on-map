@@ -50,11 +50,18 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
     private var lastRawSensorHeadingRad: Double = 0.0
     private var isHeadingInitialized = false
 
-    // Tracking metrics between consecutive GPS fixes for stride and bias adaptation
-    private var stepsSinceGpsFix: Int = 0
-    private var distanceSinceGpsFix: Double = 0.0
-    private var headingSinAccum: Double = 0.0
-    private var headingCosAccum: Double = 0.0
+    // Previous GPS location for course over ground & velocity calculations
+    private var prevGpsX: Double? = null
+    private var prevGpsY: Double? = null
+    private var prevGpsTimeMs: Long = 0L
+
+    // Calibration baseline anchor across multiple 1 Hz fixes (accumulates until >= 7.0m)
+    private var anchorGpsX: Double = 0.0
+    private var anchorGpsY: Double = 0.0
+    private var hasAnchor: Boolean = false
+    private var stepsInBaseline: Int = 0
+    private var rawHeadingSinSum: Double = 0.0
+    private var rawHeadingCosSum: Double = 0.0
 
     private var stepCount: Int = 0
     private var gpsFixCount: Int = 0
@@ -91,8 +98,11 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
         currentHeadingRad = 0.0
         lastRawSensorHeadingRad = 0.0
         isHeadingInitialized = false
+        prevGpsX = null
+        prevGpsY = null
+        prevGpsTimeMs = 0L
 
-        resetInterGpsMetrics()
+        resetBaseline()
         stepCount = 0
         gpsFixCount = 0
     }
@@ -106,7 +116,7 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
             currentHeadingRad = normalized
         } else {
             val diff = normalizeAngleRad(normalized - currentHeadingRad)
-            // Circular exponential moving average: smooths chest bobbing while tracking turns
+            // Circular exponential moving average: smooths chest bobbing without lagging real turns
             currentHeadingRad = normalizeAngleRad(currentHeadingRad + 0.25 * diff)
         }
     }
@@ -116,6 +126,7 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
         if (!isInitializedWithGps) return getEkfState()
 
         val clampedDt = dtSec.coerceIn(0.01, 2.0)
+        // Use event timestamp if replaying, system time if live
         val now = if (currentEventTimeMs > 0L) currentEventTimeMs else System.currentTimeMillis()
         val timeSinceStepSec = if (lastStepTimestampMs > 0L) {
             ((now - lastStepTimestampMs) / 1000.0).coerceAtLeast(0.0)
@@ -123,8 +134,8 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
             2.0
         }
 
-        // Velocity decay if stationary
-        if (timeSinceStepSec > 1.2) {
+        // Velocity decay when stationary for > 1.5s
+        if (timeSinceStepSec > 1.5) {
             val decay = exp(-3.0 * clampedDt)
             velX *= decay
             velY *= decay
@@ -138,8 +149,7 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
 
     /**
      * PDR Step Propagation.
-     * Advances position along effective heading (raw sensor heading minus learned compass bias)
-     * using the dynamically calibrated stride length.
+     * Advances position along the bias-corrected heading using the calibrated stride length.
      */
     @Synchronized
     fun onStepDetected(headingRawRad: Double, timestampMs: Long) {
@@ -149,7 +159,7 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
         stepCount++
         lastRawSensorHeadingRad = headingRawRad
 
-        // 1. Subtract learned compass bias so dead-reckoning and navigation follow true ground motion
+        // Subtract learned compass bias so turns follow true ground motion
         val effectiveHeading = normalizeAngleRad(headingRawRad - compassBiasRad)
         setHeadingRad(effectiveHeading)
 
@@ -160,7 +170,7 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
         }
         lastStepTimestampMs = timestampMs
 
-        // 2. Dead-reckon position using dynamically estimated stride length
+        // Advance position using dynamically calibrated stride length
         val dX = strideMeters * sin(currentHeadingRad)
         val dY = strideMeters * cos(currentHeadingRad)
 
@@ -173,16 +183,12 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
         varPosX += 0.04
         varPosY += 0.04
 
-        // 3. Accumulate step metrics since last GPS fix for calibration
-        stepsSinceGpsFix++
-        distanceSinceGpsFix += strideMeters
-        headingSinAccum += sin(currentHeadingRad)
-        headingCosAccum += cos(currentHeadingRad)
+        // Accumulate raw step metrics for baseline calibration
+        stepsInBaseline++
+        rawHeadingSinSum += sin(headingRawRad)
+        rawHeadingCosSum += cos(headingRawRad)
     }
 
-    /**
-     * Calibrate mount bias directly against satellite Course Over Ground when moving at walking speed.
-     */
     @Synchronized
     fun onGpsHeadingUpdate(gpsBearingRad: Double) {
         if (!isHeadingInitialized) {
@@ -193,11 +199,13 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
 
         val observedBias = normalizeAngleRad(lastRawSensorHeadingRad - gpsBearingRad)
         val diff = normalizeAngleRad(observedBias - compassBiasRad)
-        compassBiasRad = normalizeAngleRad(compassBiasRad + 0.06 * diff)
+        compassBiasRad = normalizeAngleRad(compassBiasRad + 0.08 * diff)
     }
 
     /**
-     * Kalman Innovation Update for GPS Position, Stride Length, and Compass Bias.
+     * GPS Measurement Update.
+     * Fuses position innovation and calibrates stride length and compass bias
+     * over a robust >= 7.0 meter baseline across multiple GPS fixes.
      */
     @Synchronized
     fun onGpsFix(
@@ -218,12 +226,18 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
             posY = gpsLocation.y
             velX = 0.0
             velY = 0.0
+            prevGpsX = gpsLocation.x
+            prevGpsY = gpsLocation.y
+            prevGpsTimeMs = timestampMs
+            anchorGpsX = gpsLocation.x
+            anchorGpsY = gpsLocation.y
+            hasAnchor = true
             strideMeters = config.defaultStrideMeters
             compassBiasRad = 0.0
             varPosX = (accuracyMeters * accuracyMeters).toDouble().coerceIn(4.0, 64.0)
             varPosY = varPosX
             isInitializedWithGps = true
-            resetInterGpsMetrics()
+            resetBaseline(gpsLocation.x, gpsLocation.y)
             return getEkfState(activeIntervalMs)
         }
 
@@ -231,13 +245,37 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
         val deltaY = gpsLocation.y - posY
         val distanceToGps = hypot(deltaX, deltaY)
 
-        // Watchdog: If PDR ever drifts > 25m from good GPS (<= 15m), re-anchor cleanly
+        // Derive GPS Course Over Ground and velocity from consecutive fixes
+        val pX = prevGpsX
+        val pY = prevGpsY
+        if (pX != null && pY != null && prevGpsTimeMs > 0L) {
+            val gpsDisplacement = hypot(gpsLocation.x - pX, gpsLocation.y - pY)
+            val dtSec = ((timestampMs - prevGpsTimeMs) / 1000.0).coerceIn(0.2, 5.0)
+            val gpsSpeedMps = gpsDisplacement / dtSec
+
+            if (gpsDisplacement >= 1.5 && accuracyMeters <= 10.0f && gpsSpeedMps >= 0.5) {
+                val gpsCourseRad = atan2(gpsLocation.x - pX, gpsLocation.y - pY)
+                onGpsHeadingUpdate(gpsCourseRad)
+
+                // If step sensor is inactive (e.g. replaying a GPX track), heading follows Course Over Ground
+                if (stepCount == 0 || (timestampMs - lastStepTimestampMs > 3000L)) {
+                    setHeadingRad(gpsCourseRad)
+                    velX = gpsSpeedMps * sin(gpsCourseRad)
+                    velY = gpsSpeedMps * cos(gpsCourseRad)
+                }
+            }
+        }
+        prevGpsX = gpsLocation.x
+        prevGpsY = gpsLocation.y
+        prevGpsTimeMs = timestampMs
+
+        // Watchdog: Clean re-anchor if PDR drifted severely
         if (distanceToGps > 25.0 && accuracyMeters <= 15.0f) {
             posX = gpsLocation.x
             posY = gpsLocation.y
             varPosX = (accuracyMeters * accuracyMeters).toDouble().coerceIn(4.0, 36.0)
             varPosY = varPosX
-            resetInterGpsMetrics()
+            resetBaseline(gpsLocation.x, gpsLocation.y)
             return getEkfState(activeIntervalMs)
         }
 
@@ -258,53 +296,56 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
         varPosY = varPosY.coerceIn(1.0, 100.0)
 
         // -------------------------------------------------------------
-        // DYNAMIC STRIDE LENGTH & COMPASS BIAS ESTIMATION
+        // DYNAMIC STRIDE LENGTH & COMPASS BIAS CALIBRATION
+        // Evaluated across a robust >= 7.0 meter GPS baseline
         // -------------------------------------------------------------
-        // Only adapt when:
-        // 1. GPS accuracy is trustworthy (accuracy <= 12m)
-        // 2. We have walked meaningful distance since last fix (distance >= 3.5m and at least 3 steps)
-        // 3. Headings during this interval were consistent (not spinning in place or turning a sharp bend)
-        if (accuracyMeters <= 12.0f && distanceSinceGpsFix >= 3.5 && stepsSinceGpsFix >= 3) {
-            val meanSin = headingSinAccum / stepsSinceGpsFix
-            val meanCos = headingCosAccum / stepsSinceGpsFix
-            val headingConsistency = hypot(meanSin, meanCos)
+        if (!hasAnchor) {
+            resetBaseline(gpsLocation.x, gpsLocation.y)
+        } else if (accuracyMeters <= 12.0f) {
+            val baselineGpsDist = hypot(gpsLocation.x - anchorGpsX, gpsLocation.y - anchorGpsY)
 
-            if (headingConsistency > 0.88) {
-                val avgIntervalHeading = atan2(meanSin, meanCos)
+            // Once the hiker has traversed >= 7.0 meters and taken >= 6 steps
+            if (baselineGpsDist >= 7.0 && stepsInBaseline >= 6) {
+                val meanSin = rawHeadingSinSum / stepsInBaseline
+                val meanCos = rawHeadingCosSum / stepsInBaseline
+                val pathStraightness = hypot(meanSin, meanCos) // 1.0 = straight line
 
-                // Along-track error: displacement parallel to walking direction
-                val alongTrackError = deltaX * sin(avgIntervalHeading) + deltaY * cos(avgIntervalHeading)
-                // Cross-track error: displacement perpendicular to walking direction (positive = GPS is right of PDR)
-                val crossTrackError = deltaX * cos(avgIntervalHeading) - deltaY * sin(avgIntervalHeading)
+                // Only calibrate if the path was relatively straight (reject sharp turns)
+                if (pathStraightness >= 0.82) {
+                    val trueGpsBearing = atan2(gpsLocation.x - anchorGpsX, gpsLocation.y - anchorGpsY)
+                    val avgRawHeading = atan2(meanSin, meanCos)
 
-                // A. Stride Length Adaptation
-                val impliedDistance = distanceSinceGpsFix + alongTrackError
-                if (impliedDistance > 1.0) {
-                    val observedStride = impliedDistance / stepsSinceGpsFix
-                    val strideWeight = (0.12 * (1.0 - (accuracyMeters / 15.0))).coerceIn(0.03, 0.15)
-                    strideMeters += strideWeight * (observedStride - strideMeters)
+                    // 1. Calibrate Stride Length: True GPS Distance / Actual Steps Taken
+                    val measuredStride = baselineGpsDist / stepsInBaseline
+                    val clampedStride = measuredStride.coerceIn(config.minStrideMeters, config.maxStrideMeters)
+                    val strideWeight = (0.20 * (1.0 - (accuracyMeters / 15.0))).coerceIn(0.05, 0.20)
+                    strideMeters += strideWeight * (clampedStride - strideMeters)
                     strideMeters = strideMeters.coerceIn(config.minStrideMeters, config.maxStrideMeters)
                     varStride = (varStride * 0.95 + 0.001).coerceIn(0.001, 0.05)
+
+                    // 2. Calibrate Compass Mount Bias: Raw Sensor Vector vs. True Ground Track
+                    val observedBias = normalizeAngleRad(avgRawHeading - trueGpsBearing)
+                    val biasError = normalizeAngleRad(observedBias - compassBiasRad)
+                    val biasWeight = (0.15 * (1.0 - (accuracyMeters / 15.0))).coerceIn(0.03, 0.15)
+                    compassBiasRad = normalizeAngleRad(compassBiasRad + biasWeight * biasError)
+                    varBias = (varBias * 0.95 + 0.002).coerceIn(0.002, 0.10)
                 }
 
-                // B. Compass Bias Adaptation
-                val impliedAngularError = atan2(crossTrackError, distanceSinceGpsFix)
-                val clampedAngularError = impliedAngularError.coerceIn(-0.10, 0.10)
-                val biasWeight = (0.10 * (1.0 - (accuracyMeters / 15.0))).coerceIn(0.02, 0.12)
-                compassBiasRad = normalizeAngleRad(compassBiasRad - biasWeight * clampedAngularError)
-                varBias = (varBias * 0.95 + 0.002).coerceIn(0.002, 0.10)
+                // Advance the anchor forward for the next 7-meter baseline
+                resetBaseline(gpsLocation.x, gpsLocation.y)
             }
         }
 
-        resetInterGpsMetrics()
         return getEkfState(activeIntervalMs)
     }
 
-    private fun resetInterGpsMetrics() {
-        stepsSinceGpsFix = 0
-        distanceSinceGpsFix = 0.0
-        headingSinAccum = 0.0
-        headingCosAccum = 0.0
+    private fun resetBaseline(newAnchorX: Double = posX, newAnchorY: Double = posY) {
+        anchorGpsX = newAnchorX
+        anchorGpsY = newAnchorY
+        hasAnchor = true
+        stepsInBaseline = 0
+        rawHeadingSinSum = 0.0
+        rawHeadingCosSum = 0.0
     }
 
     fun getEkfState(activeIntervalMs: Long = 1000L): EkfState {
@@ -318,7 +359,7 @@ class PdrEkfEngine(val config: EkfConfig = EkfConfig()) {
         }
 
         return EkfState(
-            timestampMs = System.currentTimeMillis(),
+            timestampMs = lastGpsTimestampMs.coerceAtLeast(lastStepTimestampMs).coerceAtLeast(System.currentTimeMillis()),
             position = Estimate(Vector2D(posX, posY), posVarCombined),
             velocity = Estimate(Vector2D(velX, velY), 0.05),
             bearingRad = Estimate(currentHeadingRad, bearingVar),

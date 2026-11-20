@@ -11,21 +11,22 @@ The app runs an uninterrupted foreground service holding a partial wake lock, in
 
 ### Metric Coordinate System & Grid Calibration
 * **Internal Irish Metric Grid:** All location coordinates are stored and manipulated as metric Easting ($x$) and Northing ($y$) in meters. All distance (`distanceTo`) and bearing (`bearingTo`) calculations operate exclusively on this metric grid.
-* **EPSG:1641 / EPSG:1753 Bursa-Wolf Helmert Transformation:** Converts between Ireland 1965 (TM65 / Airy 1830 Modified ellipsoid) and WGS84 / ETRS89 ellipsoids using the standard 7-parameter Position Vector Helmert transformation matrix.
+* **EPSG:1641 / EPSG:1753 Bursa-Wolf Helmert Transformation:** Converts between Ireland 1965 (TM65 / Airy 1830 Modified) and WGS84 / ETRS89 ellipsoids using the standard 7-parameter Position Vector Helmert transformation matrix.
 * **Sub-Meter 10km Grid Offsets & 2D Bilinear Interpolation:** Loads local grid shift corrections from `irish_grid_offsets_10km.json` and applies 2D Bilinear Interpolation across 10km grid node corners ($c_{00}, c_{10}, c_{01}, c_{11}$) to achieve sub-meter ($\le 0.10\text{m}$) coordinate conversion accuracy across Ireland.
 * **Initial GPS Fix EKF Initialization:** When PDR tracking is initiated, the service fetches an initial GPS fix to anchor the grid origin and initialize the state vector $X_0 = [x_0, y_0, 0, 0, L_0, b_{\theta, 0}]^T$.
 
 ### Independent `Hike` Navigation Engine & Configuration (`HikeConfig`)
 * **Session Lifecycle:** An independent `Hike` instance comes into existence when tracking starts (`HikeRepository.startHike`). When tracking stops (`HikeRepository.stopHike`), background tracking ceases while the hike state and trajectory are preserved until tracking is started again.
-* **Configurable Thresholds (`HikeConfig`):** All navigation magic numbers (arrival threshold, approach threshold, off-course heading deviation, minimum speed, drift cool-off, and steady cool-off) are encapsulated in `HikeConfig` and fully adjustable via the 5-Tab Settings dialog.
-* **Priority-Ordered Leg Evaluation (`LegState`):** Evaluates progress on the current route leg in strict priority order:
-  1. `TARGET_REACHED` — Distance to target $< \text{arriveThresholdMeters}$ (default $10\text{m}$).
-  2. `HIKE_ENDED` — Reached final waypoint of the last leg on the route.
-  3. `TOO_FAR` — Hiker has walked past the target along the leg vector ($t > 1.05$).
-  4. `APPROACHING_TARGET` — Distance to target $< \text{approachThresholdMeters}$ (default $40\text{m}$).
-  5. `LEG_START` — Leaving the start waypoint.
-  6. `OFFCOURSE` — Heading/bearing deviates by $> 10^\circ$ (accounting for 2-sigma EKF heading variance).
-  7. `OK` — On track; no announcement needed.
+* **Configurable Thresholds (`HikeConfig`):** All navigation magic numbers (arrival threshold, approach threshold, off-course heading deviation, minimum speed, drift cool-off, steady cool-off, audio messages panel visibility, and speech rate) are encapsulated in `HikeConfig` and fully adjustable via the 5-Tab Settings dialog.
+* **Priority-Ordered Leg Evaluation (`LegState`) & Missed Waypoints:** Evaluates progress on the current route leg in strict priority order:
+  1. `MISSED_WAYPOINT` — Automatically detects when a hiker bypasses a waypoint (getting closer to the next waypoint target than the current target) and auto-advances the active leg.
+  2. `TARGET_REACHED` — Distance to target $< \text{arriveThresholdMeters}$ (default $10\text{m}$).
+  3. `HIKE_ENDED` — Reached final waypoint of the last leg on the route.
+  4. `TOO_FAR` — Hiker has walked past the target along the leg vector ($t > 1.05$).
+  5. `APPROACHING_TARGET` — Distance to target $< \text{approachThresholdMeters}$ (default $40\text{m}$).
+  6. `LEG_START` — Leaving the start waypoint.
+  7. `OFFCOURSE` — Heading/deviation exceeds dynamic threshold ($0.6\text{ m/s}$ low-speed gate).
+  8. `OK` — On track; no announcement needed.
 * **TTS Queueing & Pruning:** Maintains a synchronized TTS message queue (`TtsQueueItem`). Outdated `OFFCOURSE` messages are automatically purged and replaced by the newest off-course correction, ensuring fresh prompts are spoken sequentially without overlap.
 
 ### Route Editor (`RouteEditorScreen`)
@@ -38,15 +39,16 @@ The app runs an uninterrupted foreground service holding a partial wake lock, in
   - **Insert (`+`)**: Inserts a new waypoint after the current one.
   - **Delete (`🗑`)**: Removes a waypoint from the route.
 
-### Offline OpenStreetMap (OSM) Tiles & Full Persistence (`AppPreferences`)
+### Offline OpenStreetMap (OSM) Tiles, Track Preservation & Full Persistence (`AppPreferences`)
 * **Offline OSM Map Background (`OsmTileManager`):** Renders OpenStreetMap Slippy Map tiles as an offline background layer. Tile bounding box corners are converted to metric Irish Grid $(x, y)$ coordinates and mapped through `toCanvasOffset`, ensuring background tiles seamlessly align with the metric grid in both Map View and Leg View (rotated).
 * **Programmatic Tile Downloader:** Programmatically fetches and caches PNG tiles for offline operation:
   - **Ireland Base Map:** Programmatically downloads zooms 8–14 for the entire island of Ireland.
   - **Route Area Tiles:** Programmatically downloads high-resolution zooms 10–18 along the active route bounding box.
+* **Track Import & GPX Preservation (`GpxTrackParser`, `HikerTrackExporter`):** Preserves `<is_gps_fix>` tags in GPX `<extensions>`, correctly maintaining GPS fix (`isGpsFix = true`, Red) vs PDR step (`isGpsFix = false`, Blue) breadcrumb distinctions across GPX export and re-import. Background track parsing (`Dispatchers.IO`) prevents UI thread blocking.
 * **Full State & Tab Persistence (`AppPreferences`):** Automatically saves and restores across app restarts:
-  - View mode (`MapConfig`: Map View vs. Leg View, 1km grid, 100m grid, telemetry dashboard visibility, offline OSM background toggle, persistent GPS polling interval).
+  - View mode (`MapConfig`: Map View vs. Leg View, 1km grid, 100m grid, waypoint names, waypoint heights, telemetry dashboard visibility, offline OSM background toggle, persistent GPS polling interval).
   - Breadcrumb settings (`BreadcrumbConfig`: trail visibility, dot diameter, color mode, age fading, perimeter accuracy circles, stationary rest stops).
-  - Navigation settings (`HikeConfig`: thresholds and cool-off intervals).
+  - Navigation settings (`HikeConfig`: thresholds, cool-off intervals, audio messages panel visibility).
   - Last selected Settings Tab (`settings_selected_tab`).
   - Previously loaded course (route name, CSV content, source URI).
 
@@ -71,10 +73,11 @@ The app runs an uninterrupted foreground service holding a partial wake lock, in
    * Maximized Compose Canvas auto-scaled to encompass all route waypoints, active leg, and recorded breadcrumbs.
    * **Smart Waypoint Label Placement:** Calculates the outer bisector direction vector (opposite the acute angle formed by connected legs) and aligns waypoint names/altitudes into 4 cardinal quadrants with explicit circle clearance. Uses translucent black backgrounds (`0.20f` alpha) to prevent obstructing route lines.
    * **Breadcrumb Styling & Trails:**
-     - **Connected Color Line Segments:** Connects consecutive breadcrumbs with line segments (`strokeWidth = 1.0f`) using gradient color/alpha transitions matching breadcrumb points.
-     - **Color Coding Modes:** Supports `GPS_PDR` (Red for GPS fixes, Blue for PDR steps), `SPEED` (dynamic gradient between min and max walking speeds), and `STRIDE` (gradient between min and max stride lengths). Speed calculations fall back to physical distance/time deltas ($\Delta d / \Delta t$) between points to eliminate EKF startup filter convergence delay.
+     - **Viewport Culling & Decimation:** Fast metric bounding box culling (`visMinX..visMaxX`, `visMinY..visMaxY`) and $O(1)$ pre-calculated speed/stride arrays deliver smooth $60 \dots 120\text{ FPS}$ rendering performance.
+     - **Connecting Gradient Line Segments:** Connects consecutive breadcrumbs with line segments (`strokeWidth = 1.0f`) using linear gradient color/alpha transitions matching breadcrumbs' fading age opacity.
+     - **Color Coding Modes:** Supports `GPS_PDR` (Red for GPS fixes, Blue for PDR steps), `SPEED` (dynamic gradient between min and max walking speeds with $\Delta d / \Delta t$ fallback), and `STRIDE` (gradient between min and max stride lengths).
      - **Smooth Age Fading:** Scales alpha linearly from $0.2f$ (20% opacity for oldest breadcrumbs) to $1.0f$ (solid for newest breadcrumbs).
-     - **Perimeter Accuracy Circles:** Renders position variance as a subtle stroke outline (`Stroke(width = 1.5f)`).
+     - **Perimeter Accuracy Circles:** Renders position variance as a subtle stroke outline (`Stroke(width = 1.0f)`).
      - **Stationary Rest Stops:** Renders rest stop circles with duration labels when stationary $> 30\text{s}$.
      - **Dynamic Color Legend Card:** Displays min/max values and gradient bars for Speed and Stride modes, cleanly handling single-value tracks.
    * **Control Overlays:** Upper-right Compass Button (toggling Map View / Leg View) and relative bearing indicator; lower-right "Fit All" view recentering and Settings gear button (`⚙`).
@@ -82,6 +85,6 @@ The app runs an uninterrupted foreground service holding a partial wake lock, in
 5. **Five-Tab Settings Dialog Overhaul:**
    * **Map Tab:** Toggle Leg View, 1km grid, 100m grid, waypoint names/heights, telemetry dashboard, and offline OSM background.
    * **Breadcrumbs Tab:** Toggle trail visibility, dot diameter slider, color mode selection (`GPS_PDR`, `SPEED`, `STRIDE`), age fading, perimeter accuracy circles, and stationary stops.
-   * **Audio Tab:** Toggle TTS audio, adjust arrival/approach thresholds, off-course deviation, cool-off intervals, and speech rate slider.
-   * **Navigation Tab:** Offline Ireland tile downloader, route area tile downloader, and GPS Polling Interval selection chips (1s, 2s, 5s, 10s) with active selection highlighting.
+   * **Audio Tab:** Toggle TTS audio, audio messages panel visibility, arrival/approach thresholds, off-course deviation, cool-off intervals, and speech rate slider.
+   * **Navigation Tab:** Offline Ireland tile downloader, route area tile downloader, and GPS Polling Interval selection chips (1s, 2s, 5s, 10s) with active selection highlighting and persistence.
    * **Dev Tab:** Telemetry recording, CSV track loading, and diagnostic controls.

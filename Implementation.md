@@ -28,12 +28,14 @@
 ## 2. Independent `Hike` Navigation Engine & Configurations (`HikeConfig`, `MapConfig`, `BreadcrumbConfig`)
 
 ### Class Responsibilities & Lifecycle Management
-- **`Hike(val route: Route?, val config: HikeConfig)`**: Independent domain class managing active route leg evaluation, trajectory breadcrumbs, and TTS navigation string generation.
+- **`Hike(val route: Route?, val config: HikeConfig)`**: Independent domain class managing active route leg evaluation, trajectory breadcrumbs, missed waypoint auto-advancement, and TTS navigation string generation.
 - **`HikeConfig`**: Encapsulates all navigation magic numbers:
+  - `audioEnabled` (`true`)
+  - `showAudioMessages` (`false`)
   - `arriveThresholdMeters` ($10.0\text{m}$)
   - `approachThresholdMeters` ($40.0\text{m}$)
   - `offCourseHeadingDevDeg` ($10.0^\circ$)
-  - `offCourseMinSpeedMps` ($0.4\text{ m/s}$)
+  - `offCourseMinSpeedMps` ($0.6\text{ m/s}$)
   - `driftCoolOffSec` ($4\text{s}$)
   - `steadyCoolOffSec` ($6\text{s}$)
   - `speechRate` ($1.0f$)
@@ -45,7 +47,7 @@
   - `speedStartColor` / `speedEndColor` (Green to Red gradient)
   - `strideStartColor` / `strideEndColor` (Cyan to Gold gradient)
   - `fadeWithAge` (`false`, opacity ramps from 20% / 0.2f for oldest to 100% / 1.0f for newest)
-  - `showAccuracyCircles` (`true`, stroke perimeter outline `1.5f`)
+  - `showAccuracyCircles` (`true`, stroke perimeter outline `1.0f`)
   - `showStationaryStops` (`true`, stationary $> 30\text{s}$)
 - **`AppPreferences`**: Manages `SharedPreferences` persistence across app restarts for `MapConfig`, `HikeConfig`, `BreadcrumbConfig`, `settings_selected_tab`, and last loaded route CSV content.
 
@@ -82,11 +84,12 @@
   Converts OSM Slippy Map tile bounding boxes $(z, x, y)$ to metric Irish National Grid bounds $(x, y)$, loading PNG bitmaps from local storage (`files/tiles/{z}/{x}/{y}.png`) or assets (`assets/tiles/`). Includes `downloadIrelandTiles(...)` (zooms 8–14) and `downloadRouteAreaTiles(...)` (zooms 10–18).
 - **Canvas Integration (`MapScreen`)**:
   - Tiles are drawn via `drawImage` using `toCanvasOffset`, automatically matching the metric grid scale, translation, and rotation (in both Map View and Leg View).
-  - **Connecting Line Segments:** Connects consecutive breadcrumb points with individual line segments (`strokeWidth = 1.0f`) using `Brush.linearGradient` matching breadcrumbs' exact colors and fading age opacity.
+  - **Performance Optimization (Viewport Culling & $O(1)$ Caching):** Metric bounding box culling (`visMinX..visMaxX`, `visMinY..visMaxY`) discards off-screen waypoints, legs, and breadcrumbs instantly. $O(N)$ waypoint leg mapping (`legMap`) and pre-calculated speed/stride arrays deliver smooth $60 \dots 120\text{ FPS}$ rendering performance.
+  - **Connecting Gradient Line Segments:** Connects consecutive breadcrumb points with individual line segments (`strokeWidth = 1.0f`) using `Brush.linearGradient` matching breadcrumbs' exact colors and fading age opacity.
   - **Robust Speed Evaluation (`getBreadcrumbSpeed`)**: Evaluates speed from EKF state or computes physical distance/time delta ($\Delta d / \Delta t$) between adjacent breadcrumbs to eliminate startup filter convergence artifacts.
-  - **Smart Waypoint Label Placement:** Computes the outer bisector direction vector (opposite the acute angle formed by connected legs) and aligns waypoint names/altitudes into 4 cardinal quadrants with explicit circle clearance. Uses translucent black backgrounds (`0.20f` alpha) to prevent obstructing route lines.
+  - **Smart Waypoint Label Placement:** Calculates the outer bisector direction vector (opposite the acute angle formed by connected legs) and aligns waypoint names/altitudes into 4 cardinal quadrants with explicit circle clearance. Uses translucent black backgrounds (`0.20f` alpha) to prevent obstructing route lines.
 - **Track Export & GPX Parsing**:
   - `HikerTrackExporter`: Exports `<is_gps_fix>` tag in GPX `<extensions>` block for each `<trkpt>`.
-  - `GpxTrackParser`: Parses `<is_gps_fix>` from GPX extensions, preserving GPS fix (`isGpsFix = true`, Red) vs PDR step (`isGpsFix = false`, Blue) distinction when re-importing breadcrumb tracks.
+  - `GpxTrackParser`: Parses `<is_gps_fix>` from GPX extensions, preserving GPS fix (`isGpsFix = true`, Red) vs PDR step (`isGpsFix = false`, Blue) distinction when re-importing breadcrumb tracks. Background track parsing (`Dispatchers.IO`) prevents UI thread blocking.
 - **`RouteEditorScreen`**:
   Opened via the pencil icon (`✎`) in `HikeNavigationPanel`. Provides a spreadsheet row layout for Waypoint name, Easting ($x$), Northing ($y$), and altitude, with in-place controls for reordering, inserting, and deleting waypoints.

@@ -77,10 +77,11 @@ class AppPreferences(context: Context) {
             .putBoolean("show_audio_messages", config.showAudioMessages)
             .putFloat("arrive_threshold", config.arriveThresholdMeters.toFloat())
             .putFloat("approach_threshold", config.approachThresholdMeters.toFloat())
-            .putFloat("offcourse_dev_deg", config.offCourseHeadingDevDeg.toFloat())
             .putFloat("offcourse_min_speed", config.offCourseMinSpeedMps.toFloat())
-            .putLong("drift_cooloff_sec", config.driftCoolOffSec)
-            .putLong("steady_cooloff_sec", config.steadyCoolOffSec)
+            .putFloat("offcourse_min_angle", config.offCourseMinAngleDeg.toFloat())
+            .putLong("offcourse_max_cooldown", config.offCourseMaxCooldownSec)
+            .putFloat("offcourse_severe_angle", config.offCourseSevereAngleDeg.toFloat())
+            .putLong("offcourse_min_cooldown", config.offCourseMinCooldownSec)
             .putFloat("speech_rate", config.speechRate)
             .putString("phone_mount", config.phoneMount.name)
             .apply()
@@ -95,15 +96,24 @@ class AppPreferences(context: Context) {
             PhoneMount.HANDHELD_OR_PACK_TOP
         }
 
+        val minAngle = prefs.getFloat("offcourse_min_angle", 20.0f).toDouble()
+        val maxCooldown = prefs.getLong("offcourse_max_cooldown", 25L)
+        val severeAngle = prefs.getFloat("offcourse_severe_angle", 90.0f).toDouble()
+        val minCooldown = prefs.getLong("offcourse_min_cooldown", 4L)
+
         return HikeConfig(
             audioEnabled = prefs.getBoolean("audio_enabled", true),
             showAudioMessages = prefs.getBoolean("show_audio_messages", false),
             arriveThresholdMeters = prefs.getFloat("arrive_threshold", 10.0f).toDouble(),
             approachThresholdMeters = prefs.getFloat("approach_threshold", 40.0f).toDouble(),
-            offCourseHeadingDevDeg = prefs.getFloat("offcourse_dev_deg", 10.0f).toDouble(),
-            offCourseMinSpeedMps = prefs.getFloat("offcourse_min_speed", 0.4f).toDouble(),
-            driftCoolOffSec = prefs.getLong("drift_cooloff_sec", 4L),
-            steadyCoolOffSec = prefs.getLong("steady_cooloff_sec", 6L),
+            offCourseMinSpeedMps = prefs.getFloat("offcourse_min_speed", 0.6f).toDouble(),
+            offCourseMinAngleDeg = minAngle,
+            offCourseMaxCooldownSec = maxCooldown,
+            offCourseSevereAngleDeg = severeAngle,
+            offCourseMinCooldownSec = minCooldown,
+            offCourseHeadingDevDeg = minAngle,
+            driftCoolOffSec = minCooldown,
+            steadyCoolOffSec = maxCooldown,
             speechRate = prefs.getFloat("speech_rate", 1.0f),
             phoneMount = phoneMount
         )

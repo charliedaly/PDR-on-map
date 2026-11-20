@@ -98,7 +98,6 @@ class TrackPlaybackEngine {
                         val event = eventList[i]
 
                         if (i > 0 && lastEventTimeMs > 0) {
-                            // Real-world pauses are faithfully preserved and scaled by playback speed
                             val rawDtMs = (event.timestampMs - lastEventTimeMs).coerceAtLeast(0L)
                             val speed = _speedMultiplier.value.coerceIn(0.1, 500.0)
                             accumulatedDelayMs += (rawDtMs.toDouble() / speed)
@@ -111,7 +110,7 @@ class TrackPlaybackEngine {
                         }
                         lastEventTimeMs = event.timestampMs
 
-                        // Pace UI recomposition to ~33 fps (every 30ms) to prevent Compose pipeline overload
+                        // Paces Compose redraws to a smooth ~33 fps (30ms)
                         val now = System.currentTimeMillis()
                         val isLastEvent = (currentIndex == eventList.size - 1)
                         val shouldNotifyUi = isLastEvent || (now - lastUiNotifyTimeMs >= 30L)
@@ -229,44 +228,57 @@ class TrackPlaybackEngine {
         )
     }
 
+    /**
+     * Authentically simulates the EKF algorithm live from raw sensor events,
+     * ensuring dynamic calibration of stride length, compass bias, and heading.
+     */
     private suspend fun processEvent(event: TrackPlaybackEvent, notifyUi: Boolean = true) {
         when (event) {
             is TrackPlaybackEvent.GpsPointEvent -> {
-                val ekfState = ekfEngine.onGpsFix(
+                val liveEkfState = ekfEngine.onGpsFix(
                     lat = event.latitude,
                     lon = event.longitude,
                     accuracyMeters = event.accuracyMeters,
-                    activeIntervalMs = event.activeIntervalMs
+                    activeIntervalMs = event.activeIntervalMs,
+                    timestampMs = event.timestampMs
                 )
+
                 if (notifyUi) {
-                    HikeRepository.updateEkfState(ekfState)
+                    HikeRepository.updateEkfState(liveEkfState)
                 }
 
                 val gpsBreadcrumb = Breadcrumb(
                     id = breadcrumbIdSeq++,
-                    location = Location(ekfState.position.value.x, ekfState.position.value.y),
-                    timestampMs = ekfState.timestampMs,
+                    location = Location(liveEkfState.position.value.x, liveEkfState.position.value.y),
+                    timestampMs = event.timestampMs,
                     isGpsFix = event.isGpsFix,
-                    ekfState = ekfState
+                    ekfState = liveEkfState
                 )
                 HikeRepository.emitBreadcrumb(gpsBreadcrumb, notifyUi)
             }
+
             is TrackPlaybackEvent.PdrStepEvent -> {
                 ekfEngine.onStepDetected(event.headingRawRad, event.timestampMs)
+                if (notifyUi) {
+                    HikeRepository.updateEkfState(ekfEngine.getEkfState())
+                }
             }
+
             is TrackPlaybackEvent.TimeTickEvent -> {
                 if (ekfEngine.isInitialized) {
-                    val ekfState = ekfEngine.predict(event.dtSec)
+                    // Pass event.timestampMs to prevent false velocity decay
+                    val liveEkfState = ekfEngine.predict(event.dtSec, event.timestampMs)
+
                     if (notifyUi) {
-                        HikeRepository.updateEkfState(ekfState)
+                        HikeRepository.updateEkfState(liveEkfState)
                     }
 
                     val pdrBreadcrumb = Breadcrumb(
                         id = breadcrumbIdSeq++,
-                        location = Location(ekfState.position.value.x, ekfState.position.value.y),
-                        timestampMs = ekfState.timestampMs,
+                        location = Location(liveEkfState.position.value.x, liveEkfState.position.value.y),
+                        timestampMs = event.timestampMs,
                         isGpsFix = false,
-                        ekfState = ekfState
+                        ekfState = liveEkfState
                     )
                     HikeRepository.emitBreadcrumb(pdrBreadcrumb, notifyUi)
                 }
