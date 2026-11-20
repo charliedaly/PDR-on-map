@@ -1,6 +1,7 @@
 package com.example.irishhike.ui
 
 import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -30,6 +31,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
@@ -485,21 +487,37 @@ fun MapScreen(
                 }
             }
 
-            val leftMeters = centerX + (0f - originCx - panOffset.x) / currentScale
-            val rightMeters = centerX + (widthPx - originCx - panOffset.x) / currentScale
-            val topMeters = centerY - (0f - originCy - panOffset.y) / currentScale
-            val bottomMeters = centerY - (heightPx - originCy - panOffset.y) / currentScale
+            // Visible bounding box: In Leg View, centers on active leg using diagonal screen radius
+            val (minVisX, maxVisX, minVisY, maxVisY) = if (isLegView && legStart != null) {
+                val legMidX = (interpStartX + interpTargetX) / 2.0
+                val legMidY = (interpStartY + interpTargetY) / 2.0
+                val diagMeters = (hypot(widthPx.toDouble(), heightPx.toDouble()) / currentScale) / 2.0 + 400.0
+                arrayOf(
+                    legMidX - diagMeters,
+                    legMidX + diagMeters,
+                    legMidY - diagMeters,
+                    legMidY + diagMeters
+                )
+            } else {
+                val leftMeters = centerX + (0f - originCx - panOffset.x) / currentScale
+                val rightMeters = centerX + (widthPx - originCx - panOffset.x) / currentScale
+                val topMeters = centerY - (0f - originCy - panOffset.y) / currentScale
+                val bottomMeters = centerY - (heightPx - originCy - panOffset.y) / currentScale
+                val margin = 50.0 / currentScale
+                arrayOf(
+                    minOf(leftMeters, rightMeters) - margin,
+                    maxOf(leftMeters, rightMeters) + margin,
+                    minOf(topMeters, bottomMeters) - margin,
+                    maxOf(topMeters, bottomMeters) + margin
+                )
+            }
 
-            val minVisX = minOf(leftMeters, rightMeters)
-            val maxVisX = maxOf(leftMeters, rightMeters)
-            val minVisY = minOf(topMeters, bottomMeters)
-            val maxVisY = maxOf(topMeters, bottomMeters)
-
-            val visMargin = 50.0 / currentScale
-            val visMinX = minVisX - visMargin
-            val visMaxX = maxVisX + visMargin
-            val visMinY = minVisY - visMargin
-            val visMaxY = maxVisY + visMargin
+            // Canvas pixel margins for screen-space culling
+            val screenMarginPx = 60f
+            val minPx = -screenMarginPx
+            val maxPx = widthPx + screenMarginPx
+            val minPy = -screenMarginPx
+            val maxPy = heightPx + screenMarginPx
 
             if (currentScale > 0.0) {
                 if (mapConfig.showOsmBackground) {
@@ -695,13 +713,16 @@ fun MapScreen(
 
             // Draw route legs (connected waypoints)
             route?.legs?.forEach { leg ->
-                if ((leg.start.x !in visMinX..visMaxX && leg.target.x !in visMinX..visMaxX) &&
-                    (leg.start.y !in visMinY..visMaxY && leg.target.y !in visMinY..visMaxY)) {
-                    return@forEach
-                }
-
                 val startOffset = toCanvasOffset(leg.start.x, leg.start.y)
                 val targetOffset = toCanvasOffset(leg.target.x, leg.target.y)
+
+                // Screen-space culling: skip only if both points are far off-screen
+                if ((startOffset.x < minPx && targetOffset.x < minPx) ||
+                    (startOffset.x > maxPx && targetOffset.x > maxPx) ||
+                    (startOffset.y < minPy && targetOffset.y < minPy) ||
+                    (startOffset.y > maxPy && targetOffset.y > maxPy)) {
+                    return@forEach
+                }
 
                 val isCurrentActiveLeg = (leg == activeLeg)
                 val legColor = if (isCurrentActiveLeg) Color(0xFFFFD700) else Color(0xFF38BDF8)
@@ -717,11 +738,12 @@ fun MapScreen(
 
             // Draw waypoints
             route?.waypoints?.forEach { wp ->
-                if (wp.x !in visMinX..visMaxX || wp.y !in visMinY..visMaxY) {
+                val center = toCanvasOffset(wp.x, wp.y)
+                // Screen-space culling
+                if (center.x < minPx || center.x > maxPx || center.y < minPy || center.y > maxPy) {
                     return@forEach
                 }
 
-                val center = toCanvasOffset(wp.x, wp.y)
                 val isTarget = (wp == currentTargetWaypoint)
                 val wpColor = if (isTarget) Color(0xFFFF3333) else Color(0xFF38BDF8)
                 val radiusPx = if (isTarget) 10f else 6f
@@ -781,20 +803,21 @@ fun MapScreen(
                 }
             }
 
-            // Screen-pixel downsampling (2px threshold)
+            // Screen-space breadcrumb culling: Guarantees breadcrumbs are rendered
+            // in both Map View and rotated Leg View regardless of coordinate offset
             val renderBreadcrumbs = mutableListOf<Breadcrumb>()
             val offsetsList = mutableListOf<Offset>()
             var lastPx = -9999f
             var lastPy = -9999f
 
             for (bc in validBreadcrumbs) {
-                if (bc.location.x !in visMinX..visMaxX || bc.location.y !in visMinY..visMaxY) {
+                val offset = toCanvasOffset(bc.location.x, bc.location.y)
+                if (offset.x < minPx || offset.x > maxPx || offset.y < minPy || offset.y > maxPy) {
                     continue
                 }
-                val offset = toCanvasOffset(bc.location.x, bc.location.y)
                 val dx = offset.x - lastPx
                 val dy = offset.y - lastPy
-                if (dx * dx + dy * dy >= 4.0f) {
+                if (dx * dx + dy * dy >= 4.0f) { // 2px threshold downsampling
                     renderBreadcrumbs.add(bc)
                     offsetsList.add(offset)
                     lastPx = offset.x
@@ -885,6 +908,9 @@ fun MapScreen(
             if (breadcrumbConfig.showStationaryStops && mergedStationaryStops.isNotEmpty()) {
                 for (stop in mergedStationaryStops) {
                     val stopCenter = toCanvasOffset(stop.x, stop.y)
+                    if (stopCenter.x < minPx || stopCenter.x > maxPx || stopCenter.y < minPy || stopCenter.y > maxPy) {
+                        continue
+                    }
 
                     val durationMin = stop.durationSec / 60
                     val durationSecRem = stop.durationSec % 60
@@ -1180,6 +1206,25 @@ fun MapScreen(
             }
         }
 
+        // --- FLOATING COMPASS ROSE (Toggles between North-Up and Leg View) ---
+        val legBearing = if (activeLeg != null) activeLeg.start.bearingTo(activeLeg.target) else null
+        CompassRoseButton(
+            isLegView = isLegView,
+            legBearingDeg = legBearing,
+            onClick = {
+                if (activeLeg != null) {
+                    zoomScale = 1f
+                    panOffset = Offset.Zero
+                    onUpdateMapConfig { it.copy(isLegView = !it.isLegView) }
+                } else {
+                    Toast.makeText(context, "Load a route to enable Leg View", Toast.LENGTH_SHORT).show()
+                }
+            },
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(10.dp)
+        )
+
         // Color Legend Overlay Card
         if (breadcrumbConfig.showBreadcrumbs && validBreadcrumbs.isNotEmpty() && (breadcrumbConfig.colorMode == BreadcrumbColorMode.SPEED || breadcrumbConfig.colorMode == BreadcrumbColorMode.STRIDE)) {
             val isSpeed = breadcrumbConfig.colorMode == BreadcrumbColorMode.SPEED
@@ -1325,6 +1370,114 @@ fun MapScreen(
     }
 }
 
+/**
+ * Floating Compass Rose Button.
+ * Tapping toggles between North-Up and Leg View (Heads-Up).
+ */
+@Composable
+private fun CompassRoseButton(
+    isLegView: Boolean,
+    legBearingDeg: Double?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        onClick = onClick,
+        shape = CircleShape,
+        color = Color(0xFF0F172A).copy(alpha = 0.90f),
+        border = BorderStroke(
+            width = 1.5.dp,
+            color = if (isLegView) Color(0xFFFFB300) else Color(0xFF38BDF8)
+        ),
+        shadowElevation = 4.dp,
+        modifier = modifier.size(50.dp)
+    ) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Canvas(modifier = Modifier.size(42.dp)) {
+                val cx = size.width / 2f
+                val cy = size.height / 2f
+                val r = size.width / 2f - 3f
+
+                if (!isLegView) {
+                    val nPath = Path().apply {
+                        moveTo(cx, cy - r)
+                        lineTo(cx - 5f, cy)
+                        lineTo(cx + 5f, cy)
+                        close()
+                    }
+                    drawPath(nPath, color = Color(0xFFFF3333))
+
+                    val sPath = Path().apply {
+                        moveTo(cx, cy + r)
+                        lineTo(cx - 5f, cy)
+                        lineTo(cx + 5f, cy)
+                        close()
+                    }
+                    drawPath(sPath, color = Color(0xFFE2E8F0))
+
+                    drawCircle(color = Color(0xFF0F172A), radius = 3.5f, center = Offset(cx, cy))
+                    drawCircle(color = Color.White, radius = 2f, center = Offset(cx, cy))
+                } else {
+                    val bearing = legBearingDeg ?: 0.0
+                    val northAngleRad = Math.toRadians(-bearing)
+
+                    val nx = cx + (r * sin(northAngleRad)).toFloat()
+                    val ny = cy - (r * cos(northAngleRad)).toFloat()
+                    val sx = cx - (r * sin(northAngleRad)).toFloat()
+                    val sy = cy + (r * cos(northAngleRad)).toFloat()
+
+                    val px = (5f * cos(northAngleRad)).toFloat()
+                    val py = (5f * sin(northAngleRad)).toFloat()
+
+                    val nPath = Path().apply {
+                        moveTo(nx, ny)
+                        lineTo(cx - px, cy - py)
+                        lineTo(cx + px, cy + py)
+                        close()
+                    }
+                    drawPath(nPath, color = Color(0xFFFF3333))
+
+                    val sPath = Path().apply {
+                        moveTo(sx, sy)
+                        lineTo(cx - px, cy - py)
+                        lineTo(cx + px, cy + py)
+                        close()
+                    }
+                    drawPath(sPath, color = Color(0xFF94A3B8).copy(alpha = 0.6f))
+
+                    drawLine(
+                        color = Color(0xFFFFB300),
+                        start = Offset(cx, cy - r + 8f),
+                        end = Offset(cx, cy - r),
+                        strokeWidth = 2.5f
+                    )
+                }
+            }
+
+            val labelText = if (isLegView && legBearingDeg != null) {
+                "%03.0f°".format((legBearingDeg % 360.0 + 360.0) % 360.0)
+            } else {
+                "N"
+            }
+            Text(
+                text = labelText,
+                style = TextStyle(
+                    color = if (isLegView) Color(0xFFFFB300) else Color.White,
+                    fontSize = 8.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace
+                ),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 3.dp)
+            )
+        }
+    }
+}
+
 private fun formatGridLabel(coordMeters: Int, power: Int): String {
     val localMeters = (coordMeters % 100000).let { if (it < 0) it + 100000 else it }
     return when (power) {
@@ -1345,6 +1498,21 @@ private fun MapSettingsTab(
     onUpdateHikeConfig: ((HikeConfig) -> HikeConfig) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Leg View (Trail Heads-Up)", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                Text("Orient map with active leg pointing straight up", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Switch(
+                checked = mapConfig.isLegView,
+                onCheckedChange = { onUpdateMapConfig { cfg -> cfg.copy(isLegView = it) } }
+            )
+        }
+
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
