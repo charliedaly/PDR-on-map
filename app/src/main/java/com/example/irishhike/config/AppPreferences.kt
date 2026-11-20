@@ -14,6 +14,7 @@ class AppPreferences(context: Context) {
             .putBoolean("show_100m_grid", config.show100mGrid)
             .putBoolean("show_wp_names", config.showWaypointNames)
             .putBoolean("show_wp_heights", config.showWaypointHeights)
+            .putBoolean("show_wp_times", config.showWaypointTimes)
             .putLong("gps_interval_ms", config.gpsPollingIntervalMs)
             .putBoolean("show_telemetry", config.showTelemetryViewport)
             .putBoolean("show_osm_bg", config.showOsmBackground)
@@ -27,6 +28,7 @@ class AppPreferences(context: Context) {
             show100mGrid = prefs.getBoolean("show_100m_grid", false),
             showWaypointNames = prefs.getBoolean("show_wp_names", true),
             showWaypointHeights = prefs.getBoolean("show_wp_heights", true),
+            showWaypointTimes = prefs.getBoolean("show_wp_times", true),
             gpsPollingIntervalMs = prefs.getLong("gps_interval_ms", 1000L),
             showTelemetryViewport = prefs.getBoolean("show_telemetry", true),
             showOsmBackground = prefs.getBoolean("show_osm_bg", false)

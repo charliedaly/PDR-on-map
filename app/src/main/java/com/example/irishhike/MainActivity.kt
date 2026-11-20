@@ -211,6 +211,7 @@ fun MainDiagnosticScreen(
     val currentLegIndex by viewModel.currentLegIndex.collectAsState()
     val navigationMessages by viewModel.navigationMessages.collectAsState()
     val relativeBearingCorrection by viewModel.relativeBearingCorrection.collectAsState()
+    val waypointArrivalTimes by viewModel.waypointArrivalTimes.collectAsState()
 
     val isPlaybackPlaying by viewModel.isPlaybackPlaying.collectAsState()
     val isPlaybackPaused by viewModel.isPlaybackPaused.collectAsState()
@@ -334,7 +335,6 @@ fun MainDiagnosticScreen(
                     TelemetryDashboard(ekfState = ekfState)
                 }
 
-                // Optional audio messages panel (controlled via Audio settings tab)
                 if (hikeConfig.showAudioMessages) {
                     NavigationMessagePanel(messages = navigationMessages)
                 }
@@ -349,6 +349,7 @@ fun MainDiagnosticScreen(
                     hikeConfig = hikeConfig,
                     activeLeg = activeLeg,
                     relativeBearingCorrection = relativeBearingCorrection,
+                    waypointArrivalTimes = waypointArrivalTimes,
                     onUpdateMapConfig = { viewModel.updateMapConfig(it) },
                     onUpdateBreadcrumbConfig = { viewModel.updateBreadcrumbConfig(it) },
                     onUpdateHikeConfig = { viewModel.updateHikeConfig(it) },

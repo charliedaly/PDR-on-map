@@ -74,6 +74,7 @@ import com.example.irishhike.config.PhoneMount
 import com.example.irishhike.data.EkfState
 import com.example.irishhike.model.Breadcrumb
 import com.example.irishhike.model.Leg
+import com.example.irishhike.model.Location
 import com.example.irishhike.model.Route
 import com.example.irishhike.model.Waypoint
 import com.example.irishhike.util.CoordinateUtils
@@ -81,6 +82,8 @@ import com.example.irishhike.util.OsmTileManager
 import com.example.irishhike.util.TileDownloadManifest
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.ceil
@@ -112,6 +115,7 @@ fun MapScreen(
     hikeConfig: HikeConfig = HikeConfig(),
     activeLeg: Leg? = null,
     relativeBearingCorrection: Double = 0.0,
+    waypointArrivalTimes: Map<String, Long> = emptyMap(),
     onUpdateMapConfig: ((MapConfig) -> MapConfig) -> Unit = {},
     onUpdateBreadcrumbConfig: ((BreadcrumbConfig) -> BreadcrumbConfig) -> Unit = {},
     onUpdateHikeConfig: ((HikeConfig) -> HikeConfig) -> Unit = {},
@@ -175,7 +179,6 @@ fun MapScreen(
         )
     }
 
-    // Filters out spurious GPS glitches (> 15 km/h) and caps speed to a realistic hiking range
     val speedAndStrideStats = remember(validBreadcrumbs.size, breadcrumbConfig.colorMode) {
         if (breadcrumbConfig.colorMode == BreadcrumbColorMode.GPS_PDR || validBreadcrumbs.isEmpty()) {
             floatArrayOf(0.0f, 2.0f, 0.4f, 1.2f)
@@ -185,7 +188,6 @@ fun MapScreen(
             var minSt = Double.MAX_VALUE
             var maxSt = -Double.MAX_VALUE
 
-            // Step 1: Collect valid hiking speeds (ignoring GPS multipath spikes > 4.2 m/s / 15 km/h)
             for (i in validBreadcrumbs.indices) {
                 val s = getBreadcrumbSpeed(i, validBreadcrumbs)
                 if (s in 0.1..4.2) {
@@ -198,7 +200,6 @@ fun MapScreen(
                 if (st > maxSt) maxSt = st
             }
 
-            // Cap the upper range to realistic brisk hiking (~2.2 m/s / 8.0 km/h)
             val effMinS = if (minS == Double.MAX_VALUE) 0.0 else minS.coerceAtLeast(0.0)
             val effMaxS = if (maxS <= effMinS) 2.2 else maxS.coerceIn(1.5, 2.8)
             val effMinSt = if (minSt == Double.MAX_VALUE) 0.45 else minSt.coerceIn(0.40, 0.70)
@@ -302,7 +303,15 @@ fun MapScreen(
         }
     }
 
-    val wpLayoutCache = remember(route, mapConfig.showWaypointNames, mapConfig.showWaypointHeights) {
+    val timeFormatter = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
+
+    val wpLayoutCache = remember(
+        route,
+        mapConfig.showWaypointNames,
+        mapConfig.showWaypointHeights,
+        mapConfig.showWaypointTimes,
+        waypointArrivalTimes
+    ) {
         if (route == null) emptyMap<Waypoint, Pair<Pair<Float, Float>, androidx.compose.ui.text.TextLayoutResult>>()
         else {
             val legMap = mutableMapOf<Waypoint, MutableList<Leg>>()
@@ -346,14 +355,28 @@ fun MapScreen(
                     }
                 }
 
-                val wpName = when {
+                val wpKey = "${wp.x.toInt()}_${wp.y.toInt()}"
+                val arrivalMs = waypointArrivalTimes[wpKey]
+                val timeStr = if (mapConfig.showWaypointTimes && arrivalMs != null) {
+                    timeFormatter.format(Date(arrivalMs))
+                } else null
+
+                val baseText = when {
                     mapConfig.showWaypointNames && mapConfig.showWaypointHeights -> "${wp.name} (%.0fm)".format(wp.altitude)
                     mapConfig.showWaypointNames -> wp.name
-                    else -> "%.0fm".format(wp.altitude)
+                    mapConfig.showWaypointHeights -> "%.0fm".format(wp.altitude)
+                    else -> ""
+                }
+
+                val fullText = when {
+                    baseText.isNotEmpty() && timeStr != null -> "$baseText  $timeStr"
+                    baseText.isNotEmpty() -> baseText
+                    timeStr != null -> timeStr
+                    else -> ""
                 }
 
                 val textResult = textMeasurer.measure(
-                    text = wpName,
+                    text = fullText,
                     style = TextStyle(
                         color = Color.White,
                         fontSize = 10.sp,
@@ -709,7 +732,7 @@ fun MapScreen(
                     center = center
                 )
 
-                if (mapConfig.showWaypointNames || mapConfig.showWaypointHeights) {
+                if (mapConfig.showWaypointNames || mapConfig.showWaypointHeights || mapConfig.showWaypointTimes) {
                     val cachedData = wpLayoutCache[wp]
                     if (cachedData != null) {
                         val normalX = cachedData.first.first
@@ -1157,7 +1180,7 @@ fun MapScreen(
             }
         }
 
-        // Color Legend Overlay Card (Displaying clean realistic speeds like 0.5 to 7.2 km/h)
+        // Color Legend Overlay Card
         if (breadcrumbConfig.showBreadcrumbs && validBreadcrumbs.isNotEmpty() && (breadcrumbConfig.colorMode == BreadcrumbColorMode.SPEED || breadcrumbConfig.colorMode == BreadcrumbColorMode.STRIDE)) {
             val isSpeed = breadcrumbConfig.colorMode == BreadcrumbColorMode.SPEED
             val minVal = if (isSpeed) minSpeed * 3.6 else minStride
@@ -1364,6 +1387,21 @@ private fun MapSettingsTab(
             Switch(
                 checked = mapConfig.showWaypointHeights,
                 onCheckedChange = { onUpdateMapConfig { cfg -> cfg.copy(showWaypointHeights = it) } }
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Waypoint Arrival Times", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                Text("Display arrival time (HH:mm) for reached/passed waypoints", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Switch(
+                checked = mapConfig.showWaypointTimes,
+                onCheckedChange = { onUpdateMapConfig { cfg -> cfg.copy(showWaypointTimes = it) } }
             )
         }
 

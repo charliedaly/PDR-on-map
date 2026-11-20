@@ -79,6 +79,10 @@ object HikeRepository {
     private val _currentLegIndex = MutableStateFlow(0)
     val currentLegIndex: StateFlow<Int> = _currentLegIndex.asStateFlow()
 
+    // Reactive map: "${x}_${y}" -> arrival timestamp in ms
+    private val _waypointArrivalTimes = MutableStateFlow<Map<String, Long>>(emptyMap())
+    val waypointArrivalTimes: StateFlow<Map<String, Long>> = _waypointArrivalTimes.asStateFlow()
+
     private val breadcrumbHistory = ConcurrentLinkedQueue<Breadcrumb>()
 
     private var currentHike: Hike? = null
@@ -255,6 +259,7 @@ object HikeRepository {
             if (notifyUi) {
                 _relativeBearingCorrection.value = hike.relativeBearingCorrection(breadcrumb.location, breadcrumb.ekfState)
                 _currentLegIndex.value = hike.currentLegIndex
+                _waypointArrivalTimes.value = hike.waypointArrivalTimes.toMap()
             }
         }
 
@@ -273,6 +278,7 @@ object HikeRepository {
         _currentLegIndex.value = currentHike?.currentLegIndex ?: 0
         _currentTargetWaypoint.value = currentHike?.currentLeg?.target ?: route?.legs?.firstOrNull()?.target
         _activeLeg.value = currentHike?.currentLeg ?: route?.legs?.firstOrNull()
+        _waypointArrivalTimes.value = emptyMap()
         clearTtsQueue()
         clearBreadcrumbs()
     }
@@ -290,6 +296,7 @@ object HikeRepository {
     fun clearBreadcrumbs() {
         breadcrumbHistory.clear()
         _breadcrumbsFlow.resetReplayCache()
+        _waypointArrivalTimes.value = emptyMap()
     }
 
     fun setGpsPollingInterval(intervalMs: Long) {
@@ -306,6 +313,7 @@ object HikeRepository {
             _activeLeg.value = null
             _currentTargetWaypoint.value = null
             _currentLegIndex.value = 0
+            _waypointArrivalTimes.value = emptyMap()
         }
     }
 

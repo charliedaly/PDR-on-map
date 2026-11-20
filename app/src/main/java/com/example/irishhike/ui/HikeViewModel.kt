@@ -44,6 +44,7 @@ class HikeViewModel : ViewModel() {
     val currentTargetWaypoint: StateFlow<com.example.irishhike.model.Waypoint?> = HikeRepository.currentTargetWaypoint
     val activeLeg: StateFlow<com.example.irishhike.model.Leg?> = HikeRepository.activeLeg
     val currentLegIndex: StateFlow<Int> = HikeRepository.currentLegIndex
+    val waypointArrivalTimes: StateFlow<Map<String, Long>> = HikeRepository.waypointArrivalTimes
 
     fun goToPreviousLeg() {
         val hike = HikeRepository.activeHike ?: return
